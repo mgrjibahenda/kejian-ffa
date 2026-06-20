@@ -1,0 +1,17 @@
+{
+  "name": "kejian-ffa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "课间枪战 · 第一人称多人 FFA 枪战网页游戏（纯静态）。dev 依赖仅用于本地 headless 自测，部署时不需要。",
+  "scripts": {
+    "serve": "python -m http.server 8000",
+    "smoke": "node test/smoke.mjs",
+    "gameplay": "node test/gameplay.mjs",
+    "feel": "node test/feel.mjs",
+    "online": "node test/online.mjs",
+    "test": "node test/smoke.mjs && node test/gameplay.mjs && node test/feel.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

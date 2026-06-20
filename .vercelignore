@@ -1,0 +1,4 @@
+# 这些只是本地自测工具，纯静态部署不需要上传
+node_modules
+test
+.claude

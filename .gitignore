@@ -1,0 +1,13 @@
+# 依赖与本地工具产物（部署不需要）
+node_modules/
+test/*.png
+
+# 编辑器 / Claude Code 本地配置
+.claude/
+
+# Vercel 本地缓存
+.vercel/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
