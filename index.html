@@ -395,9 +395,10 @@
     var ALL_SUPER_KINDS = SUPER_KINDS.concat(XIAN_KINDS);        // 测试模式滚轮可切的全部
 
     // 仙器特效参数
-    var ROAR_CHARGE = 2000, ROAR_RADIUS = 15, ROAR_PERSIST = 1000;   // 崩星咆哮炮：蓄力2s、半地图直径、持续1s
-    var BLADE_KILL_R = 7.5, BLADE_CD = 3000;                          // 青龙偃月刀：1/4 地图直径、3s 冷却
-    var BLADE_RISE = 450, BLADE_LUNGE = 350, BLADE_SLAM = 300;        // 三段动画时长(ms)
+    var ROAR_CHARGE = 2000, ROAR_RADIUS = 16, ROAR_PERSIST = 1100;   // 崩星咆哮炮：蓄力2s、半地图直径、持续1.1s
+    var BLADE_KILL_R = 14, BLADE_CD = 3000;                           // 青龙偃月刀：约 1/4 地图、3s 冷却
+    var BLADE_RISE = 380, BLADE_LUNGE = 300, BLADE_SLAM = 300;        // 三段动画时长(ms)
+    var BLADE_LUNGE_SPD = 38, BLADE_LUNGE_UP = 4.2;                   // 突进：又快又高的腾空一跃
 
     // 超级武器特效参数
     var BEAM_RADIUS = 2.4;          // 崩星/秘境 激光半径（更粗，更容易扫到）
@@ -707,14 +708,23 @@
         gbox(g, 0.10,0.20,0.12, grip, 0,-0.18,0.12, 0.18);
         muzzleZ = -0.94;
 
-      } else if (w.isSuper && w.kind === 'blade') {    // 仙器·青龙偃月刀：长柄大刀
-        gcyl(g, 0.028,0.028,1.1, gmat(0x5a3a1a), 0.05,-0.05,-0.35);                 // 刀杆(朝前下)
-        var bladeMat = gmat(0xdfffe9, w.col);
-        gpart(g, new THREE.BoxGeometry(0.02,0.42,0.5), bladeMat, 0.05,0.12,-0.92, 0.2, 0, 0.3);  // 弯月刀身
-        gpart(g, new THREE.BoxGeometry(0.02,0.2,0.24), bladeMat, 0.05,0.30,-1.12, 0.2,0,0.3);    // 刀尖
-        gpart(g, new THREE.OctahedronGeometry(0.08,0), gmat(w.col, w.col), 0.05,-0.02,-0.55);    // 青龙吞口
-        gbox(g, 0.05,0.05,0.14, gmat(0xc8a24a), 0.05,-0.02,-0.2);                   // 护手
-        muzzleZ = -1.1;
+      } else if (w.isSuper && w.kind === 'blade') {    // 仙器·青龙偃月刀（关羽长柄大刀，还原形制）
+        var pole = gmat(0x6b2a1a), gold = gmat(0xd4af37, 0x3a2e08), bladeMat = gmat(0xd9f5dd, w.col), dragonMat = gmat(w.col, w.col);
+        gcyl(g, 0.032,0.032,1.55, pole, 0.06,-0.03,-0.45);                          // 红木长杆
+        [0.18,-0.05,-0.28].forEach(function (zz) { gcyl(g, 0.045,0.045,0.05, gold, 0.06,-0.03,zz); });   // 杆上金箍
+        gcyl(g, 0.06,0.0,0.22, gold, 0.06,-0.03,0.42);                              // 杆尾枪鐏(尖)
+        // 青龙吞口（龙头从此吞住刀身）
+        gpart(g, new THREE.OctahedronGeometry(0.12,0), dragonMat, 0.06,0.02,-0.92);
+        gbox(g, 0.04,0.05,0.18, dragonMat, 0.06,0.10,-1.0, 0.3);                     // 龙颈/上颚
+        [-0.05,0.05].forEach(function (yy){ gbox(g, 0.02,0.06,0.05, gold, 0.06,0.12+yy,-0.86); }); // 龙角
+        // 偃月刀身（宽大弯月）：主刃 + 上挑刀尖 + 后部倒钩
+        gpart(g, new THREE.BoxGeometry(0.025,0.66,0.5), bladeMat, 0.06,0.30,-1.12, 0.18,0,0.34);
+        gpart(g, new THREE.BoxGeometry(0.025,0.34,0.26), bladeMat, 0.06,0.62,-1.34, 0.5,0,0.34);   // 上挑尖
+        gpart(g, new THREE.BoxGeometry(0.025,0.22,0.2), bladeMat, 0.06,0.02,-1.32, -0.5,0,0.3);    // 后倒钩
+        gbox(g, 0.05,0.05,0.16, gold, 0.06,0.0,-0.78);                               // 刀箍/护手
+        // 红缨
+        [-0.04,0,0.04].forEach(function (xx){ gbox(g, 0.02,0.18,0.02, gmat(0xd11a1a), 0.06+xx,-0.12,-0.8); });
+        muzzleZ = -1.5;
 
       } else {                                          // 兜底
         gbox(g, 0.10,0.12,0.46, dark, 0,0,0);
@@ -805,11 +815,12 @@
       var armR = limb( 0.32, 1.40, 0.14, 0.56, 0.16, 'limb');
       var legL = limb(-0.13, 0.82, 0.17, 0.80, 0.20, 'limb');
       var legR = limb( 0.13, 0.82, 0.17, 0.80, 0.20, 'limb');
-      // 手里举的枪（朝前，随姿态动；非命中目标）
-      var gun = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.10,0.55), new THREE.MeshLambertMaterial({ color:0x20262e }));
-      gun.position.set(0.18, 1.18, -0.42); group.add(gun);
+      // 手里端着的武器：用真实武器模型缩小后放在双手前方（随武器切换重建）
+      var weaponHolder = new THREE.Group();
+      weaponHolder.position.set(0.12, 1.12, -0.46); weaponHolder.scale.setScalar(0.5);
+      group.add(weaponHolder);
 
-      var parts = [torso, head, neck, armL.mesh, armR.mesh, legL.mesh, legR.mesh, gun];
+      var parts = [torso, head, neck, armL.mesh, armR.mesh, legL.mesh, legR.mesh, weaponHolder];
 
       var label = makeLabelSprite();
       label.position.y = 2.30;
@@ -817,15 +828,32 @@
 
       scene.add(group);
       r = remotes[id] = {
-        id:id, name:name || '???', color:color, group:group, parts:parts, head:head, label:label, gun:gun,
+        id:id, name:name || '???', color:color, group:group, parts:parts, head:head, label:label, weaponHolder:weaponHolder, wid:null,
         hitMeshes:[head, torso, armL.mesh, armR.mesh, legL.mesh, legR.mesh],
         armL:armL.pivot, armR:armR.pivot, legL:legL.pivot, legR:legR.pivot,
         runPhase:0, deathLean:0, lastX:0, lastZ:0,
         pos:new THREE.Vector3(), target:new THREE.Vector3(), yaw:0, targetYaw:0,
         hp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now()
       };
+      setRemoteWeapon(r, 'pistol');
       drawLabel(label, r.name, 100, true);
       return r;
+    }
+    function weaponById(wid) {
+      for (var i = 0; i < WEAPONS.length; i++) if (WEAPONS[i].id === wid) return WEAPONS[i];
+      for (var k in SUPERS) if (SUPERS[k].id === wid) return SUPERS[k];
+      return null;
+    }
+    // 远端玩家切换武器 → 重建手中的武器模型
+    function setRemoteWeapon(r, wid) {
+      if (!wid || r.wid === wid) return;
+      var w = weaponById(wid); if (!w) return;
+      r.wid = wid;
+      while (r.weaponHolder.children.length) {
+        var c = r.weaponHolder.children[0]; r.weaponHolder.remove(c);
+        c.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      }
+      r.weaponHolder.add(buildGunModel(w));
     }
 
     function removeRemote(id) {
@@ -904,8 +932,12 @@
           if (f.obj.material) f.obj.material.dispose();
           fx.splice(i, 1); continue;
         }
-        if (f.fade) f.obj.material.opacity = 1 - k;
+        if (f.fade) f.obj.material.opacity = (f.maxOp || 1) * (1 - k);
         if (f.grow) f.obj.scale.setScalar(f.obj.scale.x * (1 + dt*4));
+        if (f.expandTo !== undefined) { var s = f.expandFrom + (f.expandTo - f.expandFrom) * (f.ease ? (1-(1-k)*(1-k)) : k); f.obj.scale.setScalar(s); }
+        if (f.rise) f.obj.position.y += f.rise * dt;
+        if (f.spin) f.obj.rotation.y += f.spin * dt;
+        if (f.vel) { f.obj.position.x += f.vel.x*dt; f.obj.position.y += f.vel.y*dt; f.obj.position.z += f.vel.z*dt; f.vel.y -= 14*dt; }
       }
     }
 
@@ -1381,6 +1413,12 @@
           blending:THREE.AdditiveBlending, depthWrite:false }));
       orientCyl(thin, origin, dir, len);
       scene.add(thin);
+      // 崩星咆哮炮：炮口充能球（蓄力时由小变大）
+      if (msg.kind === 'roar') {
+        var orb = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:msg.col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+        orb.position.copy(origin).addScaledVector(dir, 1.2); orb.scale.setScalar(0.5);
+        scene.add(orb); fx.push({ obj:orb, ttl:P.delay/1000, life:0, fade:false, expandFrom:0.5, expandTo:9, spin:2 });
+      }
       beams.push({ bid:msg.bid, kind:msg.kind, owner:msg.owner, origin:origin, dir:dir, col:msg.col,
         thin:thin, thick:null, len:len, thinR:thinR, radius:P.radius, persist:P.persist, weaponId:P.weaponId,
         spawnAt:now(), fireAt:now() + P.delay, resolved:false, deadAt:0, isOwner:(msg.owner === me.id) });
@@ -1396,7 +1434,7 @@
               blending:THREE.AdditiveBlending, depthWrite:false }));
           orientCyl(b.thick, b.origin, b.dir, b.len);
           scene.add(b.thick);
-          if (b.kind === 'roar') { plasmaBoom(); shake = Math.min(shake + 0.08, 0.1); } else deathSound();
+          if (b.kind === 'roar') { plasmaBoom(); shake = Math.min(shake + 0.22, 0.26); spawnRoarBlast(b.origin, b.dir, b.col); } else deathSound();
           if (b.isOwner) resolveBeam(b);   // 只有发射者结算（用"现在"的位置，所以躲得开）
         }
         if (b.resolved) {
@@ -1621,33 +1659,57 @@
       shake = Math.min(shake + (reduced ? 0 : 0.28), 0.32);
       bladeBoom();
     }
+    function addMat(color, op) { return new THREE.MeshBasicMaterial({ color:color, transparent:true, opacity:op, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }); }
     function spawnSlamFx(x, z, col) {
-      // 地面致死圆盘
-      var disc = new THREE.Mesh(new THREE.CircleGeometry(BLADE_KILL_R, 44),
-        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.45, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
-      disc.rotation.x = -Math.PI/2; disc.position.set(x, 0.05, z); scene.add(disc); fx.push({ obj:disc, ttl:0.8, life:0, fade:true });
-      // 上冲光柱
-      var pillar = new THREE.Mesh(new THREE.CylinderGeometry(BLADE_KILL_R*0.5, 0.6, 16, 24, 1, true),
-        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.7, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
-      pillar.position.set(x, 8, z); scene.add(pillar); fx.push({ obj:pillar, ttl:0.7, life:0, fade:true });
-      // 扩张冲击环
-      var ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.35, 8, 44),
-        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false }));
-      ring.rotation.x = -Math.PI/2; ring.position.set(x, 0.35, z); scene.add(ring); fx.push({ obj:ring, ttl:0.55, life:0, fade:true, grow:true });
-      // 地裂：几条放射状裂纹
-      for (var c = 0; c < 6; c++) {
-        var a = c * Math.PI/3 + 0.2, L = BLADE_KILL_R;
-        var crack = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.06, L),
-          new THREE.MeshBasicMaterial({ color:0x222222 }));
-        crack.position.set(x + Math.cos(a)*L/2, 0.06, z + Math.sin(a)*L/2); crack.rotation.y = -a;
-        scene.add(crack); fx.push({ obj:crack, ttl:1.4, life:0, fade:false });
+      var R = BLADE_KILL_R, ctr = new THREE.Vector3(x, 0, z);
+      // 中心爆闪
+      var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      flash.position.set(x, 2, z); flash.scale.setScalar(R*1.4); scene.add(flash); fx.push({ obj:flash, ttl:0.35, life:0, fade:true, maxOp:1 });
+      // 致死圆盘（精确标出范围）+ 内圈
+      var disc = new THREE.Mesh(new THREE.CircleGeometry(R, 64), addMat(col, 0.4)); disc.rotation.x = -Math.PI/2; disc.position.set(x, 0.04, z);
+      scene.add(disc); fx.push({ obj:disc, ttl:1.1, life:0, fade:true, maxOp:0.45 });
+      // 三道扩张冲击波环（铺满到致死半径）
+      for (var w = 0; w < 3; w++) {
+        var ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.5 + w*0.25, 10, 80), addMat(w?0xffffff:col, 0.95));
+        ring.rotation.x = -Math.PI/2; ring.position.set(x, 0.4, z); ring.scale.setScalar(0.05);
+        scene.add(ring); fx.push({ obj:ring, ttl:0.6 + w*0.12, life:0, fade:true, maxOp:0.95, expandFrom:0.05, expandTo:1, ease:true });
       }
-      // 青龙：盘旋上升的发光体
-      if (!reduced) for (var i = 0; i < 9; i++) {
-        var ang = i * 0.8, rr = 1.4 + i * 0.25;
-        var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-        sp.position.set(x + Math.cos(ang)*rr, 0.6 + i*0.95, z + Math.sin(ang)*rr); sp.scale.setScalar(2.6 - i*0.1);
-        scene.add(sp); fx.push({ obj:sp, ttl:0.8, life:0, fade:true });
+      // 巨型上冲光柱
+      var pillar = new THREE.Mesh(new THREE.CylinderGeometry(R*0.28, 1.5, 36, 32, 1, true), addMat(col, 0.65));
+      pillar.position.set(x, 18, z); scene.add(pillar); fx.push({ obj:pillar, ttl:0.9, life:0, fade:true, maxOp:0.65, spin:3 });
+      var core = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.3, 36, 16, 1, true), addMat(0xffffff, 0.9));
+      core.position.set(x, 18, z); scene.add(core); fx.push({ obj:core, ttl:0.7, life:0, fade:true, maxOp:0.9 });
+      // 地裂 + 碎块飞溅
+      for (var c = 0; c < 10; c++) {
+        var a = c * Math.PI/5 + 0.1, L = R;
+        var crack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, L), new THREE.MeshBasicMaterial({ color:0x1a1a1a }));
+        crack.position.set(x + Math.cos(a)*L/2, 0.06, z + Math.sin(a)*L/2); crack.rotation.y = -a;
+        scene.add(crack); fx.push({ obj:crack, ttl:1.8, life:0, fade:false });
+        if (!reduced) {
+          var deb = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.5,0.5), new THREE.MeshLambertMaterial({ color:0x3a4654 }));
+          deb.position.set(x + Math.cos(a)*2, 0.5, z + Math.sin(a)*2); scene.add(deb);
+          fx.push({ obj:deb, ttl:0.9, life:0, fade:false, spin:6, vel:{ x:Math.cos(a)*8, y:9+Math.random()*4, z:Math.sin(a)*8 } });
+        }
+      }
+      // 青龙：一条由发光体盘旋冲天的巨龙
+      if (!reduced) for (var i = 0; i < 22; i++) {
+        var ang = i * 0.62, rr = 2.0 + i * 0.18;
+        var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color: i%4? col : 0xeaffe8, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+        sp.position.set(x + Math.cos(ang)*rr, 0.6 + i*1.05, z + Math.sin(ang)*rr); sp.scale.setScalar(3.4 - i*0.06);
+        scene.add(sp); fx.push({ obj:sp, ttl:0.95, life:0, fade:true, maxOp:1, rise:6 });
+      }
+    }
+    // 崩星咆哮炮发射时的炮口爆闪 + 沿激光的能量环
+    function spawnRoarBlast(origin, dir, col) {
+      var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      flash.position.copy(origin).addScaledVector(dir, 1.5); flash.scale.setScalar(ROAR_RADIUS*1.6);
+      scene.add(flash); fx.push({ obj:flash, ttl:0.4, life:0, fade:true, maxOp:1 });
+      if (!reduced) for (var i = 0; i < 6; i++) {
+        var ring = new THREE.Mesh(new THREE.TorusGeometry(ROAR_RADIUS, 0.9, 10, 64), addMat(i%2?0xffffff:col, 0.85));
+        ring.position.copy(origin).addScaledVector(dir, 5 + i*7);
+        ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+        ring.scale.setScalar(0.1); scene.add(ring);
+        fx.push({ obj:ring, ttl:0.6 + i*0.05, life:0, fade:true, maxOp:0.85, expandFrom:0.1, expandTo:1, ease:true });
       }
     }
 
@@ -1965,7 +2027,7 @@
           if (r) {
             r.target.set(msg.x, msg.y - EYE, msg.z); // 网络发的是"眼睛"高度，小人底座 = 眼高-EYE
             r.targetYaw = msg.yaw;
-            r.weapon = msg.weapon;
+            if (msg.wid) setRemoteWeapon(r, msg.wid);   // 看到对方手中的真实武器
             if (r.hp !== msg.hp || r.alive !== msg.alive) { r.hp = msg.hp; r.alive = msg.alive; r.labelDirty = true; }
             // 首个状态：直接吸附到位（避免从原点滑入）并初始化测速基准（避免首帧"奔跑"误判）
             if (!r.spawned) { r.group.position.copy(r.target); r.group.rotation.y = r.targetYaw;
@@ -2029,7 +2091,7 @@
       netSend({
         type:'state', from:me.id, name:me.name, color:me.colorHex,
         x:playerPos.x, y:playerPos.y, z:playerPos.z, yaw:yaw, pitch:pitch,
-        weapon:superActive ? 99 : weaponIndex, hp:me.hp, alive:me.alive, kills:me.kills, deaths:me.deaths
+        wid:activeWeapon().id, hp:me.hp, alive:me.alive, kills:me.kills, deaths:me.deaths
       });
     }
 
@@ -2072,8 +2134,12 @@
       g.add(core);
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col,
         transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-      glow.scale.setScalar(2.4); g.add(glow);
-      var label = makeTextSprite(w.name, col); label.position.y = 1.5; g.add(label);   // 头顶显示名字，远远就看得到
+      glow.scale.setScalar(w.isXian ? 3.4 : 2.4); g.add(glow);   // 仙器拾取物更亮
+      if (w.isXian) {   // 仙器：外加旋转光环，一眼认出（但不浮名字）
+        var halo = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.08, 8, 32),
+          new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false }));
+        halo.rotation.x = Math.PI/2.5; g.add(halo); g.userData.halo = halo;
+      }
       g.userData.core = core; g.userData.kind = kind;
       return g;
     }
@@ -2083,7 +2149,8 @@
       superMesh = makeSuperPickup(msg.kind);
       superMesh.position.set(msg.x, msg.y, msg.z);
       scene.add(superMesh);
-      showNotice('⚡「' + (SUPERS[msg.kind] || SUPERS.mg).name + '」出现了！冲过去捡！');
+      // 仙器出现时给个简短全场提示，普通超级武器不打扰
+      if (SUPERS[msg.kind] && SUPERS[msg.kind].isXian) showNotice('✦ 仙器降世：' + SUPERS[msg.kind].name);
     }
     function removeSuperPickup() {
       if (!superMesh) return;
@@ -2244,20 +2311,21 @@
       if (r.deathLean) { r.deathLean = 0; r.group.rotation.z = 0; }   // 复活：站起
       for (var j = 0; j < r.parts.length; j++) r.parts[j].visible = true;
 
+      // 注意：手臂从肩部垂下，正 rotation.x 才是"朝前"（之前用负值导致双臂卡到身后）
       var airborne = r.group.position.y > 0.2;
-      if (airborne) {                       // 跳跃：收腿 + 抬手
-        r.legL.rotation.x = -0.7; r.legR.rotation.x = -0.4;
-        r.armL.rotation.x = -2.3; r.armR.rotation.x = -1.5;
+      if (airborne) {                       // 跳跃：收腿(前抬) + 举枪
+        r.legL.rotation.x = 0.8; r.legR.rotation.x = 0.5;
+        r.armL.rotation.x = 1.6; r.armR.rotation.x = 1.45;
         r.runPhase = 0;
-      } else if (speed > 1.0) {             // 奔跑：腿前后摆，左手摆，右手持枪向前
+      } else if (speed > 1.0) {             // 奔跑：腿前后摆，左手随步摆，右手持枪向前
         r.runPhase += dt * (7 + Math.min(speed, 10) * 0.5);
-        var s = Math.sin(r.runPhase) * 0.9;
+        var s = Math.sin(r.runPhase) * 0.85;
         r.legL.rotation.x = s;  r.legR.rotation.x = -s;
-        r.armL.rotation.x = -1.1 - s * 0.5;
-        r.armR.rotation.x = -1.5;
-      } else {                              // 站立举枪
+        r.armR.rotation.x = 1.45;
+        r.armL.rotation.x = 1.25 - s * 0.4;
+      } else {                              // 站立举枪（双手向前端枪）
         r.legL.rotation.x = 0; r.legR.rotation.x = 0;
-        r.armL.rotation.x = -1.15; r.armR.rotation.x = -1.5;
+        r.armL.rotation.x = 1.3; r.armR.rotation.x = 1.45;
         r.runPhase = 0;
       }
     }
@@ -2367,14 +2435,20 @@
           // 脚步声（按步伐节奏）
           if (isMoving && grounded && now() - lastStepAt > (sprinting ? 270 : 380)) { lastStepAt = now(); footstepSound(); }
         } else { isMoving = false; }
-        // 青龙刀：突进阶段向前冲；触地瞬间结算
-        if (slamming) {
+        // 青龙刀：突进=又快又高的腾空前冲；劈下=从最高点砸回地面；触地瞬间结算
+        if (slamming && me.alive) {
           var sp2 = now() - slamStart;
-          if (sp2 > BLADE_RISE && sp2 < BLADE_RISE + BLADE_LUNGE && me.alive) {
+          if (sp2 >= BLADE_RISE && sp2 < BLADE_RISE + BLADE_LUNGE) {       // 突进腾空
             camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq()>1e-6) _bf.normalize();
-            var lx = playerPos.x + _bf.x * 17 * dt, lz = playerPos.z + _bf.z * 17 * dt;
+            var lx = playerPos.x + _bf.x * BLADE_LUNGE_SPD * dt, lz = playerPos.z + _bf.z * BLADE_LUNGE_SPD * dt;
             if (!collides(lx, playerPos.z)) playerPos.x = lx;
             if (!collides(playerPos.x, lz)) playerPos.z = lz;
+            var lp = (sp2 - BLADE_RISE) / BLADE_LUNGE;
+            playerPos.y = EYE + BLADE_LUNGE_UP * Math.sin(lp * Math.PI * 0.5);   // 升到最高点
+            aimCamera();
+          } else if (sp2 >= BLADE_RISE + BLADE_LUNGE) {                    // 劈下砸地
+            var sf2 = Math.min(1, (sp2 - BLADE_RISE - BLADE_LUNGE) / BLADE_SLAM);
+            playerPos.y = EYE + BLADE_LUNGE_UP * (1 - sf2) * (1 - sf2);
             aimCamera();
           }
         }

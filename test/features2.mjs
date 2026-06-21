@@ -76,7 +76,7 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   await ev(page, (m)=>window.__test.recv(m), st({x:10,y:1.6})); await sleep(500);
   await ev(page, (m)=>window.__test.recv(m), st({x:10,y:3.0})); await sleep(300);   // 离地=跳跃
   const jump = await ev(page, ()=>window.__test.remotePose('anim'));
-  check('跳跃→离地收腿', jump && jump.y > 0.5 && jump.legL < -0.3, JSON.stringify(jump));
+  check('跳跃→离地收腿(腿前抬)', jump && jump.y > 0.5 && jump.legL > 0.3, JSON.stringify(jump));
   let ran = false;                                                                   // 连续移动=奔跑
   for (let i=0;i<9;i++){ await ev(page, (m)=>window.__test.recv(m), st({x:10+i*0.9, y:1.6})); await sleep(90);
     const p = await ev(page, ()=>window.__test.remotePose('anim')); if (Math.abs(p.legL) > 0.12) ran = true; }
