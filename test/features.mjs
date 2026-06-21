@@ -32,19 +32,32 @@ const results=[]; const check=(l,p,e='')=>{ results.push(p); console.log(`[${p?'
   await page.fill('#nameInput','我'); await page.fill('#roomInput','demo'); await page.click('#joinBtn');
   await page.waitForFunction(()=>window.__test&&window.__test.joined(),{timeout:5000});
 
-  // ---------- 1) 开镜 ADS ----------
-  await page.evaluate(()=>window.__test.weapon(2)); // 步枪
+  // ---------- 1a) 普通武器开镜(步枪)：放大 + 保留准星 + 不显示狙击镜 + 枪不挡屏(仍可见但下沉) ----------
+  await page.evaluate(()=>window.__test.weapon(2)); // 步枪(非 scoped)
   const fov0 = await page.evaluate(()=>window.__test.fov());
   await page.evaluate(()=>window.__test.setAds(true));
   await sleep(350);
-  const fovA = await page.evaluate(()=>window.__test.fov());
-  const adsAmt = await page.evaluate(()=>window.__test.adsAmt());
-  check('右键开镜→视野缩小(fov 变小)', fovA < fov0 - 5, `fov ${fov0.toFixed(0)}→${fovA.toFixed(0)}`);
-  check('开镜进度 adsAmt→~1', adsAmt > 0.8, `adsAmt=${adsAmt.toFixed(2)}`);
+  const r = await page.evaluate(()=>({ fov:window.__test.fov(), scope:window.__test.scopeOpacity(), cross:window.__test.crosshairOpacity(), gun:window.__test.gunVisible() }));
+  check('步枪开镜→视野缩小', r.fov < fov0 - 5, `fov ${fov0.toFixed(0)}→${r.fov.toFixed(0)}`);
+  check('步枪开镜→不显示狙击镜', r.scope === 0, `scope=${r.scope}`);
+  check('步枪开镜→保留准星', r.cross > 0.9, `crosshair=${r.cross}`);
   await page.evaluate(()=>window.__test.setAds(false));
   await sleep(350);
   const fovB = await page.evaluate(()=>window.__test.fov());
-  check('松开右键→视野恢复', fovB > fovA + 5, `fov ${fovA.toFixed(0)}→${fovB.toFixed(0)}`);
+  check('松开右键→视野恢复', fovB > r.fov + 5, `fov ${r.fov.toFixed(0)}→${fovB.toFixed(0)}`);
+
+  // ---------- 1b) 狙击开镜：放大 + 显示狙击镜 + 隐藏准星 + 隐藏枪(不挡屏) ----------
+  await page.evaluate(()=>window.__test.weapon(4)); // 狙击(scoped)
+  await page.evaluate(()=>window.__test.setAds(true));
+  await sleep(400);
+  const s = await page.evaluate(()=>({ scope:window.__test.scopeOpacity(), cross:window.__test.crosshairOpacity(), gun:window.__test.gunVisible() }));
+  check('狙击开镜→显示狙击镜', s.scope > 0.8, `scope=${s.scope}`);
+  check('狙击开镜→隐藏准星(镜内有刻线)', s.cross < 0.2, `crosshair=${s.cross}`);
+  check('狙击开镜→隐藏枪模型(不挡屏)', s.gun === false, `gunVisible=${s.gun}`);
+  await page.evaluate(()=>window.__test.setAds(false));
+  await sleep(400);
+  const s2 = await page.evaluate(()=>({ scope:window.__test.scopeOpacity(), gun:window.__test.gunVisible() }));
+  check('松开右键→狙击镜消失、枪恢复', s2.scope === 0 && s2.gun === true, `scope=${s2.scope}, gun=${s2.gun}`);
 
   // ---------- 2) 爆头 ----------
   await page.evaluate(()=>window.__test.weapon(4)); // 狙击(高精度，便于命中头/身)

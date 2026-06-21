@@ -101,6 +101,17 @@
     text-shadow:0 0 10px rgba(0,0,0,.9); padding:8px 16px; border-radius:10px;
     background:rgba(10,40,52,.55); border:1px solid rgba(102,255,255,.5); }
 
+  /* 狙击镜：中间透明圆=镜片(看到放大后的世界)，外圈黑色=镜身，叠加准星刻线 */
+  #scope{ position:absolute; inset:0; z-index:24; pointer-events:none; opacity:0; transition:opacity .1s; }
+  #scope .lens{ position:absolute; inset:0; background: radial-gradient(circle at 50% 50%,
+      rgba(0,0,0,0) 0, rgba(0,0,0,0) 33vmin, rgba(0,0,0,.35) 33.2vmin,
+      rgba(0,0,0,.92) 35vmin, #03060a 36vmin, #03060a 100%); }
+  #scope .ring{ position:absolute; left:50%; top:50%; width:70vmin; height:70vmin;
+    transform:translate(-50%,-50%); border-radius:50%; border:4px solid #11181f;
+    box-shadow: inset 0 0 40px 8px rgba(0,0,0,.85), 0 0 0 2px rgba(120,140,160,.22); }
+  #scope .reticle{ position:absolute; left:50%; top:50%; width:66vmin; height:66vmin;
+    transform:translate(-50%,-50%); filter:drop-shadow(0 0 1px rgba(255,255,255,.45)); }
+
   /* 左下：血量 + 武器 */
   #botleft{ position:absolute; left:22px; bottom:20px; min-width:230px; }
   #hpwrap{ height:16px; border-radius:8px; background:#10202a; border:1px solid var(--line); overflow:hidden; }
@@ -172,6 +183,7 @@
 
   @media (prefers-reduced-motion: reduce){
     #hpbar{ transition:none; } .kf{ transition:none; } #dmgflash{ transition:none; } #notice{ transition:none; }
+    #scope{ transition:none; }
   }
 </style>
 </head>
@@ -186,6 +198,28 @@
     <div id="crosshair"><span class="dot"></span></div>
     <div id="hitmarker"></div>
     <div id="notice"></div>
+
+    <!-- 狙击镜：开镜时显示。中间圆形镜片(透出放大后的世界) + 周围黑色镜身 + 准星刻线 -->
+    <div id="scope">
+      <div class="lens"></div>
+      <div class="ring"></div>
+      <svg class="reticle" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <g stroke="#0a0a0a" stroke-width="1.1" fill="none">
+          <line x1="100" y1="6"   x2="100" y2="86"/>
+          <line x1="100" y1="114" x2="100" y2="194"/>
+          <line x1="6"   y1="100" x2="86"  y2="100"/>
+          <line x1="114" y1="100" x2="194" y2="100"/>
+          <!-- 密位刻度 -->
+          <line x1="120" y1="98" x2="120" y2="102"/><line x1="140" y1="97" x2="140" y2="103"/>
+          <line x1="160" y1="96" x2="160" y2="104"/>
+          <line x1="80"  y1="98" x2="80"  y2="102"/><line x1="60"  y1="97" x2="60"  y2="103"/>
+          <line x1="40"  y1="96" x2="40"  y2="104"/>
+          <line x1="98" y1="120" x2="102" y2="120"/><line x1="97" y1="140" x2="103" y2="140"/>
+          <line x1="98" y1="80"  x2="102" y2="80"/> <line x1="97" y1="60"  x2="103" y2="60"/>
+        </g>
+        <circle cx="100" cy="100" r="1.7" fill="#e23b3b"/>
+      </svg>
+    </div>
 
     <div id="netstat"><span class="dot" id="netdot"></span><span id="nettext">未连接</span></div>
 
@@ -319,7 +353,7 @@
       { id:'smg',     name:'冲锋枪', dmg:15, rpm:850, mag:30, auto:true,  spread:0.045, pellets:1, range:120, reload:1.6, kick:0.010, col:0x9be7ff, zoom:0.85 },
       { id:'rifle',   name:'步枪',   dmg:32, rpm:480, mag:25, auto:true,  spread:0.020, pellets:1, range:320, reload:2.0, kick:0.016, col:0xff9bd6, zoom:0.78 },
       { id:'shotgun', name:'霰弹枪', dmg:12, rpm:75,  mag:6,  auto:false, spread:0.090, pellets:8, range:45,  reload:0.9, kick:0.030, col:0xffc080, zoom:0.90 },
-      { id:'sniper',  name:'狙击',   dmg:92, rpm:48,  mag:5,  auto:false, spread:0.0012,pellets:1, range:600, reload:2.4, kick:0.040, col:0xff6b6b, zoom:0.42 }
+      { id:'sniper',  name:'狙击',   dmg:92, rpm:48,  mag:5,  auto:false, spread:0.0012,pellets:1, range:600, reload:2.4, kick:0.040, col:0xff6b6b, zoom:0.40, scoped:true }
     ];
 
     // 爆头伤害倍率：打头比打身体疼一倍
@@ -360,7 +394,7 @@
     var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0;
     var isMoving = false, sprinting = false, muzzleHideAt = 0, gunMuzzle = null;
     var GUN_BASE = { x:0.22, y:-0.18, z:-0.5 };
-    var ADS_BASE  = { x:0.0, y:-0.045, z:-0.30 };   // 开镜时枪贴近准星中心
+    var ADS_BASE  = { x:0.0, y:-0.16, z:-0.42 };   // 开镜(非狙)时枪下沉到准星下方，不挡视线
     // 开镜（瞄准）状态
     var ads = false, adsAmt = 0, BASE_FOV = 76;
     // 超级武器状态
@@ -481,8 +515,16 @@
       viewGun.add(body); viewGun.add(barrel);
       // 狙击加个瞄准镜，霰弹更粗，超级武器更夸张，区分手感
       if (w.id === 'sniper') {
-        var scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.18,10), accMat);
-        scope.rotation.x = Math.PI/2; scope.position.set(0,0.08,-0.1); viewGun.add(scope);
+        var scopeMat = new THREE.MeshLambertMaterial({ color:0x15191e });
+        var tube = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.28, 16), scopeMat);
+        tube.rotation.x = Math.PI/2; tube.position.set(0, 0.10, -0.05); viewGun.add(tube);
+        var lens = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.02, 16),
+          new THREE.MeshLambertMaterial({ color:0x9bdcff, emissive:0x244a66 }));
+        lens.rotation.x = Math.PI/2; lens.position.set(0, 0.10, -0.20); viewGun.add(lens);
+        [-0.04, 0.07].forEach(function (zz) {   // 两个支架
+          var m = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.02), scopeMat);
+          m.position.set(0, 0.05, zz); viewGun.add(m);
+        });
       } else if (w.id === 'shotgun') {
         body.scale.set(1.4,1.2,1.0);
       } else if (w.isSuper) {
@@ -1452,10 +1494,14 @@
         reloadAnim = Math.sin(prog * Math.PI);
       }
 
-      // 基准位置在"腰射"和"开镜(贴近准星中心)"之间插值
-      var gx = GUN_BASE.x + (ADS_BASE.x - GUN_BASE.x) * adsK;
-      var gy = GUN_BASE.y + (ADS_BASE.y - GUN_BASE.y) * adsK;
-      var gz = GUN_BASE.z + (ADS_BASE.z - GUN_BASE.z) * adsK;
+      // 狙击镜：开镜时把枪藏起来（改用镜头画面），且不拉到屏幕中央，避免挡视线；
+      // 其它武器开镜时枪下沉到准星下方（ADS_BASE）。
+      var scoped = !!activeWeapon().scoped;
+      viewGun.visible = !(scoped && adsAmt > 0.4);
+      var aB = scoped ? GUN_BASE : ADS_BASE;
+      var gx = GUN_BASE.x + (aB.x - GUN_BASE.x) * adsK;
+      var gy = GUN_BASE.y + (aB.y - GUN_BASE.y) * adsK;
+      var gz = GUN_BASE.z + (aB.z - GUN_BASE.z) * adsK;
       var rx = 0, ry = 0, rz = 0;
       if (!reduced) {
         // 走路摆动（武器随脚步轻晃）
@@ -1495,13 +1541,15 @@
         // 死亡重生计时
         if (!me.alive && now() >= deadUntil) respawn();
 
-        // 开镜（ADS）插值：缩放视野 + 隐藏准星
+        // 开镜（ADS）插值：缩放视野；狙击显示瞄准镜并隐藏准星，其它武器保留准星
+        var aw = activeWeapon(), scopedW = !!aw.scoped;
         var adsTarget = (ads && me.alive && !paused) ? 1 : 0;
         adsAmt += (adsTarget - adsAmt) * Math.min(1, dt * 12);
         if (adsAmt < 0.001) adsAmt = 0;
-        var wantFov = BASE_FOV * (1 + (activeWeapon().zoom - 1) * adsAmt);
+        var wantFov = BASE_FOV * (1 + (aw.zoom - 1) * adsAmt);
         if (Math.abs(camera.fov - wantFov) > 0.02) { camera.fov = wantFov; camera.updateProjectionMatrix(); }
-        document.getElementById('crosshair').style.opacity = (1 - adsAmt).toFixed(2);
+        document.getElementById('scope').style.opacity = (scopedW ? adsAmt : 0).toFixed(2);
+        document.getElementById('crosshair').style.opacity = (scopedW ? (1 - adsAmt) : 1).toFixed(2);
 
         aimCamera();                       // 先用最新视角摆正相机
         if (!paused) {
@@ -1585,6 +1633,9 @@
           camY:function(){ return camera.position.y; }, reloading:function(){ return now() < reloadUntil; },
           // 开镜 / 爆头 / 超级武器 验证
           setAds:function(v){ ads = !!v; }, fov:function(){ return camera.fov; }, adsAmt:function(){ return adsAmt; },
+          scopeOpacity:function(){ var e=document.getElementById('scope'); return e?parseFloat(e.style.opacity||'0'):0; },
+          crosshairOpacity:function(){ var e=document.getElementById('crosshair'); return e?parseFloat(e.style.opacity||'1'):1; },
+          gunVisible:function(){ return viewGun ? viewGun.visible : null; },
           lastHit:function(){ return lastHitInfo; },
           spawnSuperAt:function(x,z){ applySuperSpawn({ sid: superSid+1, x:x, y:1.3, z:z }); },
           superInfo:function(){ return { active:superActive, ammo:superAmmo, onMap: !!superMesh }; },
