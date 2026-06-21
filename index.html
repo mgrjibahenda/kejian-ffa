@@ -1383,22 +1383,32 @@
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.4);
       src.connect(lp); lp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.42);
     }
-    // 青龙偃月刀·落地召龙：重击 + 龙吟(共振扫频) + 仙气高频
+    // 青龙偃月刀·落地龙吟：低吼(LFO 调制音高 = 咆哮颤抖) + 咆哮气声 + 落地重击。响而长，像兽吼。
+    var roarSfxN = 0;
     function bladeRoarSound() {
+      roarSfxN++;   // 计数(自测确认触发；与是否真出声无关)
       if (!actx || muted) return; var t = actx.currentTime;
-      var b1 = actx.createBufferSource(); b1.buffer = noiseBuffer(0.6);
-      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(120, t+0.5);
-      var g1 = actx.createGain(); g1.gain.setValueAtTime(0.85, t); g1.gain.exponentialRampToValueAtTime(0.001, t+0.6);
-      b1.connect(lp); lp.connect(g1); g1.connect(masterGain); b1.start(t); b1.stop(t+0.6);
-      var b2 = actx.createBufferSource(); b2.buffer = noiseBuffer(0.95);
-      var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=6;
-      bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(720, t+0.25); bp.frequency.exponentialRampToValueAtTime(170, t+0.85);
-      var g2b = actx.createGain(); g2b.gain.setValueAtTime(0.0001, t); g2b.gain.exponentialRampToValueAtTime(0.55, t+0.12); g2b.gain.exponentialRampToValueAtTime(0.001, t+0.88);
-      b2.connect(bp); bp.connect(g2b); g2b.connect(masterGain); b2.start(t); b2.stop(t+0.95);
-      var b3 = actx.createBufferSource(); b3.buffer = noiseBuffer(0.3);
-      var hp = actx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=5200;
-      var g3 = actx.createGain(); g3.gain.setValueAtTime(0.22, t); g3.gain.exponentialRampToValueAtTime(0.001, t+0.3);
-      b3.connect(hp); hp.connect(g3); g3.connect(masterGain); b3.start(t); b3.stop(t+0.3);
+      [0, 0.6].forEach(function (det, idx) {   // 两条失谐低吼，叠出厚度
+        var o = actx.createOscillator(); o.type = idx ? 'sawtooth' : 'triangle';
+        o.frequency.setValueAtTime(68 + det, t);
+        o.frequency.linearRampToValueAtTime(155 + det, t + 0.28);
+        o.frequency.exponentialRampToValueAtTime(52 + det, t + 1.05);
+        var lfo = actx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 22 + idx * 6;   // 颤音→咆哮感
+        var lg = actx.createGain(); lg.gain.value = 16;
+        lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + 1.25);
+        var lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1500;
+        var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + 0.1); g.gain.setValueAtTime(0.55, t + 0.75); g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+        o.connect(lp); lp.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 1.25);
+      });
+      var b2 = actx.createBufferSource(); b2.buffer = noiseBuffer(1.1);   // 咆哮气声(formant 扫频)
+      var bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 5;
+      bp.frequency.setValueAtTime(420, t); bp.frequency.exponentialRampToValueAtTime(980, t + 0.3); bp.frequency.exponentialRampToValueAtTime(230, t + 1.0);
+      var g2b = actx.createGain(); g2b.gain.setValueAtTime(0.0001, t); g2b.gain.exponentialRampToValueAtTime(0.42, t + 0.12); g2b.gain.exponentialRampToValueAtTime(0.001, t + 1.05);
+      b2.connect(bp); bp.connect(g2b); g2b.connect(masterGain); b2.start(t); b2.stop(t + 1.1);
+      var b1 = actx.createBufferSource(); b1.buffer = noiseBuffer(0.5);   // 落地重击
+      var lp1 = actx.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.setValueAtTime(800, t); lp1.frequency.exponentialRampToValueAtTime(100, t + 0.4);
+      var g1 = actx.createGain(); g1.gain.setValueAtTime(0.8, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      b1.connect(lp1); lp1.connect(g1); g1.connect(masterGain); b1.start(t); b1.stop(t + 0.5);
     }
     function mechaStompSound() {  // 穿上机甲/重踏：超低频砸地 + 金属铿锵
       if (!actx || muted) return; var t = actx.currentTime;
@@ -3512,7 +3522,8 @@
           wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
           fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; },
-          addDummy:function(k){ addDummy(k); }, dummyHp:function(id){ var r=remotes[id]; return r?r.hp:null; }, camY:function(){ return camera.position.y; }
+          addDummy:function(k){ addDummy(k); }, dummyHp:function(id){ var r=remotes[id]; return r?r.hp:null; }, camY:function(){ return camera.position.y; },
+          roarSfx:function(){ return roarSfxN; }
         };
         animate();
       } catch (err) {
