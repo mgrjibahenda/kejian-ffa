@@ -445,6 +445,7 @@
     // 枪械/视角动画状态：后坐力、鼠标摇晃、走路头部摆动
     var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0, shake = 0;
     var isMoving = false, sprinting = false, muzzleHideAt = 0, gunMuzzle = null;
+    var gunCharge = null, chargeUntil = 0, chargeStart = 0, chargeCol = 0xffffff;   // 充能动画(等离子/崩星/秘境/青龙)
     var GUN_BASE = { x:0.22, y:-0.18, z:-0.5 };
     var ADS_BASE  = { x:0.0, y:-0.16, z:-0.42 };   // 开镜(非狙)时枪下沉到准星下方，不挡视线
     // 开镜（瞄准）状态
@@ -746,6 +747,15 @@
       gunMuzzle.visible = false;
       viewGun.add(gunMuzzle);
 
+      // 充能能量球（贴在炮口，蓄力武器按下后逐渐汇聚变大、辉光点亮，发射时爆开）
+      gunCharge = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending,
+        depthTest:false, depthWrite:false }));
+      gunCharge.position.set(0, 0.02, (viewGun.userData.muzzleZ || -0.7) - 0.04);
+      gunCharge.scale.setScalar(0.001);
+      gunCharge.visible = false;
+      viewGun.add(gunCharge);
+
       viewGun.position.set(GUN_BASE.x, GUN_BASE.y, GUN_BASE.z);
       viewGun.rotation.order = 'YXZ';
       camera.add(viewGun);
@@ -1044,6 +1054,21 @@
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.4, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.5);
       src.connect(bp); bp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.6);
     }
+    // 蓄力音效：上升能量啸鸣(噪声经谐振带通由低扫到高) + 低频蓄力嗡鸣，随蓄力时长渐强 → 发射瞬间被爆轰盖过
+    function chargeSound(durMs, big) {
+      if (!actx || muted) return; var t = actx.currentTime, d = Math.max(0.2, durMs/1000);
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(d + 0.12);
+      var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value = 7;
+      bp.frequency.setValueAtTime(big?150:240, t); bp.frequency.exponentialRampToValueAtTime(big?1500:2400, t+d);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(big?0.5:0.34, t+d*0.92); g.gain.exponentialRampToValueAtTime(0.0001, t+d+0.06);
+      src.connect(bp); bp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+d+0.12);
+      var o = actx.createOscillator(); o.type='triangle';
+      o.frequency.setValueAtTime(big?36:54, t); o.frequency.linearRampToValueAtTime(big?72:96, t+d);
+      var g2 = actx.createGain(); g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(big?0.42:0.26, t+d*0.9); g2.gain.exponentialRampToValueAtTime(0.0001, t+d+0.06);
+      o.connect(g2); g2.connect(masterGain); o.start(t); o.stop(t+d+0.12);
+    }
     function bladeSwingSound() { // 挥刀：风声
       if (!actx || muted) return; var t = actx.currentTime;
       var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.5);
@@ -1245,9 +1270,9 @@
           rtScene: rtScene,
           rtA: new THREE.WebGLRenderTarget(hw, hh, bopt), rtB: new THREE.WebGLRenderTarget(hw, hh, bopt),
           fs: fs, fc: fc, quad: quad, hw: hw, hh: hh,
-          bright: new THREE.ShaderMaterial({ uniforms:{ tDiffuse:{value:null}, threshold:{value:0.72}, soft:{value:0.5} }, vertexShader:BLOOM_VS, fragmentShader:BRIGHT_FS, depthTest:false, depthWrite:false }),
+          bright: new THREE.ShaderMaterial({ uniforms:{ tDiffuse:{value:null}, threshold:{value:0.85}, soft:{value:0.45} }, vertexShader:BLOOM_VS, fragmentShader:BRIGHT_FS, depthTest:false, depthWrite:false }),
           blur:   new THREE.ShaderMaterial({ uniforms:{ tDiffuse:{value:null}, dir:{value:new THREE.Vector2()} }, vertexShader:BLOOM_VS, fragmentShader:BLUR_FS, depthTest:false, depthWrite:false }),
-          comp:   new THREE.ShaderMaterial({ uniforms:{ tScene:{value:null}, tBloom:{value:null}, strength:{value:1.15}, exposure:{value:1.12} }, vertexShader:BLOOM_VS, fragmentShader:COMP_FS, depthTest:false, depthWrite:false })
+          comp:   new THREE.ShaderMaterial({ uniforms:{ tScene:{value:null}, tBloom:{value:null}, strength:{value:0.95}, exposure:{value:1.12} }, vertexShader:BLOOM_VS, fragmentShader:COMP_FS, depthTest:false, depthWrite:false })
         };
       } catch (e) { if (window.console) console.warn('bloom 初始化失败，回退直接渲染', e); bloom = null; }
     }
@@ -1478,6 +1503,9 @@
         x:origin.x, y:origin.y, z:origin.z, dx:_bf.x, dy:_bf.y, dz:_bf.z, col:w.col };
       spawnBeam(msg);     // 本地渲染（owner === me → 到点会结算伤害）
       netSend(msg);       // 广播：所有人都看到这条轨迹
+      var delay = beamParams(kind).delay;          // 视角武器充能动画 + 充能音效
+      chargeStart = now(); chargeUntil = now() + delay; chargeCol = w.col;
+      chargeSound(delay, kind === 'roar');
     }
     function spawnBeam(msg) {
       var origin = new THREE.Vector3(msg.x, msg.y, msg.z);
@@ -1770,6 +1798,8 @@
       slamImpactDone = false;
       bladeReadyAt = slamUntil + BLADE_CD;                          // 劈完冷却 3s
       firing = false; ads = false;
+      chargeStart = now(); chargeUntil = now() + BLADE_RISE + BLADE_LUNGE; chargeCol = SUPERS.blade.col;  // 挑起→突进时刀刃聚气
+      chargeSound(BLADE_RISE + BLADE_LUNGE, false);
       bladeSwingSound();
       showNotice('🐉 青龙偃月刀·斩！');
     }
@@ -1871,6 +1901,7 @@
       me.alive = false; me.deaths++;
       deadUntil = now() + 3000;
       slamUntil = 0; slamImpactDone = true;   // 取消未落下的青龙刀，死后不再造成伤害
+      chargeUntil = 0;                         // 取消蓄力动画
       dropSuper();             // 死亡失去超级武器
       ads = false;
       deathSound();
@@ -2526,8 +2557,25 @@
       gy += -0.20 * reloadAnim;  gz += 0.05 * reloadAnim;
       rx += 1.10 * reloadAnim;   rz += 0.60 * reloadAnim;
 
+      // 充能动画：蓄力武器按下后枪向后拉、能量颤动，炮口能量球汇聚变大
+      var charging = now() < chargeUntil ? Math.min(1, (now() - chargeStart) / Math.max(1, chargeUntil - chargeStart)) : 0;
+      if (charging > 0 && !reduced) {
+        gz += charging * 0.11;  rx += -charging * 0.10;
+        gx += (Math.random() - 0.5) * 0.008 * charging;
+        gy += (Math.random() - 0.5) * 0.008 * charging;
+      }
+
       viewGun.position.set(gx, gy, gz);
       viewGun.rotation.set(rx, ry, rz);
+
+      if (gunCharge) {
+        if (charging > 0) {
+          gunCharge.visible = true; gunCharge.material.color.setHex(chargeCol);
+          var fl = 0.82 + 0.18 * Math.sin(now() * 0.05);
+          gunCharge.scale.setScalar((0.035 + charging * charging * 0.33) * fl);   // 适度，蓄满也不糊屏
+          gunCharge.material.opacity = Math.min(0.85, 0.35 + charging * 0.5);
+        } else if (gunCharge.visible) { gunCharge.visible = false; }
+      }
 
       // 枪口闪光到时收起
       if (gunMuzzle && gunMuzzle.visible && now() >= muzzleHideAt) gunMuzzle.visible = false;
