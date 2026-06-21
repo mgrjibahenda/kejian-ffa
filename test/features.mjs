@@ -70,8 +70,8 @@ const results=[]; const check=(l,p,e='')=>{ results.push(p); console.log(`[${p?'
   check('打头→判定爆头', headHit && headHit.head === true, JSON.stringify(headHit));
   check('打头→伤害=92×2=184', headHit && headHit.dmg === 184, headHit ? ('dmg='+headHit.dmg) : 'null');
 
-  // 同一个靶移到身体对准视线(msg.y=2.6 → 身体中心≈1.6)，等狙击冷却(1.25s)再打
-  await page.evaluate(()=>window.__test.recv({type:'state',from:'dummy',name:'靶',color:0xff3344,x:20,y:2.6,z:-5,yaw:0,pitch:0,weapon:0,hp:100,alive:true,kills:0,deaths:0}));
+  // 同一个靶移到躯干对准视线(msg.y=2.1 → 躯干在 y≈1.6，避开头/腿)，等狙击冷却(1.25s)再打
+  await page.evaluate(()=>window.__test.recv({type:'state',from:'dummy',name:'靶',color:0xff3344,x:20,y:2.1,z:-5,yaw:0,pitch:0,weapon:0,hp:100,alive:true,kills:0,deaths:0}));
   await sleep(1500);
   await page.evaluate(()=>window.__test.fire());
   await sleep(80);

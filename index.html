@@ -356,14 +356,27 @@
       { id:'sniper',  name:'狙击',   dmg:92, rpm:48,  mag:5,  auto:false, spread:0.0012,pellets:1, range:600, reload:2.4, kick:0.040, col:0xff6b6b, zoom:0.40, scoped:true }
     ];
 
-    // 爆头伤害倍率：打头比打身体疼一倍
-    var HEAD_MULT = 2.0;
+    // 命中部位伤害倍率：头 > 躯干 > 四肢
+    var HEAD_MULT = 2.0, LIMB_MULT = 0.6;   // 躯干 = 1.0
 
-    // 特色：超级武器（地图上每 30 秒随机刷新，捡到即用，100 发打光或死亡后失去）。
-    // 射速极快、后坐力极小、高精度。
-    var SUPER_WEAPON = { id:'super', name:'超级武器', dmg:20, rpm:1500, mag:100, auto:true,
-      spread:0.006, pellets:1, range:260, reload:0, kick:0.002, col:0x66ffff, zoom:0.8, isSuper:true };
-    var SUPER_INTERVAL = 30000;  // 每 30 秒刷新一次
+    // 回血：受伤后 8 秒开始回血，再 8 秒回满
+    var REGEN_DELAY = 8000, REGEN_FULL = 8000;
+
+    // 特色：超级武器（地图每 40 秒随机刷新一个，类型 4 选 1，捡到即用，打光或死亡失去）。
+    var SUPER_INTERVAL = 40000;
+    var SUPERS = {
+      mg:    { kind:'mg',    id:'super_mg',    name:'超级机枪', dmg:22,   rpm:1500, mag:100, auto:true,  spread:0.006, pellets:1, range:280,  reload:0, kick:0.002, col:0x39ff14, zoom:0.6,  scoped:true, isSuper:true },
+      star:  { kind:'star',  id:'super_star',  name:'崩星炮',   dmg:9999, rpm:40,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
+      hole:  { kind:'hole',  id:'super_hole',  name:'黑洞炮',   dmg:0,    rpm:30,   mag:4,   auto:false, spread:0,     pellets:1, range:80,   reload:0, kick:0.04,  col:0xb14dff, zoom:0.85, isSuper:true },
+      realm: { kind:'realm', id:'super_realm', name:'秘境枪',   dmg:9999, rpm:50,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true }
+    };
+    var SUPER_KINDS = ['mg','star','hole','realm'];
+
+    // 超级武器特效参数
+    var BEAM_RADIUS = 1.0;          // 崩星/秘境 激光半径(≈角色身高一半)
+    var BEAM_DELAY  = 700;          // 崩星炮蓄力 0.7s（给被瞄准者反应时间）
+    var HOLE_TRAVEL = 1.2, HOLE_HOLD = 3.0, HOLE_SPEED = 14, HOLE_KILL_R = 1.0, HOLE_SUCK_R = 3.8;
+    var REALM_CENTER = new THREE.Vector3(0, EYE, -200);   // 秘境平台（远离主竞技场，被雾遮住）
 
     var PALETTE = [0x4cc9f0,0xf72585,0x90be6d,0xf9c74f,0xff7b00,0x9b5de5,0x00bbf9,0xff5d8f,0x43aa8b,0xe07a5f];
 
@@ -390,6 +403,7 @@
     var ammo = WEAPONS.map(function (w) { return w.mag; });
     var reloadUntil = 0, reloadDur = 0, fireCooldown = 0, firing = false, viewRecoil = 0;
     var joined = false, paused = false, muted = false, boardOpen = false, deadUntil = 0;
+    var lastDamageAt = 0, fireRateMul = 1;   // 回血计时；射速倍率(秘境持枪者更快)
     // 枪械/视角动画状态：后坐力、鼠标摇晃、走路头部摆动
     var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0;
     var isMoving = false, sprinting = false, muzzleHideAt = 0, gunMuzzle = null;
@@ -398,12 +412,15 @@
     // 开镜（瞄准）状态
     var ads = false, adsAmt = 0, BASE_FOV = 76;
     // 超级武器状态
-    var superActive = false, superAmmo = 0;
-    var superMesh = null, superSid = 0, superNextAt = 0;
-    var lastHitInfo = null;   // 最近一次命中（含是否爆头），供自测/击杀提示用
+    var superActive = false, superAmmo = 0, superKind = null;
+    var superMesh = null, superSid = 0;
+    var lastHitInfo = null, lastSentHits = [];   // 最近一次命中（含部位）/ 已上报的命中，供自测用
+    // 特效实体 + 秘境对决状态
+    var beams = [], blackholes = [];
+    var inRealm = false, realmOpponent = null, maxHp = 100;
 
     // 当前生效的武器/弹药（普通武器 or 超级武器）
-    function activeWeapon() { return superActive ? SUPER_WEAPON : WEAPONS[weaponIndex]; }
+    function activeWeapon() { return superActive ? SUPERS[superKind] : WEAPONS[weaponIndex]; }
     function activeAmmo()   { return superActive ? superAmmo : ammo[weaponIndex]; }
 
     var keys = {};
@@ -487,6 +504,23 @@
         solidBoxes.push(new THREE.Box3().setFromObject(m));
       });
 
+      // 秘境平台：远离主竞技场（被雾遮住），秘境枪 1v1 在此进行
+      var RHALF = 18, rcx = REALM_CENTER.x, rcz = REALM_CENTER.z;
+      var realmFloor = new THREE.Mesh(new THREE.PlaneGeometry(RHALF*2, RHALF*2),
+        new THREE.MeshLambertMaterial({ color:0x241b33 }));
+      realmFloor.rotation.x = -Math.PI/2; realmFloor.position.set(rcx, 0, rcz);
+      scene.add(realmFloor); worldSolids.push(realmFloor);
+      var rgrid = new THREE.GridHelper(RHALF*2, 18, 0x7a4dff, 0x3a2a55);
+      rgrid.position.set(rcx, 0.02, rcz); scene.add(rgrid);
+      var realmWallMat = new THREE.MeshLambertMaterial({ color:0x3a2a55, emissive:0x1a0f33, emissiveIntensity:0.5 });
+      addBox(rcx, WALL_H/2, rcz+RHALF, RHALF*2, WALL_H, 1, realmWallMat);
+      addBox(rcx, WALL_H/2, rcz-RHALF, RHALF*2, WALL_H, 1, realmWallMat);
+      addBox(rcx+RHALF, WALL_H/2, rcz, 1, WALL_H, RHALF*2, realmWallMat);
+      addBox(rcx-RHALF, WALL_H/2, rcz, 1, WALL_H, RHALF*2, realmWallMat);
+      addBox(rcx, 1.1, rcz, 2.2, 2.2, 2.2, crateMat);          // 中央掩体
+      addBox(rcx-7, 1, rcz+5, 2, 2, 2, crateMat);
+      addBox(rcx+7, 1, rcz-5, 2, 2, 2, crateMat);
+
       // 出生点
       spawnPoints = [
         [ 22,  22],[-22,  22],[ 22, -22],[-22, -22],
@@ -501,43 +535,143 @@
     }
 
     // ------------------------------------------------------------------ 视角武器模型 (viewmodel)
+    // 精细的多部件枪械模型：每把枪由机匣/枪管/弹匣/握把/枪托/瞄具等多块组成，材质有金属深浅 + 配色描边。
     var viewGun;
+    function gmat(color, emi) {
+      return new THREE.MeshLambertMaterial({ color:color, emissive: emi || 0x000000, emissiveIntensity: emi ? 0.85 : 0 });
+    }
+    function gpart(g, geo, mat, x, y, z, rx, ry, rz) {
+      var m = new THREE.Mesh(geo, mat);
+      m.position.set(x||0, y||0, z||0);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      g.add(m); return m;
+    }
+    function gbox(g, sx, sy, sz, mat, x, y, z, rx, ry, rz) { return gpart(g, new THREE.BoxGeometry(sx,sy,sz), mat, x,y,z, rx,ry,rz); }
+    function gcyl(g, r1, r2, h, mat, x, y, z, rx) { return gpart(g, new THREE.CylinderGeometry(r1,r2,h,16), mat, x,y,z, (rx===undefined?Math.PI/2:rx)); }
+
+    function buildGunModel(w) {
+      var g = new THREE.Group();
+      var dark = gmat(0x171c22), mid = gmat(0x2a323d), grip = gmat(0x0e1116);
+      var acc  = gmat(w.col, w.isSuper ? w.col : 0);      // 普通枪=纯色描边，超级枪=发光
+      var muzzleZ = -0.7;
+
+      if (w.id === 'pistol') {
+        gbox(g, 0.10,0.09,0.34, dark, 0,0.02,-0.10);              // 套筒
+        gbox(g, 0.085,0.05,0.24, mid, 0,-0.04,-0.06);            // 套筒座
+        gbox(g, 0.085,0.20,0.11, grip, 0,-0.16,0.07, 0.26);      // 握把
+        gbox(g, 0.02,0.06,0.05, dark, 0,-0.08,-0.02);            // 扳机护圈
+        gcyl(g, 0.022,0.022,0.10, dark, 0,0.02,-0.30);           // 枪管
+        gbox(g, 0.014,0.022,0.02, dark, 0,0.08,-0.24);           // 准星
+        gbox(g, 0.05,0.022,0.02, dark, 0,0.08,0.04);             // 照门
+        gbox(g, 0.012,0.012,0.20, acc, 0.052,0.02,-0.08);        // 描边
+        muzzleZ = -0.34;
+
+      } else if (w.id === 'smg') {
+        gbox(g, 0.10,0.12,0.40, dark, 0,0,0);                    // 机匣
+        gbox(g, 0.05,0.022,0.34, mid, 0,0.075,-0.02);           // 顶部导轨
+        gcyl(g, 0.030,0.030,0.20, dark, 0,0,-0.32);             // 枪管
+        gcyl(g, 0.045,0.045,0.16, mid, 0,0,-0.26);             // 护管
+        gbox(g, 0.06,0.22,0.07, grip, 0,-0.16,0.02, 0.12);      // 弹匣
+        gbox(g, 0.075,0.15,0.085, grip, 0,-0.12,0.15, 0.18);    // 握把
+        gbox(g, 0.05,0.07,0.18, mid, 0,0.01,0.30);              // 枪托
+        gbox(g, 0.012,0.012,0.30, acc, 0.052,0,0);              // 描边
+        muzzleZ = -0.44;
+
+      } else if (w.id === 'rifle') {
+        gbox(g, 0.10,0.13,0.46, dark, 0,0,0);                    // 机匣
+        gbox(g, 0.085,0.09,0.30, mid, 0,0,-0.34);              // 护木
+        gcyl(g, 0.024,0.024,0.42, dark, 0,0.01,-0.52);         // 枪管
+        gcyl(g, 0.036,0.036,0.06, dark, 0,0.01,-0.70);         // 枪口
+        gbox(g, 0.05,0.022,0.42, mid, 0,0.08,-0.12);           // 顶部导轨
+        gbox(g, 0.06,0.07,0.10, dark, 0,0.12,0.0);             // 瞄具
+        gcyl(g, 0.03,0.03,0.02, acc, 0,0.12,-0.05);            // 瞄具镜片
+        gbox(g, 0.07,0.24,0.075, grip, 0,-0.17,0.04, 0.18);    // 弹匣(略弯)
+        gbox(g, 0.075,0.16,0.085, grip, 0,-0.12,0.17, 0.22);   // 握把
+        gbox(g, 0.07,0.12,0.22, mid, 0,-0.02,0.34);            // 枪托
+        gbox(g, 0.012,0.012,0.42, acc, 0.052,0,-0.1);          // 描边
+        muzzleZ = -0.73;
+
+      } else if (w.id === 'shotgun') {
+        gbox(g, 0.12,0.13,0.40, dark, 0,0,-0.02);               // 机匣
+        gcyl(g, 0.046,0.046,0.5, dark, 0,0.03,-0.45);          // 粗枪管
+        gcyl(g, 0.034,0.034,0.42, mid, 0,-0.04,-0.42);         // 弹仓管
+        gbox(g, 0.09,0.08,0.14, grip, 0,-0.05,-0.30);          // 泵
+        gbox(g, 0.075,0.16,0.10, grip, 0,-0.14,0.12, 0.2);     // 握把
+        gbox(g, 0.085,0.15,0.26, mid, 0,-0.02,0.30);           // 枪托
+        gbox(g, 0.014,0.014,0.5, acc, 0.062,0.03,-0.2);        // 描边
+        muzzleZ = -0.70;
+
+      } else if (w.id === 'sniper') {
+        gbox(g, 0.10,0.13,0.52, dark, 0,0,0);                   // 机匣
+        gcyl(g, 0.026,0.026,0.6, dark, 0,0.01,-0.55);         // 长枪管
+        gcyl(g, 0.045,0.045,0.09, dark, 0,0.01,-0.80);        // 枪口制退器
+        gbox(g, 0.08,0.14,0.30, mid, 0,-0.02,0.36);           // 枪托
+        gbox(g, 0.07,0.18,0.08, grip, 0,-0.14,0.06, 0.12);    // 弹匣
+        gbox(g, 0.075,0.15,0.09, grip, 0,-0.11,0.16, 0.2);    // 握把
+        var sm = gmat(0x14181d);                               // 大瞄准镜
+        gcyl(g, 0.05,0.05,0.30, sm, 0,0.11,-0.05);
+        gcyl(g, 0.055,0.055,0.02, gmat(0x9bdcff, 0x2a5570), 0,0.11,-0.21); // 物镜
+        gbox(g, 0.02,0.08,0.02, sm, 0,0.05,-0.04); gbox(g, 0.02,0.08,0.02, sm, 0,0.05,0.08);
+        gcyl(g, 0.012,0.012,0.20, sm, -0.03,-0.12,-0.55, 0.5); // 脚架腿
+        gcyl(g, 0.012,0.012,0.20, sm,  0.03,-0.12,-0.55,-0.5);
+        gbox(g, 0.012,0.012,0.55, acc, 0.052,0,-0.05);        // 描边
+        muzzleZ = -0.86;
+
+      } else if (w.isSuper && w.kind === 'mg') {       // 超级机枪：双管 + neon 瞄准镜
+        gbox(g, 0.14,0.16,0.5, gmat(0x07252b), 0,0,0);
+        gcyl(g, 0.03,0.03,0.36, dark, -0.04,0.02,-0.5);
+        gcyl(g, 0.03,0.03,0.36, dark,  0.04,0.02,-0.5);
+        gbox(g, 0.10,0.10,0.30, gmat(w.col, w.col), 0,0,-0.05);   // 发光核心
+        gbox(g, 0.09,0.22,0.09, grip, 0,-0.18,0.04);             // 大弹鼓
+        gbox(g, 0.08,0.16,0.09, grip, 0,-0.12,0.16, 0.18);
+        gcyl(g, 0.05,0.05,0.26, gmat(0x0c0f14), 0,0.13,-0.04);   // neon 瞄准镜
+        gcyl(g, 0.055,0.055,0.02, gmat(w.col, w.col), 0,0.13,-0.18);
+        muzzleZ = -0.72;
+
+      } else if (w.isSuper && w.kind === 'star') {     // 崩星炮：粗炮管 + 发光环
+        gbox(g, 0.16,0.16,0.34, gmat(0x2a2410), 0,0,0.05);
+        gcyl(g, 0.11,0.09,0.5, gmat(0x3a3320), 0,0,-0.4);       // 炮管
+        [-0.5,-0.62,-0.74].forEach(function (zz) { gcyl(g, 0.13,0.13,0.03, gmat(w.col, w.col), 0,0,zz); }); // 发光环
+        gbox(g, 0.10,0.16,0.10, gmat(w.col, w.col), 0,0,0.18);  // 充能核
+        gbox(g, 0.08,0.18,0.10, grip, 0,-0.16,0.10, 0.18);
+        muzzleZ = -0.82;
+
+      } else if (w.isSuper && w.kind === 'hole') {     // 黑洞炮：暗核 + 紫色环
+        gbox(g, 0.15,0.15,0.4, gmat(0x1a1030), 0,0,0.02);
+        gpart(g, new THREE.SphereGeometry(0.13,16,12), gmat(0x000000), 0,0,-0.42);  // 黑洞核
+        gpart(g, new THREE.TorusGeometry(0.16,0.03,8,24), gmat(w.col, w.col), 0,0,-0.42);
+        gpart(g, new THREE.TorusGeometry(0.20,0.02,8,24), gmat(w.col, w.col), 0,0,-0.36, Math.PI/2);
+        gbox(g, 0.10,0.14,0.12, gmat(w.col, w.col), 0,0,0.16);
+        gbox(g, 0.08,0.18,0.10, grip, 0,-0.16,0.08, 0.18);
+        muzzleZ = -0.58;
+
+      } else if (w.isSuper && w.kind === 'realm') {    // 秘境枪：水晶发射器 + 绿光
+        gbox(g, 0.13,0.14,0.42, gmat(0x0d2a20), 0,0,0.02);
+        gpart(g, new THREE.OctahedronGeometry(0.13,0), gmat(w.col, w.col), 0,0.02,-0.4); // 水晶
+        [-0.06,0.06].forEach(function (xx) { gbox(g, 0.02,0.10,0.26, gmat(0x16382c), xx,0.02,-0.36); }); // 棱
+        gcyl(g, 0.024,0.024,0.3, gmat(0x16382c), 0,0,-0.32);
+        gbox(g, 0.10,0.12,0.10, gmat(w.col, w.col), 0,0,0.16);
+        gbox(g, 0.08,0.18,0.10, grip, 0,-0.16,0.08, 0.18);
+        muzzleZ = -0.6;
+
+      } else {                                          // 兜底
+        gbox(g, 0.10,0.12,0.46, dark, 0,0,0);
+        gcyl(g, 0.026,0.026,0.4, dark, 0,0.01,-0.5);
+      }
+
+      g.userData.muzzleZ = muzzleZ;
+      return g;
+    }
+
     function buildViewGun() {
       if (viewGun) camera.remove(viewGun);
-      viewGun = new THREE.Group();
-      var w = activeWeapon();
-      var bodyMat = new THREE.MeshLambertMaterial({ color: w.isSuper ? 0x0a3340 : 0x222a32 });
-      var accMat  = new THREE.MeshLambertMaterial({ color:w.col, emissive: w.isSuper ? w.col : 0x000000,
-        emissiveIntensity: w.isSuper ? 0.6 : 0 });
-      var body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.5), bodyMat);
-      var barrel = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.55), accMat);
-      barrel.position.set(0, 0.01, -0.4);
-      viewGun.add(body); viewGun.add(barrel);
-      // 狙击加个瞄准镜，霰弹更粗，超级武器更夸张，区分手感
-      if (w.id === 'sniper') {
-        var scopeMat = new THREE.MeshLambertMaterial({ color:0x15191e });
-        var tube = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.28, 16), scopeMat);
-        tube.rotation.x = Math.PI/2; tube.position.set(0, 0.10, -0.05); viewGun.add(tube);
-        var lens = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.02, 16),
-          new THREE.MeshLambertMaterial({ color:0x9bdcff, emissive:0x244a66 }));
-        lens.rotation.x = Math.PI/2; lens.position.set(0, 0.10, -0.20); viewGun.add(lens);
-        [-0.04, 0.07].forEach(function (zz) {   // 两个支架
-          var m = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.02), scopeMat);
-          m.position.set(0, 0.05, zz); viewGun.add(m);
-        });
-      } else if (w.id === 'shotgun') {
-        body.scale.set(1.4,1.2,1.0);
-      } else if (w.isSuper) {
-        body.scale.set(1.5,1.3,1.1);
-        var fin = new THREE.Mesh(new THREE.BoxGeometry(0.04,0.18,0.3), accMat);
-        fin.position.set(0,0.12,-0.1); viewGun.add(fin);
-      }
+      viewGun = buildGunModel(activeWeapon());
 
       // 枪口闪光（贴在枪管口，默认隐藏，开火时闪一下）
       gunMuzzle = new THREE.Sprite(new THREE.SpriteMaterial({
         map:flashTex, color:0xffd9a0, transparent:true, blending:THREE.AdditiveBlending,
         depthTest:false, depthWrite:false, rotation:0 }));
-      gunMuzzle.position.set(0, 0.02, -0.72);
+      gunMuzzle.position.set(0, 0.02, (viewGun.userData.muzzleZ || -0.7) - 0.02);
       gunMuzzle.scale.setScalar(0.001);
       gunMuzzle.visible = false;
       viewGun.add(gunMuzzle);
@@ -590,25 +724,32 @@
       var color = (typeof colorHex === 'number') ? colorHex : 0xcccccc;
       var group = new THREE.Group();
       var bodyMat = new THREE.MeshLambertMaterial({ color:color });
+      var limbMat = new THREE.MeshLambertMaterial({ color:new THREE.Color(color).multiplyScalar(0.7) });
       var headMat = new THREE.MeshLambertMaterial({ color:0xf1d3b0 });
-      var body = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 1.2, 14), bodyMat);
-      body.position.y = 0.6;
-      var head = new THREE.Mesh(new THREE.SphereGeometry(0.30, 16, 12), headMat);
-      head.position.y = 1.5;
-      // 一个小"枪"指示朝向
-      var gun = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.6), new THREE.MeshLambertMaterial({ color:0x20262e }));
-      gun.position.set(0.28, 1.0, -0.35);
-      body.userData = { peerId:id, part:'body' };
-      head.userData = { peerId:id, part:'head' };
-      group.add(body); group.add(head); group.add(gun);
+
+      // 人形：头(命中×2) / 躯干(×1) / 四肢(×0.6)。每个部位是独立的射线检测网格。
+      function part(mesh, partName) { mesh.userData = { peerId:id, part:partName }; group.add(mesh); return mesh; }
+      var torso = part(new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.64, 0.30), bodyMat), 'body'); torso.position.y = 1.10;
+      var head  = part(new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), headMat), 'head'); head.position.y = 1.62;
+      var armL  = part(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.58, 0.16), limbMat), 'limb'); armL.position.set(-0.34, 1.10, 0);
+      var armR  = part(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.58, 0.16), limbMat), 'limb'); armR.position.set( 0.34, 1.10, 0);
+      var legL  = part(new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.80, 0.20), limbMat), 'limb'); legL.position.set(-0.13, 0.40, 0);
+      var legR  = part(new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.80, 0.20), limbMat), 'limb'); legR.position.set( 0.13, 0.40, 0);
+      var neck  = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.12,8), headMat); neck.position.y = 1.46; group.add(neck);
+      // 一个小"枪"指示朝向（非命中目标）
+      var gun = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.10,0.55), new THREE.MeshLambertMaterial({ color:0x20262e }));
+      gun.position.set(0.30, 1.05, -0.32); group.add(gun);
+
+      var parts = [torso, head, armL, armR, legL, legR, neck, gun];
 
       var label = makeLabelSprite();
-      label.position.y = 2.25;
+      label.position.y = 2.30;
       group.add(label);
 
       scene.add(group);
       r = remotes[id] = {
-        id:id, name:name || '???', color:color, group:group, body:body, head:head, label:label,
+        id:id, name:name || '???', color:color, group:group, parts:parts, head:head, label:label,
+        hitMeshes:[head, torso, armL, armR, legL, legR],
         pos:new THREE.Vector3(), target:new THREE.Vector3(), yaw:0, targetYaw:0,
         hp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now()
       };
@@ -625,6 +766,7 @@
         if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
       });
       delete remotes[id];
+      if (id === realmOpponent) exitRealm();   // 秘境对手掉线 → 结束对决回主场
     }
     function clearAllRemotes() { Object.keys(remotes).forEach(removeRemote); }
 
@@ -632,7 +774,7 @@
       var arr = [];
       for (var id in remotes) {
         var r = remotes[id];
-        if (r.alive) { arr.push(r.body); arr.push(r.head); }
+        if (r.alive) arr = arr.concat(r.hitMeshes);
       }
       return arr;
     }
@@ -879,14 +1021,15 @@
     }
 
     // 捡到 / 失去 超级武器
-    function pickupSuper() {
-      superActive = true; superAmmo = SUPER_WEAPON.mag; reloadUntil = 0; fireCooldown = 0;
+    function pickupSuper(kind) {
+      if (!SUPERS[kind]) kind = 'mg';
+      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag; reloadUntil = 0; fireCooldown = 0; ads = false;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
-      pickupSound(); showNotice('🔫 拿到 超级武器！100 发，打光为止');
+      pickupSound(); showNotice('🔫 拿到「' + SUPERS[kind].name + '」！' + SUPERS[kind].mag + ' 发，打光为止');
     }
     function dropSuper() {
       if (!superActive) return;
-      superActive = false; superAmmo = 0; reloadUntil = 0;
+      superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
     }
 
@@ -899,17 +1042,27 @@
 
       aimCamera();   // 直接点击开火时，确保用最新的视角方向做射线检测
       if (superActive) superAmmo--; else ammo[weaponIndex]--;
-      fireCooldown = now() + (60000 / w.rpm);
+      fireCooldown = now() + (60000 / w.rpm) * fireRateMul;
       shootSound(w);
       viewRecoil = Math.min(viewRecoil + w.kick, 0.12);   // 视角向上的后坐力
       gunKick = Math.min(gunKick + w.kick * 7 + 0.12, 1.3); // 枪械后坐（后顶 + 上抬）
       fireMuzzle();                                         // 枪口闪光
 
-      var spreadMul = 1 - adsAmt * 0.65;   // 开镜显著降低散布
+      var kind = superActive ? w.kind : null;
+      if (kind === 'star' || kind === 'realm') fireBeam(kind, w);  // 崩星炮 / 秘境枪：激光
+      else if (kind === 'hole')                fireBlackHole(w);   // 黑洞炮
+      else                                     fireHitscan(w);     // 普通武器 + 超级机枪
+
+      updateAmmoHud();
+      if (superActive) { if (superAmmo <= 0) dropSuper(); }     // 弹药打光 → 失去
+      else if (ammo[weaponIndex] <= 0) startReload();
+    }
+
+    // 普通 hitscan（含超级机枪）：逐颗弹丸射线 + 部位伤害 + 上报
+    function fireHitscan(w) {
+      var spreadMul = 1 - adsAmt * 0.65;
       var hitsThisShot = {};               // pid -> { dmg, head }
       for (var p = 0; p < w.pellets; p++) doPellet(w, spreadMul, hitsThisShot);
-
-      // 把一次开火对每个目标累计的伤害一次性上报（含是否爆头）
       var hitAny = false, anyHead = false, lastDmg = 0, lastPid = null;
       for (var pid in hitsThisShot) {
         var hi = hitsThisShot[pid];
@@ -921,10 +1074,6 @@
         if (anyHead) headshotSound(); else hitSound();
         lastHitInfo = { dmg: lastDmg, head: anyHead, target: lastPid };
       }
-
-      updateAmmoHud();
-      if (superActive) { if (superAmmo <= 0) dropSuper(); }     // 100 发打光 → 失去
-      else if (ammo[weaponIndex] <= 0) startReload();
     }
 
     var _ray = new THREE.Raycaster();
@@ -950,12 +1099,15 @@
         var h = hits[0]; end = h.point;
         var ud = h.object.userData || {};
         if (ud.peerId) {
-          var isHead = ud.part === 'head';                    // 命中头部 → 爆头加伤
-          var dmg = isHead ? Math.round(w.dmg * HEAD_MULT) : w.dmg;
+          // 部位倍率：头 ×2 > 躯干 ×1 > 四肢 ×0.6
+          var mult = ud.part === 'head' ? HEAD_MULT : ud.part === 'limb' ? LIMB_MULT : 1;
+          var isHead = ud.part === 'head';
+          var dmg = Math.round(w.dmg * mult);
           var cur = hitsThisShot[ud.peerId] || { dmg:0, head:false };
           cur.dmg += dmg; cur.head = cur.head || isHead;
           hitsThisShot[ud.peerId] = cur;
-          spawnGlow(end, isHead ? 0xff2222 : 0xff5544, isHead ? 0.62 : 0.5, 0.18);
+          var hcol = isHead ? 0xff2222 : (ud.part === 'limb' ? 0xffb347 : 0xff5544);
+          spawnGlow(end, hcol, isHead ? 0.62 : 0.5, 0.18);
         } else {
           spawnGlow(end, 0xffe6a0, 0.35, 0.15);  // 命中墙体/掩体
         }
@@ -993,13 +1145,185 @@
       noticeTimer = setTimeout(function () { el.style.opacity = '0'; }, 2600);
     }
 
-    // ------------------------------------------------------------------ 受伤 / 死亡 / 重生
+    // ============================================================ 超级武器特效（崩星炮 / 黑洞炮 / 秘境枪）
+    var beamSeq = 0, holeSeq = 0;
+    var _bf = new THREE.Vector3();
+
+    // 把默认沿 Y 轴的圆柱摆到从 origin 沿 dir 延伸 len 的位置
+    function orientCyl(mesh, origin, dir, len) {
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+      mesh.position.copy(origin).addScaledVector(dir, len/2);
+    }
+
+    // 发射激光（崩星炮=贯穿秒杀；秘境枪=只对第一人、拖入秘境）。都先有 0.7s 可见轨迹给反应时间。
+    function fireBeam(kind, w) {
+      var origin = camera.position.clone();
+      camera.getWorldDirection(_bf);
+      var msg = { type:'beam', from:me.id, bid:(me.id + '-' + (++beamSeq)), kind:kind, owner:me.id,
+        x:origin.x, y:origin.y, z:origin.z, dx:_bf.x, dy:_bf.y, dz:_bf.z, col:w.col };
+      spawnBeam(msg);     // 本地渲染（owner === me → 到点会结算伤害）
+      netSend(msg);       // 广播：所有人都看到这条轨迹
+    }
+    function spawnBeam(msg) {
+      var origin = new THREE.Vector3(msg.x, msg.y, msg.z);
+      var dir = new THREE.Vector3(msg.dx, msg.dy, msg.dz).normalize();
+      var len = 400;
+      var thin = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, len, 8),
+        new THREE.MeshBasicMaterial({ color:msg.col, transparent:true, opacity:0.5,
+          blending:THREE.AdditiveBlending, depthWrite:false }));
+      orientCyl(thin, origin, dir, len);
+      scene.add(thin);
+      beams.push({ bid:msg.bid, kind:msg.kind, owner:msg.owner, origin:origin, dir:dir, col:msg.col,
+        thin:thin, thick:null, len:len, fireAt:now() + BEAM_DELAY, resolved:false, deadAt:0,
+        isOwner:(msg.owner === me.id) });
+      if (msg.owner !== me.id) showNotice('⚠ 小心！有人在用' + (msg.kind === 'star' ? '崩星炮' : '秘境枪') + '瞄准！');
+    }
+    function updateBeams(dt) {
+      for (var i = beams.length - 1; i >= 0; i--) {
+        var b = beams[i];
+        if (!b.resolved && now() >= b.fireAt) {
+          b.resolved = true; b.deadAt = now() + 240;
+          // 轨迹变成粗激光闪一下
+          b.thick = new THREE.Mesh(new THREE.CylinderGeometry(BEAM_RADIUS, BEAM_RADIUS, b.len, 16),
+            new THREE.MeshBasicMaterial({ color:b.col, transparent:true, opacity:0.85,
+              blending:THREE.AdditiveBlending, depthWrite:false }));
+          orientCyl(b.thick, b.origin, b.dir, b.len);
+          scene.add(b.thick);
+          deathSound();
+          if (b.isOwner) resolveBeam(b);   // 只有发射者结算（用"现在"的位置，所以躲得开）
+        }
+        if (b.resolved) {
+          var k = (b.deadAt - now()) / 240;
+          if (b.thin) b.thin.material.opacity = Math.max(0, 0.5 * k);
+          if (b.thick) b.thick.material.opacity = Math.max(0, 0.85 * k);
+          if (k <= 0) { disposeBeam(b); beams.splice(i, 1); }
+        } else if (!reduced) {
+          b.thin.material.opacity = 0.35 + 0.22 * Math.sin(now() * 0.02);  // 蓄力闪烁
+        }
+      }
+    }
+    function disposeBeam(b) {
+      [b.thin, b.thick].forEach(function (m) { if (m) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
+    }
+    // 找出在无限激光圆柱内的远端玩家（按距离排序）
+    function beamTargets(origin, dir) {
+      var out = [];
+      for (var id in remotes) {
+        var r = remotes[id]; if (!r.alive) continue;
+        var cx = r.group.position.x, cy = r.group.position.y + 1.0, cz = r.group.position.z;
+        var ox = cx - origin.x, oy = cy - origin.y, oz = cz - origin.z;
+        var t = ox*dir.x + oy*dir.y + oz*dir.z;          // 沿激光方向的投影
+        if (t <= 0) continue;                             // 在身后
+        var px = origin.x + dir.x*t, py = origin.y + dir.y*t, pz = origin.z + dir.z*t;
+        var d = Math.sqrt((cx-px)*(cx-px) + (cy-py)*(cy-py) + (cz-pz)*(cz-pz));
+        if (d < BEAM_RADIUS + 0.55) out.push({ id:id, t:t });
+      }
+      out.sort(function (a, b) { return a.t - b.t; });
+      return out;
+    }
+    function resolveBeam(b) {
+      var hits = beamTargets(b.origin, b.dir);
+      if (b.kind === 'star') {                 // 崩星炮：贯穿一切，全部秒杀
+        for (var i = 0; i < hits.length; i++) sendHit(hits[i].id, 9999, 'super_star', false);
+        if (hits.length) { showHitmarker(false); hitSound(); }
+      } else if (b.kind === 'realm') {         // 秘境枪：只对第一个命中的人，1v1
+        if (hits.length) startRealmDuel(hits[0].id);
+      }
+    }
+    function startRealmDuel(victimId) {
+      var hPos = REALM_CENTER.clone().add(new THREE.Vector3(-6, 0, 0));
+      var vPos = REALM_CENTER.clone().add(new THREE.Vector3( 6, 0, 0));
+      netSend({ type:'realm_start', from:me.id, holder:me.id, victim:victimId,
+        hx:hPos.x, hy:hPos.y, hz:hPos.z, vx:vPos.x, vy:vPos.y, vz:vPos.z });
+      enterRealm(victimId, hPos, true);
+    }
+
+    // 黑洞炮：发射一个黑洞，飞一会停下，停留 3 秒消散；附近的人被吸入处死（发射者免疫自己的黑洞）
+    function fireBlackHole(w) {
+      var origin = camera.position.clone();
+      camera.getWorldDirection(_bf);
+      origin.addScaledVector(_bf, 1.6); origin.y = 1.2;
+      var msg = { type:'blackhole', from:me.id, hid:(me.id + '-' + (++holeSeq)), owner:me.id,
+        x:origin.x, y:origin.y, z:origin.z, dx:_bf.x, dy:0, dz:_bf.z };
+      spawnBlackHole(msg); netSend(msg);
+    }
+    function makeBlackHoleMesh() {
+      var g = new THREE.Group();
+      var core = new THREE.Mesh(new THREE.SphereGeometry(0.9, 20, 16),
+        new THREE.MeshBasicMaterial({ color:0x000000 }));
+      g.add(core);
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.16, 10, 32),
+        new THREE.MeshBasicMaterial({ color:0xb14dff, transparent:true, opacity:0.9,
+          blending:THREE.AdditiveBlending, depthWrite:false }));
+      g.add(ring); g.userData.ring = ring;
+      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9b59ff,
+        transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      glow.scale.setScalar(4.5); g.add(glow);
+      return g;
+    }
+    function spawnBlackHole(msg) {
+      var dir = new THREE.Vector3(msg.dx, 0, msg.dz); if (dir.lengthSq() < 1e-6) dir.set(0,0,-1); dir.normalize();
+      var mesh = makeBlackHoleMesh();
+      mesh.position.set(msg.x, msg.y, msg.z);
+      scene.add(mesh);
+      blackholes.push({ hid:msg.hid, owner:msg.owner, start:new THREE.Vector3(msg.x, msg.y, msg.z),
+        dir:dir, mesh:mesh, spawnAt:now() });
+      if (msg.owner !== me.id) showNotice('🌀 黑洞来了！离它远点！');
+    }
+    function updateBlackHoles(dt) {
+      for (var i = blackholes.length - 1; i >= 0; i--) {
+        var bh = blackholes[i];
+        var el = (now() - bh.spawnAt) / 1000;
+        if (el > HOLE_TRAVEL + HOLE_HOLD) { disposeBlackHole(bh); blackholes.splice(i, 1); continue; }
+        // 位置：先飞 HOLE_TRAVEL 秒，然后停住
+        var travel = Math.min(el, HOLE_TRAVEL);
+        var px = bh.start.x + bh.dir.x * HOLE_SPEED * travel;
+        var pz = bh.start.z + bh.dir.z * HOLE_SPEED * travel;
+        px = Math.max(-28, Math.min(28, px)); pz = Math.max(-28, Math.min(28, pz));
+        bh.mesh.position.set(px, bh.start.y, pz);
+        if (!reduced) { bh.mesh.rotation.y += dt * 3; if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 5; }
+        // 快消散时缩小
+        var fade = el > HOLE_TRAVEL + HOLE_HOLD - 0.5 ? Math.max(0.2, (HOLE_TRAVEL + HOLE_HOLD - el) / 0.5) : 1;
+        bh.mesh.scale.setScalar(fade);
+        // 吸入 + 处死（只判定本机玩家；发射者对自己的黑洞免疫；已激活 0.4s 后才致命）
+        if (me.alive && !paused && bh.owner !== me.id) {
+          var dx = playerPos.x - px, dz = playerPos.z - pz;
+          var d = Math.sqrt(dx*dx + dz*dz);
+          if (d < HOLE_SUCK_R) {
+            var pull = (HOLE_SUCK_R - d) / HOLE_SUCK_R;             // 越近吸力越强
+            var step = Math.min(d, pull * 9 * dt);
+            if (d > 0.001) { playerPos.x -= (dx / d) * step; playerPos.z -= (dz / d) * step; }
+            if (d < HOLE_KILL_R && el > 0.4) die(bh.owner, 'super_hole', false);
+          }
+        }
+      }
+    }
+    function disposeBlackHole(bh) {
+      scene.remove(bh.mesh);
+      bh.mesh.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    }
+    function clearAllEffects() {
+      for (var i = beams.length - 1; i >= 0; i--) disposeBeam(beams[i]);
+      beams.length = 0;
+      for (var j = blackholes.length - 1; j >= 0; j--) disposeBlackHole(blackholes[j]);
+      blackholes.length = 0;
+    }
+
+    // ------------------------------------------------------------------ 受伤 / 死亡 / 重生 / 回血
     function applyDamage(dmg, byId, weapon, head) {
       if (!me.alive) return;
       me.hp -= dmg;
+      lastDamageAt = now();    // 受伤计时：重新开始等 8 秒才回血
       flashDamage();
       updateHpHud();
       if (me.hp <= 0) { me.hp = 0; die(byId, weapon, !!head); }
+    }
+    // 回血：alive 且未满血，且距上次受伤 > 8s → 8s 回满
+    function updateRegen(dt) {
+      if (!me.alive || me.hp >= maxHp) return;
+      if (now() - lastDamageAt < REGEN_DELAY) return;
+      me.hp = Math.min(maxHp, me.hp + dt * (maxHp / (REGEN_FULL / 1000)));
+      updateHpHud();
     }
     function flashDamage() {
       var f = document.getElementById('dmgflash');
@@ -1019,12 +1343,38 @@
       updateScoreboard();
     }
     function respawn() {
-      me.alive = true; me.hp = 100;
-      playerPos.copy(randomSpawn()); vy = 0;
+      me.alive = true;
+      vy = 0;
       for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;
       dropSuper();             // 重生用普通武器
+      if (inRealm) exitRealm(); // 在秘境里死亡 → 回到主竞技场
+      else { me.hp = 100; maxHp = 100; playerPos.copy(randomSpawn()); }
+      lastDamageAt = now();
       document.getElementById('deathmsg').style.display = 'none';
       updateHpHud(); updateAmmoHud();
+    }
+
+    // ------------------------------------------------------------------ 秘境 1v1
+    function enterRealm(opponentId, myPos, asHolder) {
+      inRealm = true; realmOpponent = opponentId;
+      dropSuper(); ads = false;
+      playerPos.copy(myPos); vy = 0;
+      yaw = asHolder ? -Math.PI/2 : Math.PI/2; pitch = 0;   // 面朝对手
+      for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;  // 秘境里用初始武器，弹匣装满
+      if (asHolder) { maxHp = 200; me.hp = 200; fireRateMul = 0.55; }  // 持枪者：200血 + 更快射速
+      else          { maxHp = 100; me.hp = 100; fireRateMul = 1; }
+      lastDamageAt = now();
+      updateHpHud(); updateWeaponHud(); updateAmmoHud();
+      showNotice(asHolder ? '⚔ 进入秘境！200 血 + 高射速，干掉对手！' : '⚔ 你被拖入秘境！1v1 决生死！');
+    }
+    function exitRealm() {
+      if (!inRealm) return;
+      inRealm = false; realmOpponent = null;
+      maxHp = 100; me.hp = 100; fireRateMul = 1;
+      playerPos.copy(randomSpawn()); vy = 0;
+      lastDamageAt = now();
+      updateHpHud(); updateWeaponHud(); updateAmmoHud();
+      showNotice('🏁 秘境结束，回到战场');
     }
 
     // ------------------------------------------------------------------ 计分 / 击杀提示
@@ -1080,23 +1430,26 @@
 
     // ------------------------------------------------------------------ HUD
     function updateHpHud() {
-      var pct = Math.max(0, me.hp);
+      var pct = Math.max(0, Math.min(100, me.hp / maxHp * 100));
       document.getElementById('hpbar').style.width = pct + '%';
-      document.getElementById('hpnum').textContent = 'HP ' + Math.round(me.hp);
+      document.getElementById('hpnum').textContent = 'HP ' + Math.round(me.hp) + (maxHp !== 100 ? (' / ' + maxHp) : '');
     }
     function updateAmmoHud() {
       var w = activeWeapon();
       document.getElementById('ammo').innerHTML = activeAmmo() + '<span class="res"> / ' + w.mag + '</span>';
     }
+    function weaponDesc(w) {
+      if (w.kind === 'star')  return '蓄力 0.7s · 贯穿一切 · 碰到即死';
+      if (w.kind === 'hole')  return '发射黑洞 · 吸入即死';
+      if (w.kind === 'realm') return '命中第一人 → 拖入秘境 1v1';
+      return (w.auto ? '全自动' : '单发') + ' · 伤害' + w.dmg + (w.pellets>1?('×'+w.pellets):'') + '（爆头×' + HEAD_MULT + '）';
+    }
     function updateWeaponHud() {
       var w = activeWeapon();
-      document.getElementById('wepname').innerHTML = esc(w.name) +
-        ' <small>' + (w.auto ? '全自动' : '单发') + ' · 伤害' + w.dmg + (w.pellets>1?('×'+w.pellets):'') +
-        '（爆头×' + HEAD_MULT + '）</small>';
+      document.getElementById('wepname').innerHTML = esc(w.name) + ' <small>' + esc(weaponDesc(w)) + '</small>';
       var slots;
       if (superActive) {
-        // 持超级武器时，武器槽显示单个高亮的超级武器
-        slots = '<div class="slot active super"><b>★</b>' + esc(SUPER_WEAPON.name) + '</div>';
+        slots = '<div class="slot active super"><b>★</b>' + esc(w.name) + '</div>';
       } else {
         slots = WEAPONS.map(function (ww, i) {
           return '<div class="slot' + (i===weaponIndex?' active':'') + '"><b>' + (i+1) + '</b>' + esc(ww.name) + '</div>';
@@ -1225,6 +1578,7 @@
       netStatus('与主机断开，重连中…', 'warn');
       clearAllRemotes();
       removeSuperPickup();   // 主机走了，旧的超级武器道具失效，避免残留
+      clearAllEffects();
       for (var k in scores) delete scores[k];
       updateScoreboard();
       becomeHostAfterHostGone();
@@ -1268,12 +1622,25 @@
           updateKill(msg.killer, msg.victim, msg.weapon, msg.head);
           // 远端小人进入死亡态（短暂），等其 state 同步重生
           var rr = remotes[msg.victim]; if (rr) { rr.alive = false; rr.labelDirty = true; }
+          // 秘境对决：对手死了 → 我赢了 → 回到主战场
+          if (inRealm && msg.victim === realmOpponent) exitRealm();
           break;
         case 'super_spawn':           // 主机通知：地图上刷新了超级武器
           applySuperSpawn(msg);
           break;
         case 'super_taken':           // 有人捡走了超级武器 → 移除地图上的它
           if (msg.sid === superSid) removeSuperPickup();
+          break;
+        case 'beam':                  // 崩星炮 / 秘境枪 的激光轨迹（所有人都看得到）
+          spawnBeam(msg);
+          break;
+        case 'blackhole':             // 黑洞炮
+          spawnBlackHole(msg);
+          break;
+        case 'realm_start':           // 被秘境枪命中 → 被拖入 1v1
+          if (msg.victim === me.id) {
+            enterRealm(msg.holder, new THREE.Vector3(msg.vx, msg.vy, msg.vz), false);
+          }
           break;
         case 'leave':
           removeRemote(msg.from); delete scores[msg.from]; updateScoreboard();
@@ -1282,6 +1649,7 @@
     }
 
     function sendHit(victimId, dmg, weaponId, head) {
+      if (TEST) lastSentHits.push({ to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
       netSend({ type:'hit', from:me.id, to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
     }
 
@@ -1313,24 +1681,25 @@
       }
       return { x:0, y:1.3, z:0 };
     }
-    function makeSuperPickup() {
+    function makeSuperPickup(kind) {
+      var col = (SUPERS[kind] || SUPERS.mg).col;
       var g = new THREE.Group();
-      var core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0),
-        new THREE.MeshLambertMaterial({ color:SUPER_WEAPON.col, emissive:SUPER_WEAPON.col, emissiveIntensity:0.8 }));
+      var core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0),
+        new THREE.MeshLambertMaterial({ color:col, emissive:col, emissiveIntensity:0.85 }));
       g.add(core);
-      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:SUPER_WEAPON.col,
+      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col,
         transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-      glow.scale.setScalar(2.2); g.add(glow);
-      g.userData.core = core;
+      glow.scale.setScalar(2.4); g.add(glow);
+      g.userData.core = core; g.userData.kind = kind;
       return g;
     }
     function applySuperSpawn(msg) {
       removeSuperPickup();
       superSid = msg.sid;
-      superMesh = makeSuperPickup();
+      superMesh = makeSuperPickup(msg.kind);
       superMesh.position.set(msg.x, msg.y, msg.z);
       scene.add(superMesh);
-      showNotice('⚡ 超级武器出现了！冲过去捡！');
+      showNotice('⚡「' + (SUPERS[msg.kind] || SUPERS.mg).name + '」出现了！冲过去捡！');
     }
     function removeSuperPickup() {
       if (!superMesh) return;
@@ -1341,23 +1710,24 @@
       });
       superMesh = null;
     }
-    // 仅主机生成：随机位置 + 自增 sid，本地渲染并广播
+    // 仅主机生成：随机位置 + 随机类型 + 自增 sid，本地渲染并广播
     function hostSpawnSuper() {
       superSid++;
       var pos = randomSuperPos();
-      var msg = { type:'super_spawn', from:me.id, sid:superSid, x:pos.x, y:pos.y, z:pos.z };
+      var kind = SUPER_KINDS[Math.floor(Math.random() * SUPER_KINDS.length)];
+      var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:kind, x:pos.x, y:pos.y, z:pos.z };
       applySuperSpawn(msg);
       netSend(msg);
     }
     // 每帧检查：走到拾取物附近就捡起（任何人都可以捡，先到先得）
     function checkSuperPickup() {
-      if (!superMesh || !me.alive || paused) return;
+      if (!superMesh || !me.alive || paused || superActive || inRealm) return;
       var dx = playerPos.x - superMesh.position.x, dz = playerPos.z - superMesh.position.z;
       if (dx*dx + dz*dz < 1.8*1.8) {
-        var sid = superSid;
+        var sid = superSid, kind = superMesh.userData.kind;
         removeSuperPickup();
         netSend({ type:'super_taken', from:me.id, sid:sid });
-        pickupSuper();
+        pickupSuper(kind);
       }
     }
 
@@ -1367,7 +1737,7 @@
       if (joinDone) return; joinDone = true;
       // 第一个 state 出去，并以 STATE_HZ 周期广播
       setInterval(sendState, Math.round(1000 / STATE_HZ));
-      // 超级武器：只有主机负责生成（首个稍早出现，之后每 30 秒一个）
+      // 超级武器：只有主机负责生成（首个稍早出现，之后每 40 秒一个，类型随机）
       setTimeout(function () { if (isHost) hostSpawnSuper(); }, 12000);
       setInterval(function () { if (isHost) hostSpawnSuper(); }, SUPER_INTERVAL);
     }
@@ -1427,8 +1797,10 @@
     }
 
     function collides(x, z) {
-      // 场地边界
-      if (x < -29.5 || x > 29.5 || z < -29.5 || z > 29.5) return true;
+      // 场地边界（秘境里用秘境平台的边界）
+      var bx = inRealm ? REALM_CENTER.x : 0, bz = inRealm ? REALM_CENTER.z : 0;
+      var lim = inRealm ? 17.5 : 29.5;
+      if (x < bx - lim || x > bx + lim || z < bz - lim || z > bz + lim) return true;
       for (var i = 0; i < solidBoxes.length; i++) {
         var b = solidBoxes[i];
         if (x > b.min.x - PLAYER_R && x < b.max.x + PLAYER_R &&
@@ -1451,7 +1823,7 @@
         while (dy >  Math.PI) dy -= Math.PI*2;
         while (dy < -Math.PI) dy += Math.PI*2;
         r.group.rotation.y += dy * k;
-        r.body.visible = r.head.visible = r.alive;
+        for (var pi = 0; pi < r.parts.length; pi++) r.parts[pi].visible = r.alive;
         if (r.labelDirty) { drawLabel(r.label, r.name, r.hp, r.alive); r.labelDirty = false; }
         // 长时间没收到状态（非正常离开）→ 移除
         if (t - r.lastSeen > 6000) { removeRemote(id); delete scores[id]; updateScoreboard(); }
@@ -1565,6 +1937,7 @@
         }
         document.getElementById('reloading').textContent = (now() < reloadUntil) ? '换弹中…' : '';
 
+        updateRegen(dt);                   // 受伤 8 秒后开始回血
         updateViewBobAndGun(dt);           // 走路头部摆动 + 武器摇晃/后坐/换弹/开镜动画
 
         // 超级武器拾取物：旋转 + 上下浮动
@@ -1582,6 +1955,8 @@
 
       updateRemotes(dt);
       updateFx(dt);
+      updateBeams(dt);          // 崩星/秘境 激光轨迹与结算
+      updateBlackHoles(dt);     // 黑洞移动 / 吸入 / 处死
       tickKillfeed();
 
       renderer.render(scene, camera);
@@ -1637,9 +2012,20 @@
           crosshairOpacity:function(){ var e=document.getElementById('crosshair'); return e?parseFloat(e.style.opacity||'1'):1; },
           gunVisible:function(){ return viewGun ? viewGun.visible : null; },
           lastHit:function(){ return lastHitInfo; },
-          spawnSuperAt:function(x,z){ applySuperSpawn({ sid: superSid+1, x:x, y:1.3, z:z }); },
-          superInfo:function(){ return { active:superActive, ammo:superAmmo, onMap: !!superMesh }; },
-          setSuperAmmo:function(n){ superAmmo = n; updateAmmoHud(); }
+          spawnSuperAt:function(x,z,kind){ applySuperSpawn({ sid: superSid+1, kind:kind||'mg', x:x, y:1.3, z:z }); },
+          superInfo:function(){ return { active:superActive, kind:superKind, ammo:superAmmo, onMap: !!superMesh }; },
+          setSuperAmmo:function(n){ superAmmo = n; updateAmmoHud(); }, drop:function(){ dropSuper(); },
+          // 回血
+          setHp:function(n){ me.hp = n; updateHpHud(); }, maxHp:function(){ return maxHp; },
+          damageNow:function(){ lastDamageAt = now(); }, forceRegenReady:function(){ lastDamageAt = now() - REGEN_DELAY - 50; },
+          // 命中上报记录（崩星炮/部位伤害用）
+          sentHits:function(){ return lastSentHits.slice(); }, clearSentHits:function(){ lastSentHits.length = 0; },
+          setPos:function(x,z){ playerPos.set(x, EYE, z); },
+          // 黑洞 / 秘境
+          holeCount:function(){ return blackholes.length; }, beamCount:function(){ return beams.length; },
+          fireRealmAt:function(id){ startRealmDuel(id); },
+          realmInfo:function(){ return { inRealm:inRealm, opponent:realmOpponent, hp:me.hp, maxHp:maxHp,
+            x:playerPos.x, z:playerPos.z, fireRateMul:fireRateMul }; }
         };
         animate();
       } catch (err) {
