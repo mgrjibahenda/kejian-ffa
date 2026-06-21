@@ -438,10 +438,18 @@
       tsunami: { kind:'tsunami', id:'super_tsunami', name:'排山倒海手', dmg:0,    rpm:20,   mag:1,   auto:false, spread:0,     pellets:1, range:60,   reload:0, kick:0.08,  col:0x2ec5ff, zoom:0.9,  isSuper:true },
       // ===== 仙器（远超超级武器的特效；10% 概率刷出，67 工具也能解锁）=====
       roar:    { kind:'roar',  id:'xian_roar',  name:'崩星咆哮炮',   dmg:10000, rpm:18, mag:5,  auto:false, spread:0, pellets:1, range:9999, reload:0, kick:0.06, col:0xff4dd8, zoom:0.75, isSuper:true, isXian:true },
-      blade:   { kind:'blade', id:'xian_blade', name:'青龙偃月刀',   dmg:3000,  rpm:60, mag:1,  auto:false, spread:0, pellets:1, range:12,   reload:0, kick:0.0,  col:0x33ff88, zoom:1.0,  isSuper:true, isXian:true, melee:true }
+      blade:   { kind:'blade', id:'xian_blade', name:'青龙偃月刀',   dmg:3000,  rpm:60, mag:1,  auto:false, spread:0, pellets:1, range:12,   reload:0, kick:0.0,  col:0x33ff88, zoom:1.0,  isSuper:true, isXian:true, melee:true },
+      // ===== 机甲：捡到→第6格→左键穿上(不可脱)，移速-30%，巨大模型，自带武器 =====
+      mecha:    { kind:'mecha',    id:'super_mecha',   name:'超级机甲', dmg:100, rpm:48, mag:15, auto:false, spread:0.012, pellets:1, range:130, reload:0, kick:0.05, col:0xff9a3c, zoom:0.98, isSuper:true, isMecha:true, hp:1000,  speedMul:0.7 },
+      godmecha: { kind:'godmecha', id:'xian_godmecha', name:'终焉机神', dmg:120, rpm:90, mag:50, auto:true,  spread:0.012, pellets:1, range:180, reload:0, kick:0.05, col:0xff2d6e, zoom:0.98, isSuper:true, isXian:true, isMecha:true, hp:10000, speedMul:0.7 }
     };
-    var SUPER_KINDS = ['mg','star','hole','realm','tsunami'];   // 普通超级武器(洗牌袋，等概率)
-    var XIAN_KINDS  = ['roar','blade'];                          // 仙器
+    var SUPER_KINDS = ['mg','star','hole','realm','tsunami','mecha'];   // 普通超级武器(洗牌袋，等概率)
+    var XIAN_KINDS  = ['roar','blade','godmecha'];                       // 仙器
+    // 机甲参数
+    var MECHA_SCALE = 2.4, GODMECHA_SCALE = 4.4;   // 放大倍率(终焉机神更大；不取字面10x否则填满地图)
+    var GREN_R = 6, GREN_SPEED = 34, GREN_LIFE = 2.4, GREN_GRAV = 22;   // 榴弹：AoE半径/初速/寿命/重力
+    var MELT_R = 9;                                  // 熔炮榴弹爆炸更大
+    var BURST_KILL_R = 7;                            // 终焉机神·爆地 巨剑范围(比偃月刀小很多)
     var ALL_SUPER_KINDS = SUPER_KINDS.concat(XIAN_KINDS);        // 测试模式滚轮可切的全部
 
     // 仙器特效参数
@@ -499,12 +507,13 @@
     // 超级武器状态
     var superActive = false, superAmmo = 0, superKind = null;
     var superPickups = {}, superSid = 0, superBag = [];   // 地图上的超级武器拾取物(sid -> mesh，可多个)
+    var mechaWorn = false, mechaWeapon = 0, grenades = [], grenSeq = 0;   // 机甲：是否穿上 / 当前武器(0=榴弹炮/熔炮 1=爆地巨剑) / 飞行榴弹
     var lastHitInfo = null, lastSentHits = [];   // 最近一次命中（含部位）/ 已上报的命中，供自测用
     // 特效实体 + 秘境对决状态 + 被巨浪卷起翻滚
     var beams = [], blackholes = [], tsunamis = [];
     var inRealm = false, realmOpponent = null, maxHp = 100, realmEnteredAt = 0;
     var tumbleUntil = 0, tumbleStart = 0, tumbleKiller = null;
-    var slamUntil = 0, slamStart = 0, bladeReadyAt = 0, lastHeartAt = 0;   // 青龙偃月刀：挥砍锁定 / 冷却；心跳计时
+    var slamUntil = 0, slamStart = 0, bladeReadyAt = 0, lastHeartAt = 0, burstSlam = false;   // 青龙偃月刀/爆地：挥砍锁定 / 冷却；心跳计时
 
     // 当前生效的武器/弹药（普通武器 or 超级武器）
     function activeWeapon() { return superActive ? SUPERS[superKind] : WEAPONS[weaponIndex]; }
@@ -772,12 +781,27 @@
 
     function buildGunModel(w) {
       var g = new THREE.Group();
+      if (w.isMecha) { buildMechaViewModel(g, w); return g; }
       // 零件表对普通枪按 id 取(pistol…)，对超级武器/仙器按 kind 取(star/roar…，因其 id 是 super_star/xian_roar)
       var d = GUN_PARTS[w.id] || (w.kind ? GUN_PARTS[w.kind] : null);
       if (d) { buildFromParts(g, d.parts, w); g.userData.muzzleZ = d.muzzleZ; return g; }
       var dark = gmat(0x171c22);                       // 兜底
       gbox(g, 0.10,0.12,0.46, dark, 0,0,0); gcyl(g, 0.026,0.026,0.4, dark, 0,0.01,-0.5);
       g.userData.muzzleZ = -0.7; return g;
+    }
+    // 机甲第一人称：巨大手炮(榴弹炮/熔炮) 或 爆地巨剑(终焉机神武器2)
+    function buildMechaViewModel(g, w) {
+      var col = w.col, big = (w.kind === 'godmecha');
+      var metal = gmat(0x2b313b), darkm = gmat(0x14171c), glow = gmat(col, col);
+      gbox(g, 0.36, 0.36, 0.5, metal, 0.04, -0.04, 0.16);         // 前臂/机匣
+      gbox(g, 0.42, 0.16, 0.22, darkm, 0.04, 0.16, 0.18);         // 顶部装甲
+      gbox(g, 0.1, 0.1, 0.46, darkm, 0.22, 0, 0.0, 0,0,0);        // 侧导轨
+      gcyl(g, 0.19, 0.16, 0.74, darkm, 0.04, -0.02, -0.42);       // 粗炮管
+      gcyl(g, 0.24, 0.24, 0.12, metal, 0.04, -0.02, -0.78);       // 炮口
+      [-0.52,-0.64,-0.76].forEach(function (zz) { gcyl(g, 0.21, 0.21, 0.04, glow, 0.04, -0.02, zz); });   // 发光环
+      gpart(g, new THREE.SphereGeometry(big?0.18:0.15, 14, 12), glow, 0.04, -0.02, 0.14);   // 发光弹巢
+      gbox(g, 0.12, 0.28, 0.16, darkm, 0.04, -0.26, 0.2);         // 握把
+      g.userData.muzzleZ = -0.82;
     }
 
     function buildViewGun() {
@@ -887,7 +911,8 @@
         armL:armL.pivot, armR:armR.pivot, legL:legL.pivot, legR:legR.pivot,
         runPhase:0, deathLean:0, lastX:0, lastZ:0,
         pos:new THREE.Vector3(), target:new THREE.Vector3(), yaw:0, targetYaw:0,
-        hp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now()
+        hp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now(),
+        bodyMat:bodyMat, limbMat:limbMat, headMat:headMat, baseColor:color, mecha:null   // 机甲化时改色/放大
       };
       setRemoteWeapon(r, 'pistol');
       drawLabel(label, r.name, 100, true);
@@ -897,6 +922,24 @@
       for (var i = 0; i < WEAPONS.length; i++) if (WEAPONS[i].id === wid) return WEAPONS[i];
       for (var k in SUPERS) if (SUPERS[k].id === wid) return SUPERS[k];
       return null;
+    }
+    // 远端机甲化：放大 + 金属暗色躯体 + 发光遮罩(机甲色)
+    function applyRemoteMecha(r, kind) {
+      if (r.mecha === kind) return;
+      r.mecha = kind || null;
+      var s = kind === 'godmecha' ? GODMECHA_SCALE : kind === 'mecha' ? MECHA_SCALE : 1;
+      r.group.scale.setScalar(s);
+      if (kind) {
+        var mcol = (SUPERS[kind] && SUPERS[kind].col) || 0xff9a3c;
+        r.bodyMat.color.setHex(0x20242b); r.bodyMat.metalness = 0.7; r.bodyMat.roughness = 0.4;
+        r.bodyMat.emissive.setHex(mcol); r.bodyMat.emissiveIntensity = 0.6;
+        r.limbMat.color.setHex(0x14171c); r.limbMat.metalness = 0.7; r.limbMat.roughness = 0.45;
+        r.headMat.color.setHex(0x101317); r.headMat.emissive.setHex(mcol); r.headMat.emissiveIntensity = 2.0;   // 发光遮罩
+      } else {
+        r.bodyMat.color.setHex(r.baseColor); r.bodyMat.metalness = 0.04; r.bodyMat.roughness = 0.85; r.bodyMat.emissive.setHex(0); r.bodyMat.emissiveIntensity = 0;
+        r.limbMat.color.set(new THREE.Color(r.baseColor).multiplyScalar(0.7)); r.limbMat.metalness = 0.04; r.limbMat.roughness = 0.85;
+        r.headMat.color.setHex(0xf1d3b0); r.headMat.emissive.setHex(0); r.headMat.emissiveIntensity = 0;
+      }
     }
     // 远端玩家切换武器 → 重建手中的武器模型
     function setRemoteWeapon(r, wid) {
@@ -1140,6 +1183,23 @@
       nz(t, 0.04, 'highpass', 3000, 0, 0.5, 0.04);          // 碎裂脆响
       nz(t, 0.5, 'bandpass', 820, 0.8, 0.4, 0.5);           // 碎石滚落
     }
+    function mechaStompSound() {  // 穿上机甲/重踏：超低频砸地 + 金属铿锵
+      if (!actx || muted) return; var t = actx.currentTime;
+      nz(t, 0.5, 'lowpass', 380, 0, 0.95, 0.5, 55, true);
+      nz(t + 0.02, 0.18, 'bandpass', 1700, 8, 0.4, 0.18);   // 金属共鸣
+      nz(t + 0.05, 0.22, 'bandpass', 900, 5, 0.35, 0.22);
+    }
+    function grenadeSound(big) {   // 发射榴弹：低沉发射"咚"
+      if (!actx || muted) return; var t = actx.currentTime;
+      nz(t, big?0.16:0.12, 'lowpass', big?420:560, 0, big?0.6:0.5, big?0.16:0.12, big?150:200, true);
+      nz(t, 0.02, 'highpass', 2600, 0, 0.25, 0.02);
+    }
+    function explosionSound(big) { // 爆炸：厚重低频轰 + 爆响 + 碎裂
+      if (!actx || muted) return; var t = actx.currentTime;
+      nz(t, big?0.8:0.55, 'lowpass', big?800:700, 0, big?1.0:0.85, big?0.8:0.55, big?60:75, true);
+      nz(t, 0.035, 'highpass', 3800, 0, 0.7, 0.035);
+      nz(t, big?0.5:0.4, 'bandpass', 900, 0.7, big?0.45:0.38, big?0.5:0.4);
+    }
 
     // ------------------------------------------------------------------ 测试模式（密码 67）
     // 装备某把超级武器/仙器（无限子弹）。测试模式下用鼠标滚轮切换，下方武器栏显示全部。
@@ -1355,7 +1415,15 @@
 
     // ------------------------------------------------------------------ 武器逻辑
     function selectWeapon(i) {
-      if (superActive) return;          // 持超级武器时锁定，不能换枪
+      // 终焉机神穿上后：1=熔炮 2=爆地巨剑，可切换
+      if (mechaWorn && superKind === 'godmecha') {
+        var mw = (i <= 0) ? 0 : 1;
+        if (mw === mechaWeapon) return;
+        mechaWeapon = mw; reloadUntil = 0; fireCooldown = now() + 200;
+        buildViewGun(); updateWeaponHud();
+        return;
+      }
+      if (superActive) return;          // 持超级武器/机甲时锁定，不能换基础枪
       if (i === weaponIndex) return;
       weaponIndex = i; reloadUntil = 0; document.getElementById('reloading').textContent = '';
       buildViewGun(); updateWeaponHud();
@@ -1383,7 +1451,15 @@
     function dropSuper() {
       if (!superActive) return;
       superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0; cheatInfinite = false;
+      if (mechaWorn) { mechaWorn = false; mechaWeapon = 0; maxHp = 100; if (me.hp > 100) me.hp = 100; updateHpHud(); }
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
+    }
+    function wearMecha(kind) {                 // 穿上机甲：变大、移速-30%、巨量血、自带武器
+      mechaWorn = true; mechaWeapon = 0;
+      maxHp = SUPERS[kind].hp; me.hp = maxHp; updateHpHud();
+      ads = false; reloadUntil = 0; fireCooldown = now() + 400;
+      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+      mechaStompSound(); shake = Math.min(shake + 0.45, 0.55);
     }
 
     function tryFire() {
@@ -1394,6 +1470,21 @@
 
       // 青龙偃月刀：独立冷却 + 挥砍动画，不消耗弹药
       if (kind === 'blade') { if (now() >= bladeReadyAt) startBladeSlam(); return; }
+
+      // 机甲：未穿上→左键穿上(不可脱)；已穿上→开火
+      if (kind === 'mecha' || kind === 'godmecha') {
+        if (!mechaWorn) { wearMecha(kind); return; }
+        if (kind === 'godmecha' && mechaWeapon === 1) { if (now() >= bladeReadyAt) startBurstSlam(); return; }   // 爆地巨剑
+        if (now() < fireCooldown) return;
+        if (superAmmo <= 0) { dropSuper(); return; }
+        if (!cheatInfinite) superAmmo--;
+        fireCooldown = now() + (60000 / w.rpm) * fireRateMul;
+        viewRecoil = Math.min(viewRecoil + w.kick, 0.12); gunKick = Math.min(gunKick + w.kick * 7 + 0.2, 1.3);
+        fireGrenade(kind, w); fireMuzzle();
+        updateAmmoHud();
+        if (!cheatInfinite && superAmmo <= 0) dropSuper();
+        return;
+      }
 
       if (now() < reloadUntil) return;
       if (now() < fireCooldown) return;
@@ -1779,6 +1870,8 @@
       blackholes.length = 0;
       for (var k = tsunamis.length - 1; k >= 0; k--) disposeTsunami(tsunamis[k]);
       tsunamis.length = 0;
+      for (var g = grenades.length - 1; g >= 0; g--) { scene.remove(grenades[g].mesh); grenades[g].mesh.geometry.dispose(); grenades[g].mesh.material.dispose(); }
+      grenades.length = 0;
     }
 
     // ---- 排山倒海手：朝前打出一道滔天巨浪（长=半地图），卷进去的人翻滚后处死 ----
@@ -1850,30 +1943,101 @@
       chargeStart = now(); chargeUntil = now() + BLADE_RISE + BLADE_LUNGE; chargeCol = SUPERS.blade.col;  // 挑起→突进时刀刃聚气
       chargeSound(BLADE_RISE + BLADE_LUNGE, false);
       bladeSwingSound();
+      burstSlam = false;
       showNotice('🐉 青龙偃月刀·斩！');
+    }
+    // 终焉机神·爆地：复用挥砍动画，但范围小很多、伤害 80
+    function startBurstSlam() {
+      slamStart = now();
+      slamUntil = now() + BLADE_RISE + BLADE_LUNGE + BLADE_SLAM;
+      slamImpactAt = slamStart + BLADE_RISE + BLADE_LUNGE + BLADE_SLAM * 0.82;
+      slamImpactDone = false;
+      bladeReadyAt = slamUntil + 1500;   // 爆地冷却更短
+      firing = false; ads = false;
+      chargeStart = now(); chargeUntil = now() + BLADE_RISE + BLADE_LUNGE; chargeCol = SUPERS.godmecha.col;
+      chargeSound(BLADE_RISE + BLADE_LUNGE, true); bladeSwingSound();
+      burstSlam = true;
     }
     function doBladeImpact() {
       slamImpactDone = true;
+      var burst = burstSlam; burstSlam = false;
       if (!me.alive) return;   // 死亡后这一刀不再生效（修"死后还能造成伤害"）
+      var R = burst ? BURST_KILL_R : BLADE_KILL_R, dmg = burst ? 80 : SUPERS.blade.dmg;
+      var wid = burst ? 'xian_godmecha' : 'xian_blade', col = burst ? SUPERS.godmecha.col : SUPERS.blade.col;
       camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize();
       var ix = playerPos.x + _bf.x * 3, iz = playerPos.z + _bf.z * 3;
-      // 圈内远端玩家造成 3000 伤害（发动者权威上报；发动者自己免疫）
       for (var id in remotes) {
         var r = remotes[id]; if (!r.alive) continue;
         var dx = r.group.position.x - ix, dz = r.group.position.z - iz;
-        if (dx*dx + dz*dz < BLADE_KILL_R * BLADE_KILL_R) sendHit(id, SUPERS.blade.dmg, 'xian_blade', false);
+        if (dx*dx + dz*dz < R * R) sendHit(id, dmg, wid, false);
       }
-      var msg = { type:'slam', from:me.id, owner:me.id, x:ix, z:iz, col:SUPERS.blade.col };
-      spawnSlam(msg); netSend(msg);   // 视觉（地震 + 青龙 + 地裂）广播给所有人
+      var msg = { type:'slam', from:me.id, owner:me.id, x:ix, z:iz, col:col, r:R };
+      spawnSlam(msg); netSend(msg);   // 视觉（地震 + 地裂）广播给所有人
     }
     function spawnSlam(msg) {          // 视觉 + 视角地震（命中由发动者用 hit 上报）
-      spawnSlamFx(msg.x, msg.z, msg.col);
+      spawnSlamFx(msg.x, msg.z, msg.col, msg.r || BLADE_KILL_R);
       shake = Math.min(shake + (reduced ? 0 : 0.28), 0.32);
       bladeBoom();
     }
     function addMat(color, op) { return new THREE.MeshBasicMaterial({ color:color, transparent:true, opacity:op, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }); }
-    function spawnSlamFx(x, z, col) {
-      var R = BLADE_KILL_R, ctr = new THREE.Vector3(x, 0, z);
+    // ---- 机甲榴弹：抛物线飞行 → 落地/超时爆炸 → AoE 伤害(中心满，边缘衰减) + 爆炸特效 ----
+    function fireGrenade(kind, w) {
+      var big = (kind === 'godmecha');
+      camera.getWorldDirection(_bf);
+      var msg = { type:'grenade', from:me.id, gid:(me.id + '-g' + (++grenSeq)), owner:me.id,
+        x:camera.position.x + _bf.x*1.3, y:camera.position.y - 0.12, z:camera.position.z + _bf.z*1.3,
+        vx:_bf.x*GREN_SPEED, vy:_bf.y*GREN_SPEED + 4.5, vz:_bf.z*GREN_SPEED, col:w.col, big:big, dmg:w.dmg };
+      spawnGrenade(msg); netSend(msg); grenadeSound(big);
+    }
+    function spawnGrenade(msg) {
+      var mesh = new THREE.Mesh(new THREE.SphereGeometry(msg.big ? 0.5 : 0.32, 14, 12),
+        new THREE.MeshStandardMaterial({ color:msg.col, emissive:msg.col, emissiveIntensity:2.4, metalness:0.3, roughness:0.4 }));
+      mesh.position.set(msg.x, msg.y, msg.z); scene.add(mesh);
+      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:msg.col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      glow.scale.setScalar(msg.big ? 2.6 : 1.6); mesh.add(glow);
+      grenades.push({ gid:msg.gid, owner:msg.owner, mesh:mesh, vx:msg.vx, vy:msg.vy, vz:msg.vz,
+        born:now(), col:msg.col, big:msg.big, dmg:msg.dmg, isOwner:(msg.owner === me.id), done:false });
+    }
+    function updateGrenades(dt) {
+      for (var i = grenades.length - 1; i >= 0; i--) {
+        var g = grenades[i]; g.vy -= GREN_GRAV * dt;
+        var p = g.mesh.position; p.x += g.vx*dt; p.y += g.vy*dt; p.z += g.vz*dt;
+        g.mesh.rotation.x += dt*7; g.mesh.rotation.z += dt*5;
+        if (p.y <= 0.32 || now() - g.born > GREN_LIFE*1000) { explodeGrenade(g); grenades.splice(i, 1); }
+      }
+    }
+    function explodeGrenade(g) {
+      if (g.done) return; g.done = true;
+      var p = g.mesh.position.clone(); scene.remove(g.mesh); g.mesh.geometry.dispose(); g.mesh.material.dispose();
+      var R = g.big ? MELT_R : GREN_R;
+      spawnExplosion(p, g.col, R); explosionSound(g.big);
+      if (g.isOwner && me.alive) {   // 发动者权威结算 AoE（自己免疫）
+        for (var id in remotes) {
+          var r = remotes[id]; if (!r.alive) continue;
+          var dx = r.group.position.x - p.x, dy = (r.group.position.y + 1.0) - p.y, dz = r.group.position.z - p.z;
+          var d = Math.sqrt(dx*dx + dy*dy + dz*dz);
+          if (d < R) sendHit(id, Math.max(1, Math.round(g.dmg * (1 - (d/R)*0.6))), g.big ? 'xian_godmecha' : 'super_mecha', false);
+        }
+      }
+      var dme = playerPos.distanceTo(p); if (dme < R*2.2) shake = Math.min(shake + 0.35*(1 - dme/(R*2.2)), 0.45);
+    }
+    function spawnExplosion(p, col, R) {
+      var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      flash.position.copy(p); flash.scale.setScalar(R*0.6); scene.add(flash); fx.push({ obj:flash, ttl:0.3, life:0, fade:true, maxOp:1, expandFrom:R*0.6, expandTo:R*1.5 });
+      var ball = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      ball.position.copy(p); scene.add(ball); fx.push({ obj:ball, ttl:0.45, life:0, fade:true, maxOp:0.9, expandFrom:R*0.3, expandTo:R*1.1 });
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(R, R>7?0.5:0.32, 10, 60), addMat(col, 0.9));
+      ring.rotation.x = -Math.PI/2; ring.position.set(p.x, 0.3, p.z); ring.scale.setScalar(0.05);
+      scene.add(ring); fx.push({ obj:ring, ttl:0.55, life:0, fade:true, maxOp:0.9, expandFrom:0.05, expandTo:1, ease:true });
+      for (var k = 0; k < (R>7?18:11); k++) {
+        var d2 = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.22), new THREE.MeshBasicMaterial({ color:col }));
+        d2.position.copy(p); scene.add(d2);
+        var a = Math.random()*Math.PI*2, sp = 6 + Math.random()*12;
+        fx.push({ obj:d2, ttl:0.75, life:0, fade:true, maxOp:1, vel:{ x:Math.cos(a)*sp, y:5+Math.random()*9, z:Math.sin(a)*sp }, spin:7 });
+      }
+    }
+    function spawnSlamFx(x, z, col, radius) {
+      var R = radius || BLADE_KILL_R, ctr = new THREE.Vector3(x, 0, z);
       // 中心爆闪
       var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
       flash.position.set(x, 2, z); flash.scale.setScalar(R*1.4); scene.add(flash); fx.push({ obj:flash, ttl:0.35, life:0, fade:true, maxOp:1 });
@@ -2250,6 +2414,8 @@
             r.target.set(msg.x, msg.y - EYE, msg.z); // 网络发的是"眼睛"高度，小人底座 = 眼高-EYE
             r.targetYaw = msg.yaw;
             if (msg.wid) setRemoteWeapon(r, msg.wid);   // 看到对方手中的真实武器
+            applyRemoteMecha(r, msg.mecha);             // 穿上机甲 → 放大 + 金属化
+            if (msg.mecha) setRemoteWeapon(r, SUPERS[msg.mecha].id);   // 机甲手中是手炮/巨剑
             if (r.hp !== msg.hp || r.alive !== msg.alive) { r.hp = msg.hp; r.alive = msg.alive; r.labelDirty = true; }
             // 首个状态：直接吸附到位（避免从原点滑入）并初始化测速基准（避免首帧"奔跑"误判）
             if (!r.spawned) { r.group.position.copy(r.target); r.group.rotation.y = r.targetYaw;
@@ -2275,6 +2441,9 @@
           break;
         case 'super_taken':           // 有人捡走了某个超级武器 → 移除地图上的它
           removeSuperPickup(msg.sid);
+          break;
+        case 'grenade':               // 别人发射的机甲榴弹 → 本地渲染(伤害由发射者结算)
+          spawnGrenade(msg);
           break;
         case 'beam':                  // 崩星炮 / 秘境枪 的激光轨迹（所有人都看得到）
           spawnBeam(msg);
@@ -2313,7 +2482,8 @@
       netSend({
         type:'state', from:me.id, name:me.name, color:me.colorHex,
         x:playerPos.x, y:playerPos.y, z:playerPos.z, yaw:yaw, pitch:pitch,
-        wid:activeWeapon().id, hp:me.hp, alive:me.alive, kills:me.kills, deaths:me.deaths
+        wid:activeWeapon().id, hp:me.hp, alive:me.alive, kills:me.kills, deaths:me.deaths,
+        mecha: mechaWorn ? superKind : null   // 穿上的机甲种类(远端据此放大渲染)
       });
     }
 
@@ -2533,6 +2703,7 @@
       sprinting = !!(keys['ShiftLeft'] || keys['ShiftRight']) && (mx !== 0 || mz !== 0) && adsAmt < 0.3;
       isMoving = (mx !== 0 || mz !== 0) && grounded;   // 走路头部/武器摆动用
       var sp = SPEED * (sprinting ? SPRINT : 1) * (1 - adsAmt * 0.45);  // 开镜走得慢
+      if (mechaWorn) sp *= (SUPERS[superKind] && SUPERS[superKind].speedMul) || 0.7;   // 机甲移速 -30%
 
       var move = new THREE.Vector3();
       move.addScaledVector(_fwd, mz).addScaledVector(_right, mx);
@@ -2842,6 +3013,7 @@
       updateBeams(dt);          // 崩星/秘境 激光轨迹与结算
       updateBlackHoles(dt);     // 黑洞移动 / 吸入 / 处死
       updateTsunamis(dt);       // 排山倒海巨浪推进 / 卷入
+      updateGrenades(dt);       // 机甲榴弹飞行 / 爆炸
       tickKillfeed();
 
       renderScene();
@@ -2923,7 +3095,10 @@
           playerY:function(){ return playerPos.y; }, grounded:function(){ return grounded; },
           setMode:function(m){ roomMode = m; }, spawnCount:function(){ return spawnCountThisTick(); },
           join:function(room){ if (!joined) doJoin(room || 'demo'); },
-          superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; }
+          superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; },
+          wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
+          mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
+          fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; }
         };
         animate();
       } catch (err) {

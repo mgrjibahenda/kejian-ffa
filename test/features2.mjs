@@ -40,7 +40,7 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   const counts = {};
   for (let i=0;i<200;i++){ const k = await ev(page, ()=>window.__test.nextKind()); counts[k]=(counts[k]||0)+1; }
   const cvals = Object.values(counts);
-  check('5 种超级武器刷新概率均等', Object.keys(counts).length===5 && Math.max(...cvals)-Math.min(...cvals) <= 2, JSON.stringify(counts));
+  check('6 种超级武器刷新概率均等(含超级机甲)', Object.keys(counts).length===6 && Math.max(...cvals)-Math.min(...cvals) <= 2, JSON.stringify(counts));
 
   // ---------- 1) 部位伤害：四肢 < 躯干 < 头 ----------
   await ev(page, ()=>window.__test.weapon(4)); // 狙击
