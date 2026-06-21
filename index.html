@@ -469,8 +469,8 @@
 
     function initThree() {
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x10161d);
-      scene.fog = new THREE.Fog(0x10161d, 28, 78);   // 雾效：纵深 + 远处剔除感
+      scene.background = new THREE.Color(0x0c1118);
+      scene.fog = new THREE.Fog(0x0c1118, 34, 90);   // 雾效：纵深感
 
       camera = new THREE.PerspectiveCamera(76, window.innerWidth/window.innerHeight, 0.05, 1000);
       camera.rotation.order = 'YXZ';
@@ -478,81 +478,169 @@
       renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
+      // PBR 渲染：sRGB 输出 + ACES 电影级色调映射 + 物理光照 + 软阴影
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.28;
+      renderer.physicallyCorrectLights = true;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       gameRoot.appendChild(renderer.domElement);
       try { document.getElementById('dotWebgl').className = 'dot ok'; } catch (e) {}
 
-      // 灯光（不开阴影，照顾学校老旧笔记本性能）
-      var hemi = new THREE.HemisphereLight(0xbfe3ff, 0x2a3340, 0.95);
+      // 环境贴图：用 PMREM 从一个程序化"影棚"场景生成，给 PBR 金属/反射用（无需外部 HDRI）
+      try {
+        var pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(buildEnvScene(), 0.04).texture;
+      } catch (e) { if (window.console) console.warn('env map skipped', e); }
+
+      // 天光填充
+      var hemi = new THREE.HemisphereLight(0x9fc2ff, 0x20242c, 0.5);
       scene.add(hemi);
-      var dir = new THREE.DirectionalLight(0xffffff, 0.65);
-      dir.position.set(20, 40, 12);
-      scene.add(dir);
+      // 主光（太阳）+ 高分辨率软阴影
+      var sun = new THREE.DirectionalLight(0xfff0dc, 3.0);
+      sun.position.set(26, 46, 18);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(4096, 4096);
+      sun.shadow.camera.left = -42; sun.shadow.camera.right = 42;
+      sun.shadow.camera.top = 42; sun.shadow.camera.bottom = -42;
+      sun.shadow.camera.near = 1; sun.shadow.camera.far = 140;
+      sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+      scene.add(sun);
+      // 反向补光（冷色），让暗部不死黑
+      var rim = new THREE.DirectionalLight(0x4a6cff, 0.5);
+      rim.position.set(-20, 18, -24); scene.add(rim);
 
       buildArena();
       clock = new THREE.Clock();
+    }
+
+    // 程序化"影棚"环境：几块发光面板围成的盒子，PMREM 后作为 PBR 反射/环境光
+    function buildEnvScene() {
+      var s = new THREE.Scene();
+      s.add(new THREE.Mesh(new THREE.BoxGeometry(40,40,40),
+        new THREE.MeshStandardMaterial({ color:0x20262f, side:THREE.BackSide, roughness:1 })));
+      function panel(x, y, z, sx, sy, sz, col, inten) {
+        var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz),
+          new THREE.MeshStandardMaterial({ emissive:col, emissiveIntensity:inten, color:0x000000 }));
+        m.position.set(x, y, z); s.add(m);
+      }
+      panel(0, 19, 0, 30, 1, 30, 0xfff4e2, 4);     // 顶光
+      panel(-19, 4, 0, 1, 20, 30, 0x88a8ff, 2.2);  // 冷侧
+      panel(19, 4, 0, 1, 20, 30, 0xffd9a0, 2.0);   // 暖侧
+      panel(0, 4, -19, 30, 20, 1, 0x6f86c0, 1.4);
+      return s;
+    }
+
+    // ---- 程序化 PBR 贴图（albedo + 法线 + 粗糙度），无需任何外部图片 ----
+    function _cv(n) { var c = document.createElement('canvas'); c.width = c.height = n; return c; }
+    function _heightToNormal(hc, strength) {
+      var n = hc.width, hd = hc.getContext('2d').getImageData(0,0,n,n).data;
+      var nc = _cv(n), nctx = nc.getContext('2d'), nd = nctx.createImageData(n,n);
+      function H(x,y){ x=(x+n)%n; y=(y+n)%n; return hd[(y*n+x)*4]/255; }
+      for (var y=0;y<n;y++) for (var x=0;x<n;x++){
+        var dx=(H(x-1,y)-H(x+1,y))*strength, dy=(H(x,y-1)-H(x,y+1))*strength;
+        var l=Math.sqrt(dx*dx+dy*dy+1), i=(y*n+x)*4;
+        nd.data[i]=(dx/l*0.5+0.5)*255; nd.data[i+1]=(dy/l*0.5+0.5)*255; nd.data[i+2]=(1/l*0.5+0.5)*255; nd.data[i+3]=255;
+      }
+      nctx.putImageData(nd,0,0); return nc;
+    }
+    // 科技面板：方块分缝 + 噪点 + 凹槽法线 + 随机粗糙度
+    function makePanelPBR(size, tiles, hex) {
+      var base = new THREE.Color(hex), cell = size/tiles;
+      var alb=_cv(size), hgt=_cv(size), rgh=_cv(size);
+      var a=alb.getContext('2d'), hg=hgt.getContext('2d'), rg=rgh.getContext('2d');
+      a.fillStyle='#'+base.getHexString(); a.fillRect(0,0,size,size);
+      hg.fillStyle='#7a7a7a'; hg.fillRect(0,0,size,size);
+      rg.fillStyle='#9a9a9a'; rg.fillRect(0,0,size,size);
+      for (var ty=0;ty<tiles;ty++) for (var tx=0;tx<tiles;tx++){
+        var c=base.clone(); c.offsetHSL(0,0,(Math.random()-0.5)*0.16);
+        a.fillStyle='#'+c.getHexString(); a.fillRect(tx*cell, ty*cell, cell, cell);
+        var rv=130+Math.floor(Math.random()*80); rg.fillStyle='rgb('+rv+','+rv+','+rv+')'; rg.fillRect(tx*cell, ty*cell, cell, cell);
+        hg.fillStyle='#8e8e8e'; hg.fillRect(tx*cell+3, ty*cell+3, cell-6, cell-6);
+      }
+      a.strokeStyle='rgba(0,0,0,0.5)'; a.lineWidth=2; hg.strokeStyle='#3a3a3a'; hg.lineWidth=4;
+      for (var i=0;i<=tiles;i++){
+        a.beginPath(); a.moveTo(i*cell,0); a.lineTo(i*cell,size); a.moveTo(0,i*cell); a.lineTo(size,i*cell); a.stroke();
+        hg.beginPath(); hg.moveTo(i*cell,0); hg.lineTo(i*cell,size); hg.moveTo(0,i*cell); hg.lineTo(size,i*cell); hg.stroke();
+      }
+      var im=a.getImageData(0,0,size,size), dd=im.data;
+      for (var p=0;p<dd.length;p+=4){ var nz=(Math.random()-0.5)*16; dd[p]+=nz; dd[p+1]+=nz; dd[p+2]+=nz; }
+      a.putImageData(im,0,0);
+      var mTex=new THREE.CanvasTexture(alb); mTex.encoding=THREE.sRGBEncoding;
+      return { map:mTex, normalMap:new THREE.CanvasTexture(_heightToNormal(hgt, 2.6)), roughnessMap:new THREE.CanvasTexture(rgh) };
+    }
+    function texSet(set, rx, ry) {
+      [set.map, set.normalMap, set.roughnessMap].forEach(function (t) {
+        t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry === undefined ? rx : ry);
+        try { t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); } catch (e) {}
+        t.needsUpdate = true;
+      });
+      return set;
     }
 
     // 竞技场：地面 + 四周围墙 + 若干掩体（箱子/柱子）+ 多个出生点
     function buildArena() {
       var HALF = 30, WALL_H = 7;
 
-      var floorMat = new THREE.MeshLambertMaterial({ color:0x2b3947 });
+      // 地面：PBR 科技面板（贴图 + 法线 + 粗糙度）+ 接收阴影
+      var floorTex = texSet(makePanelPBR(512, 8, 0x32414f), 22);
+      var floorMat = new THREE.MeshStandardMaterial({ map:floorTex.map, normalMap:floorTex.normalMap,
+        roughnessMap:floorTex.roughnessMap, roughness:0.85, metalness:0.35, envMapIntensity:0.7 });
       var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2), floorMat);
-      floor.rotation.x = -Math.PI/2;
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true;
       scene.add(floor); worldSolids.push(floor);
 
-      // 网格线（不影响碰撞，仅观感与方向感）
-      var grid = new THREE.GridHelper(HALF*2, 30, 0x3a5066, 0x223040);
-      grid.position.y = 0.02; scene.add(grid);
-
-      var wallMat = new THREE.MeshLambertMaterial({ color:0x394b5c });
+      var wallTex = texSet(makePanelPBR(512, 6, 0x3c4a5a), 10, 1.4);
+      var wallMat = new THREE.MeshStandardMaterial({ map:wallTex.map, normalMap:wallTex.normalMap,
+        roughnessMap:wallTex.roughnessMap, roughness:0.6, metalness:0.5, envMapIntensity:0.9 });
       function addBox(cx, cy, cz, sx, sy, sz, mat) {
         var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-        m.position.set(cx, cy, cz);
+        m.position.set(cx, cy, cz); m.castShadow = true; m.receiveShadow = true;
         scene.add(m); worldSolids.push(m);
-        var b = new THREE.Box3().setFromObject(m);
-        solidBoxes.push(b);
+        solidBoxes.push(new THREE.Box3().setFromObject(m));
         return m;
       }
-      // 四周围墙
       addBox(0, WALL_H/2,  HALF, HALF*2, WALL_H, 1, wallMat);
       addBox(0, WALL_H/2, -HALF, HALF*2, WALL_H, 1, wallMat);
       addBox( HALF, WALL_H/2, 0, 1, WALL_H, HALF*2, wallMat);
       addBox(-HALF, WALL_H/2, 0, 1, WALL_H, HALF*2, wallMat);
 
-      // 掩体：箱子 + 柱子，对称分布制造对枪点位
-      var crateMat  = new THREE.MeshLambertMaterial({ color:0x6b5234 });
-      var pillarMat = new THREE.MeshLambertMaterial({ color:0x4a5a6b });
+      // 掩体：金属箱子 + 混凝土柱
+      var crateTex = texSet(makePanelPBR(256, 3, 0x7a5c34), 1);
+      var crateMat = new THREE.MeshStandardMaterial({ map:crateTex.map, normalMap:crateTex.normalMap,
+        roughnessMap:crateTex.roughnessMap, roughness:0.5, metalness:0.7, envMapIntensity:1.0 });
+      var pillarTex = texSet(makePanelPBR(256, 4, 0x55606e), 2, 6);
+      var pillarMat = new THREE.MeshStandardMaterial({ map:pillarTex.map, normalMap:pillarTex.normalMap,
+        roughness:0.8, metalness:0.2, envMapIntensity:0.6 });
       var crates = [
         [ 8,0, 8],[-8,0, 8],[ 8,0,-8],[-8,0,-8],
         [ 0,0,14],[ 0,0,-14],[14,0,0],[-14,0,0]
       ];
-      crates.forEach(function (c, i) {
-        var s = (i % 3 === 0) ? 3.2 : 2.2;
-        addBox(c[0], s/2, c[2], s, s, s, crateMat);
-      });
+      crates.forEach(function (c, i) { var s = (i % 3 === 0) ? 3.2 : 2.2; addBox(c[0], s/2, c[2], s, s, s, crateMat); });
       var pillars = [[16,16],[-16,16],[16,-16],[-16,-16],[0,0]];
       pillars.forEach(function (p) {
-        var m = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, WALL_H, 16), pillarMat);
-        m.position.set(p[0], WALL_H/2, p[1]);
+        var m = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, WALL_H, 24), pillarMat);
+        m.position.set(p[0], WALL_H/2, p[1]); m.castShadow = true; m.receiveShadow = true;
         scene.add(m); worldSolids.push(m);
         solidBoxes.push(new THREE.Box3().setFromObject(m));
       });
 
-      // 秘境平台：远离主竞技场（被雾遮住），秘境枪 1v1 在此进行
+      // 秘境平台：紫色地砖 + 发光墙
       var RHALF = 18, rcx = REALM_CENTER.x, rcz = REALM_CENTER.z;
+      var realmTex = texSet(makePanelPBR(512, 9, 0x2a2040), 12);
       var realmFloor = new THREE.Mesh(new THREE.PlaneGeometry(RHALF*2, RHALF*2),
-        new THREE.MeshLambertMaterial({ color:0x241b33 }));
-      realmFloor.rotation.x = -Math.PI/2; realmFloor.position.set(rcx, 0, rcz);
+        new THREE.MeshStandardMaterial({ map:realmTex.map, normalMap:realmTex.normalMap, roughness:0.7, metalness:0.4,
+          emissive:0x2a1850, emissiveIntensity:0.25, envMapIntensity:0.6 }));
+      realmFloor.rotation.x = -Math.PI/2; realmFloor.position.set(rcx, 0, rcz); realmFloor.receiveShadow = true;
       scene.add(realmFloor); worldSolids.push(realmFloor);
-      var rgrid = new THREE.GridHelper(RHALF*2, 18, 0x7a4dff, 0x3a2a55);
-      rgrid.position.set(rcx, 0.02, rcz); scene.add(rgrid);
-      var realmWallMat = new THREE.MeshLambertMaterial({ color:0x3a2a55, emissive:0x1a0f33, emissiveIntensity:0.5 });
+      var realmWallMat = new THREE.MeshStandardMaterial({ color:0x3a2a55, emissive:0x2a1450, emissiveIntensity:0.6,
+        roughness:0.5, metalness:0.4 });
       addBox(rcx, WALL_H/2, rcz+RHALF, RHALF*2, WALL_H, 1, realmWallMat);
       addBox(rcx, WALL_H/2, rcz-RHALF, RHALF*2, WALL_H, 1, realmWallMat);
       addBox(rcx+RHALF, WALL_H/2, rcz, 1, WALL_H, RHALF*2, realmWallMat);
       addBox(rcx-RHALF, WALL_H/2, rcz, 1, WALL_H, RHALF*2, realmWallMat);
-      addBox(rcx, 1.1, rcz, 2.2, 2.2, 2.2, crateMat);          // 中央掩体
+      addBox(rcx, 1.1, rcz, 2.2, 2.2, 2.2, crateMat);
       addBox(rcx-7, 1, rcz+5, 2, 2, 2, crateMat);
       addBox(rcx+7, 1, rcz-5, 2, 2, 2, crateMat);
 
@@ -573,7 +661,8 @@
     // 精细的多部件枪械模型：每把枪由机匣/枪管/弹匣/握把/枪托/瞄具等多块组成，材质有金属深浅 + 配色描边。
     var viewGun;
     function gmat(color, emi) {
-      return new THREE.MeshLambertMaterial({ color:color, emissive: emi || 0x000000, emissiveIntensity: emi ? 0.85 : 0 });
+      return new THREE.MeshStandardMaterial({ color:color, metalness: emi ? 0.2 : 0.85, roughness: emi ? 0.35 : 0.42,
+        emissive: emi || 0x000000, emissiveIntensity: emi ? 1.6 : 0, envMapIntensity: 1.3 });
     }
     function gpart(g, geo, mat, x, y, z, rx, ry, rz) {
       var m = new THREE.Mesh(geo, mat);
@@ -795,16 +884,16 @@
       }
       var color = (typeof colorHex === 'number') ? colorHex : 0xcccccc;
       var group = new THREE.Group();
-      var bodyMat = new THREE.MeshLambertMaterial({ color:color });
-      var limbMat = new THREE.MeshLambertMaterial({ color:new THREE.Color(color).multiplyScalar(0.7) });
-      var headMat = new THREE.MeshLambertMaterial({ color:0xf1d3b0 });
+      var bodyMat = new THREE.MeshStandardMaterial({ color:color, roughness:0.55, metalness:0.25, envMapIntensity:0.9 });
+      var limbMat = new THREE.MeshStandardMaterial({ color:new THREE.Color(color).multiplyScalar(0.7), roughness:0.6, metalness:0.25, envMapIntensity:0.9 });
+      var headMat = new THREE.MeshStandardMaterial({ color:0xf1d3b0, roughness:0.7, metalness:0.0, envMapIntensity:0.7 });
 
       // 人形：头(命中×2) / 躯干(×1) / 四肢(×0.6)。四肢用"枢轴组"以便摆动（奔跑/跳跃/死亡动画）。
-      function staticPart(mesh, partName) { mesh.userData = { peerId:id, part:partName }; group.add(mesh); return mesh; }
+      function staticPart(mesh, partName) { mesh.userData = { peerId:id, part:partName }; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); return mesh; }
       function limb(px, py, sx, sy, sz, partName) {     // 从顶端(肩/胯)垂下，枢轴可旋转摆动
         var pivot = new THREE.Group(); pivot.position.set(px, py, 0);
         var mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), limbMat);
-        mesh.position.y = -sy/2; mesh.userData = { peerId:id, part:partName };
+        mesh.position.y = -sy/2; mesh.userData = { peerId:id, part:partName }; mesh.castShadow = true; mesh.receiveShadow = true;
         pivot.add(mesh); group.add(pivot);
         return { pivot:pivot, mesh:mesh };
       }
@@ -2130,7 +2219,7 @@
       var w = SUPERS[kind] || SUPERS.mg, col = w.col;
       var g = new THREE.Group();
       var core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0),
-        new THREE.MeshLambertMaterial({ color:col, emissive:col, emissiveIntensity:0.85 }));
+        new THREE.MeshStandardMaterial({ color:col, emissive:col, emissiveIntensity:1.3, metalness:0.4, roughness:0.3 }));
       g.add(core);
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col,
         transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));

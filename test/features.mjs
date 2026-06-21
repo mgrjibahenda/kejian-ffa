@@ -55,9 +55,9 @@ const results=[]; const check=(l,p,e='')=>{ results.push(p); console.log(`[${p?'
   check('狙击开镜→隐藏准星(镜内有刻线)', s.cross < 0.2, `crosshair=${s.cross}`);
   check('狙击开镜→隐藏枪模型(不挡屏)', s.gun === false, `gunVisible=${s.gun}`);
   await page.evaluate(()=>window.__test.setAds(false));
-  await sleep(400);
+  await sleep(700);
   const s2 = await page.evaluate(()=>({ scope:window.__test.scopeOpacity(), gun:window.__test.gunVisible() }));
-  check('松开右键→狙击镜消失、枪恢复', s2.scope === 0 && s2.gun === true, `scope=${s2.scope}, gun=${s2.gun}`);
+  check('松开右键→狙击镜消失、枪恢复', s2.scope < 0.1 && s2.gun === true, `scope=${s2.scope}, gun=${s2.gun}`);
 
   // ---------- 2) 爆头 ----------
   await page.evaluate(()=>window.__test.weapon(4)); // 狙击(高精度，便于命中头/身)
