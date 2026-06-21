@@ -173,6 +173,14 @@
   #netstat .dot{ width:9px; height:9px; }
   /* 左上角测试按钮（z-index 高于暂停层，松开鼠标后可点） */
   #testpanel{ position:absolute; left:22px; top:38px; z-index:60; pointer-events:auto; display:flex; gap:6px; }
+  #devpanel{ position:absolute; left:22px; top:72px; z-index:60; pointer-events:auto; width:210px;
+    background:rgba(10,16,22,.9); border:1px solid var(--accent2); border-radius:9px; padding:9px 10px; }
+  #devpanel .dp-t{ font-size:12px; font-weight:700; color:var(--accent2); margin-bottom:7px; }
+  #devpanel .dp-row{ display:flex; gap:6px; }
+  #devpanel button{ flex:1; padding:6px 4px; font-size:12px; border-radius:7px; cursor:pointer;
+    border:1px solid var(--line); background:#0e151d; color:var(--text); }
+  #devpanel button:hover{ border-color:var(--accent2); color:#ffe08a; }
+  #devpanel .dp-hint{ margin-top:7px; font-size:11px; color:var(--muted); line-height:1.4; }
   #testbtn{ width:26px; height:26px; padding:0; border-radius:7px; border:1px solid var(--line);
     background:rgba(10,16,22,.85); color:#cdd9e6; font-size:14px; cursor:pointer; line-height:1; }
   #testbtn:hover{ border-color:var(--accent); }
@@ -210,6 +218,22 @@
   /* 处于激光范围内：屏幕渐亮（不是纯白挡视线） */
   #beamflash{ position:absolute; inset:0; pointer-events:none; opacity:0;
     background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.95), rgba(220,235,255,.4)); mix-blend-mode:screen; }
+  /* 机甲座舱 HUD + 滤镜（穿上机甲时） */
+  #mechhud{ position:absolute; inset:0; pointer-events:none; --mhc:255,154,60; }
+  #mechhud.god{ --mhc:255,60,120; }
+  #mechhud::before{ content:''; position:absolute; inset:0; box-shadow:inset 0 0 240px rgba(var(--mhc),.30); }
+  #mechhud::after{ content:''; position:absolute; inset:0; opacity:.5;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 3px, rgba(var(--mhc),.05) 4px, rgba(0,0,0,0) 5px); }
+  .mh-corner{ position:absolute; width:78px; height:78px; border:3px solid rgba(var(--mhc),.85); box-shadow:0 0 14px rgba(var(--mhc),.5); }
+  .mh-corner.tl{ top:16px; left:16px; border-right:0; border-bottom:0; }
+  .mh-corner.tr{ top:16px; right:16px; border-left:0; border-bottom:0; }
+  .mh-corner.bl{ bottom:16px; left:16px; border-right:0; border-top:0; }
+  .mh-corner.br{ bottom:16px; right:16px; border-left:0; border-top:0; }
+  .mh-ring{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:360px; height:360px; max-width:48vw; max-height:48vw;
+    border:2px solid rgba(var(--mhc),.45); border-radius:50%; }
+  .mh-ring.inner{ width:170px; height:170px; border-style:dashed; opacity:.6; }
+  .mh-tag{ position:absolute; top:18px; left:50%; transform:translateX(-50%); color:rgba(var(--mhc),.95);
+    font-size:12px; font-weight:800; letter-spacing:3px; text-shadow:0 0 10px rgba(var(--mhc),.7); }
 
   @media (prefers-reduced-motion: reduce){
     #hpbar{ transition:none; } .kf{ transition:none; } #dmgflash{ transition:none; } #notice{ transition:none; }
@@ -258,6 +282,16 @@
       <button id="testbtn" type="button" title="测试超级武器">🔧</button>
       <input id="testpw" type="text" inputmode="numeric" maxlength="6" placeholder="密码" hidden autocomplete="off" />
     </div>
+    <!-- 开发者模式面板（输入 67 后出现）：添加假人 -->
+    <div id="devpanel" hidden>
+      <div class="dp-t">开发者模式 · 添加假人</div>
+      <div class="dp-row">
+        <button type="button" data-dummy="normal">普通</button>
+        <button type="button" data-dummy="mecha">超级机甲</button>
+        <button type="button" data-dummy="godmecha">终焉机神</button>
+      </div>
+      <div class="dp-hint">机甲模式中按 <b>X</b> 退出 · 滚轮/数字键切换全部武器</div>
+    </div>
 
     <div id="scorebox">
       <div class="panel"><h3>积分板 · FFA</h3><div id="scorerows"></div></div>
@@ -284,6 +318,11 @@
 
     <div id="dmgflash"></div>
     <div id="beamflash"></div>
+    <div id="mechhud" hidden>
+      <div class="mh-corner tl"></div><div class="mh-corner tr"></div><div class="mh-corner bl"></div><div class="mh-corner br"></div>
+      <div class="mh-ring"></div><div class="mh-ring inner"></div>
+      <div class="mh-tag">MECH UNIT · 机甲控制</div>
+    </div>
 
     <div id="fullboard">
       <div class="panel">
@@ -440,8 +479,8 @@
       roar:    { kind:'roar',  id:'xian_roar',  name:'崩星咆哮炮',   dmg:10000, rpm:18, mag:5,  auto:false, spread:0, pellets:1, range:9999, reload:0, kick:0.06, col:0xff4dd8, zoom:0.75, isSuper:true, isXian:true },
       blade:   { kind:'blade', id:'xian_blade', name:'青龙偃月刀',   dmg:3000,  rpm:60, mag:1,  auto:false, spread:0, pellets:1, range:12,   reload:0, kick:0.0,  col:0x33ff88, zoom:1.0,  isSuper:true, isXian:true, melee:true },
       // ===== 机甲：捡到→第6格→左键穿上(不可脱)，移速-30%，巨大模型，自带武器 =====
-      mecha:    { kind:'mecha',    id:'super_mecha',   name:'超级机甲', dmg:100, rpm:48, mag:15, auto:false, spread:0.012, pellets:1, range:130, reload:0, kick:0.05, col:0xff9a3c, zoom:0.98, isSuper:true, isMecha:true, hp:1000,  speedMul:0.7 },
-      godmecha: { kind:'godmecha', id:'xian_godmecha', name:'终焉机神', dmg:120, rpm:90, mag:50, auto:true,  spread:0.012, pellets:1, range:180, reload:0, kick:0.05, col:0xff2d6e, zoom:0.98, isSuper:true, isXian:true, isMecha:true, hp:10000, speedMul:0.7 }
+      mecha:    { kind:'mecha',    id:'super_mecha',   name:'超级机甲', dmg:100, rpm:48, mag:15, auto:false, spread:0.012, pellets:1, range:130, reload:0, kick:0.05, col:0xff9a3c, zoom:0.98, isSuper:true, isMecha:true, hp:1000,  speedMul:0.5, lift:1.7 },
+      godmecha: { kind:'godmecha', id:'xian_godmecha', name:'终焉机神', dmg:120, rpm:90, mag:50, auto:true,  spread:0.012, pellets:1, range:180, reload:0, kick:0.05, col:0xff2d6e, zoom:0.98, isSuper:true, isXian:true, isMecha:true, hp:10000, speedMul:0.5, lift:3.3 }
     };
     var SUPER_KINDS = ['mg','star','hole','realm','tsunami','mecha'];   // 普通超级武器(洗牌袋，等概率)
     var XIAN_KINDS  = ['roar','blade','godmecha'];                       // 仙器
@@ -779,9 +818,9 @@
     }
     var GUN_PARTS = {"pistol":{"muzzleZ":-0.34,"parts":[{"shape":"box","dims":[0.1,0.075,0.34],"mat":"dark","pos":[0,0.025,-0.1]},{"shape":"box","dims":[0.094,0.02,0.34],"mat":"mid","pos":[0,0.058,-0.1]},{"shape":"box","dims":[0.07,0.012,0.2],"mat":"steel","pos":[0,0.069,-0.16]},{"shape":"box","dims":[0.012,0.05,0.05],"mat":"mid","pos":[0.044,0.025,0.045],"rot":[0,0.25,0]},{"shape":"box","dims":[0.012,0.05,0.05],"mat":"mid","pos":[-0.044,0.025,0.045],"rot":[0,-0.25,0]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.025,0.02]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.025,0.035]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.025,0.05]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.005,0.02]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.005,0.035]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,-0.255,0]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.025,-0.2]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.025,-0.185]},{"shape":"box","dims":[0.102,0.012,0.006],"mat":"steel","pos":[0,0.025,-0.17]},{"shape":"box","dims":[0.052,0.034,0.13],"mat":"mid","pos":[0.012,0.04,-0.04]},{"shape":"box","dims":[0.018,0.03,0.1],"mat":"dark","pos":[-0.05,0.04,-0.03]},{"shape":"cyl","dims":[0.012,0.012,0.06],"mat":"steel","pos":[-0.048,0.035,0.04],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.014,0.014,0.05],"mat":"steel","pos":[-0.052,0.04,0.03]},{"shape":"box","dims":[0.085,0.05,0.24],"mat":"dark","pos":[0,-0.04,-0.06]},{"shape":"box","dims":[0.088,0.018,0.2],"mat":"mid","pos":[0,-0.018,-0.06]},{"shape":"box","dims":[0.02,0.012,0.04],"mat":"steel","pos":[0.046,-0.02,0]},{"shape":"box","dims":[0.012,0.018,0.022],"mat":"steel","pos":[-0.046,-0.022,0.02]},{"shape":"box","dims":[0.018,0.02,0.03],"mat":"mid","pos":[0.046,-0.03,0.06]},{"shape":"box","dims":[0.05,0.018,0.07],"mat":"mid","pos":[0,-0.05,-0.18]},{"shape":"box","dims":[0.052,0.006,0.05],"mat":"dark","pos":[0,-0.062,-0.19]},{"shape":"box","dims":[0.05,0.008,0.005],"mat":"steel","pos":[0,-0.066,-0.205]},{"shape":"box","dims":[0.05,0.008,0.005],"mat":"steel","pos":[0,-0.066,-0.19]},{"shape":"box","dims":[0.05,0.008,0.005],"mat":"steel","pos":[0,-0.066,-0.175]},{"shape":"box","dims":[0.085,0.2,0.11],"mat":"grip","pos":[0,-0.16,0.07],"rot":[0.26,0,0]},{"shape":"box","dims":[0.075,0.04,0.012],"mat":"dark","pos":[0,-0.12,0.125],"rot":[0.26,0,0]},{"shape":"box","dims":[0.078,0.012,0.1],"mat":"grip","pos":[0.001,-0.14,0.045],"rot":[0.26,0,0]},{"shape":"box","dims":[0.082,0.01,0.012],"mat":"dark","pos":[0,-0.165,0.025],"rot":[0.26,0,0]},{"shape":"box","dims":[0.082,0.01,0.012],"mat":"dark","pos":[0,-0.2,0.04],"rot":[0.26,0,0]},{"shape":"box","dims":[0.088,0.025,0.1],"mat":"dark","pos":[0,-0.255,0.095],"rot":[0.26,0,0]},{"shape":"box","dims":[0.078,0.02,0.09],"mat":"mid","pos":[0,-0.27,0.1],"rot":[0.26,0,0]},{"shape":"box","dims":[0.07,0.05,0.085],"mat":"steel","pos":[0,-0.225,0.085],"rot":[0.26,0,0]},{"shape":"box","dims":[0.02,0.06,0.05],"mat":"dark","pos":[0,-0.085,-0.02]},{"shape":"box","dims":[0.02,0.012,0.06],"mat":"dark","pos":[0,-0.105,-0.005]},{"shape":"box","dims":[0.02,0.06,0.012],"mat":"dark","pos":[0,-0.085,0.025]},{"shape":"box","dims":[0.01,0.03,0.012],"mat":"steel","pos":[0,-0.085,0]},{"shape":"box","dims":[0.004,0.018,0.006],"mat":"mid","pos":[0,-0.082,-0.004]},{"shape":"cyl","dims":[0.0225,0.0225,0.1],"mat":"barrel","pos":[0,0.025,-0.3],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.014,0.014,0.06],"mat":"steel","pos":[0,0.025,-0.33],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.021,0.004,0],"mat":"steel","pos":[0,0.025,-0.335],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.018,0.012,0.012],"mat":"dark","pos":[0,0.075,-0.3]},{"shape":"box","dims":[0.006,0.02,0.006],"mat":"steel","pos":[0,0.088,-0.3]},{"shape":"sphere","dims":[0.004],"mat":"steel","pos":[0,0.092,-0.3]},{"shape":"box","dims":[0.04,0.018,0.014],"mat":"dark","pos":[0,0.078,0.04]},{"shape":"box","dims":[0.008,0.018,0.008],"mat":"dark","pos":[0.014,0.08,0.04]},{"shape":"box","dims":[0.008,0.018,0.008],"mat":"dark","pos":[-0.014,0.08,0.04]},{"shape":"box","dims":[0.006,0.012,0.006],"mat":"mid","pos":[0,0.078,0.034]},{"shape":"cyl","dims":[0.004,0.004,0.012],"mat":"steel","pos":[0.044,-0.04,-0.03],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.004,0.004,0.012],"mat":"steel","pos":[0.044,-0.05,0.04],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.012,0.025,0.004],"mat":"steel","pos":[0,-0.06,0.075]}]},"smg":{"muzzleZ":-0.44,"parts":[{"shape":"box","dims":[0.1,0.12,0.4],"mat":"dark","pos":[0,0,0]},{"shape":"box","dims":[0.104,0.07,0.3],"mat":"mid","pos":[0,0.01,-0.02]},{"shape":"box","dims":[0.092,0.045,0.36],"mat":"dark","pos":[0,-0.05,0]},{"shape":"box","dims":[0.106,0.03,0.12],"mat":"mid","pos":[0,0.045,0.1]},{"shape":"box","dims":[0.108,0.05,0.08],"mat":"steel","pos":[0,0,-0.14]},{"shape":"box","dims":[0.05,0.022,0.34],"mat":"steel","pos":[0,0.075,-0.02]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,-0.14]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,-0.1]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,-0.06]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,-0.02]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,0.02]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,0.06]},{"shape":"box","dims":[0.054,0.012,0.018],"mat":"steel","pos":[0,0.09,0.1]},{"shape":"cyl","dims":[0.03,0.03,0.2],"mat":"barrel","pos":[0,0,-0.32],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.045,0.045,0.16],"mat":"dark","pos":[0,0,-0.26],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.012,0.05,0.018],"mat":"mid","pos":[0.04,0,-0.24]},{"shape":"box","dims":[0.012,0.05,0.018],"mat":"mid","pos":[-0.04,0,-0.24]},{"shape":"box","dims":[0.012,0.05,0.018],"mat":"mid","pos":[0.04,0,-0.29]},{"shape":"box","dims":[0.012,0.05,0.018],"mat":"mid","pos":[-0.04,0,-0.29]},{"shape":"torus","dims":[0.046,0.006],"mat":"steel","pos":[0,0,-0.34],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.034,0.034,0.06],"mat":"steel","pos":[0,0,-0.43],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.01,0.05,0.03],"mat":"dark","pos":[0,0.03,-0.43]},{"shape":"box","dims":[0.05,0.01,0.03],"mat":"dark","pos":[0.03,0,-0.43]},{"shape":"box","dims":[0.05,0.01,0.03],"mat":"dark","pos":[-0.03,0,-0.43]},{"shape":"cyl","dims":[0.018,0.018,0.02],"mat":"dark","pos":[0,0,-0.46],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.018,0.045,0.02],"mat":"steel","pos":[0,0.1,-0.38]},{"shape":"cyl","dims":[0.004,0.004,0.04],"mat":"steel","pos":[0,0.115,-0.38]},{"shape":"torus","dims":[0.022,0.004],"mat":"steel","pos":[0,0.11,-0.38],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.04,0.03,0.018],"mat":"steel","pos":[0,0.105,0.12]},{"shape":"cyl","dims":[0.012,0.012,0.016],"mat":"dark","pos":[0,0.115,0.12],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.02,0.04,0.1],"mat":"mid","pos":[0.052,0.02,0]},{"shape":"cyl","dims":[0.012,0.012,0.05],"mat":"steel","pos":[0.075,0.04,-0.05],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.006,0.05,0.12],"mat":"dark","pos":[0.053,0.02,0.02]},{"shape":"box","dims":[0.006,0.035,0.05],"mat":"steel","pos":[-0.052,0.01,0.02]},{"shape":"cyl","dims":[0.01,0.01,0.014],"mat":"steel","pos":[-0.056,0,0.02],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.06,0.22,0.07],"mat":"dark","pos":[0,-0.16,0.02],"rot":[0.12,0,0]},{"shape":"box","dims":[0.066,0.02,0.076],"mat":"mid","pos":[0,-0.26,0.035],"rot":[0.12,0,0]},{"shape":"box","dims":[0.058,0.03,0.066],"mat":"steel","pos":[0,-0.055,0.018]},{"shape":"box","dims":[0.01,0.06,0.012],"mat":"mid","pos":[0.032,-0.14,0.02],"rot":[0.12,0,0]},{"shape":"box","dims":[0.08,0.012,0.13],"mat":"mid","pos":[0,-0.052,0.13]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,-0.078,0.085]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,-0.078,0.175]},{"shape":"box","dims":[0.06,0.012,0.05],"mat":"mid","pos":[0,-0.1,0.13]},{"shape":"box","dims":[0.012,0.03,0.012],"mat":"steel","pos":[0,-0.072,0.115],"rot":[0.3,0,0]},{"shape":"box","dims":[0.075,0.15,0.085],"mat":"grip","pos":[0,-0.12,0.15],"rot":[0.18,0,0]},{"shape":"box","dims":[0.078,0.014,0.088],"mat":"grip","pos":[0,-0.1,0.135],"rot":[0.18,0,0]},{"shape":"box","dims":[0.078,0.014,0.088],"mat":"grip","pos":[0,-0.135,0.16],"rot":[0.18,0,0]},{"shape":"box","dims":[0.07,0.02,0.08],"mat":"dark","pos":[0,-0.19,0.17],"rot":[0.18,0,0]},{"shape":"box","dims":[0.05,0.07,0.18],"mat":"dark","pos":[0,0.01,0.3]},{"shape":"box","dims":[0.046,0.04,0.1],"mat":"dark","pos":[0,0.06,0.3]},{"shape":"box","dims":[0.058,0.11,0.03],"mat":"rubber","pos":[0,0,0.4]},{"shape":"box","dims":[0.03,0.04,0.1],"mat":"mid","pos":[0,-0.01,0.24]},{"shape":"torus","dims":[0.014,0.005],"mat":"steel","pos":[0.045,-0.04,0.21],"rot":[0,1.5708,0]},{"shape":"torus","dims":[0.014,0.005],"mat":"steel","pos":[0,-0.02,-0.34],"rot":[0,1.5708,0]},{"shape":"cyl","dims":[0.006,0.006,0.012],"mat":"steel","pos":[0.052,0.04,-0.12],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.006,0.006,0.012],"mat":"steel","pos":[0.052,0.04,0.16],"rot":[0,0,1.5708]}]},"rifle":{"muzzleZ":-0.73,"parts":[{"shape":"box","dims":[0.1,0.115,0.3],"mat":"dark","pos":[0,0,0]},{"shape":"box","dims":[0.092,0.1,0.4],"mat":"mid","pos":[0,0.022,-0.06]},{"shape":"box","dims":[0.094,0.035,0.4],"mat":"mid","pos":[0,0.058,-0.06]},{"shape":"box","dims":[0.012,0.055,0.16],"mat":"dark","pos":[0.052,0.018,0.02],"rot":[0,0,0.05]},{"shape":"box","dims":[0.012,0.055,0.16],"mat":"dark","pos":[-0.052,0.018,0.02],"rot":[0,0,-0.05]},{"shape":"box","dims":[0.03,0.04,0.085],"mat":"steel","pos":[0.05,0.03,-0.045]},{"shape":"box","dims":[0.014,0.02,0.022],"mat":"steel","pos":[0.058,0.012,-0.005]},{"shape":"cyl","dims":[0.013,0.013,0.02],"mat":"steel","pos":[0.06,0.034,-0.005],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.024,0.022,0.05],"mat":"mid","pos":[-0.03,0.066,0.16]},{"shape":"box","dims":[0.05,0.012,0.03],"mat":"steel","pos":[-0.045,0.066,0.175]},{"shape":"cyl","dims":[0.03,0.03,0.06],"mat":"mid","pos":[0,0.022,0.18],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.05,0.022,0.42],"mat":"steel","pos":[0,0.088,-0.12]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,-0.28]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,-0.24]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,-0.2]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,-0.16]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,-0.08]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,-0.04]},{"shape":"box","dims":[0.055,0.01,0.014],"mat":"steel","pos":[0,0.101,0]},{"shape":"box","dims":[0.04,0.03,0.01],"mat":"steel","pos":[0,0.11,0.165]},{"shape":"box","dims":[0.085,0.09,0.3],"mat":"dark","pos":[0,-0.002,-0.34]},{"shape":"box","dims":[0.02,0.012,0.018],"mat":"dark","pos":[0.044,0.01,-0.27]},{"shape":"box","dims":[0.02,0.012,0.018],"mat":"dark","pos":[0.044,0.01,-0.33]},{"shape":"box","dims":[0.02,0.012,0.018],"mat":"dark","pos":[0.044,0.01,-0.39]},{"shape":"box","dims":[0.02,0.012,0.018],"mat":"dark","pos":[-0.044,0.01,-0.27]},{"shape":"box","dims":[0.02,0.012,0.018],"mat":"dark","pos":[-0.044,0.01,-0.33]},{"shape":"box","dims":[0.02,0.012,0.018],"mat":"dark","pos":[-0.044,0.01,-0.39]},{"shape":"box","dims":[0.03,0.04,0.04],"mat":"steel","pos":[0,0.055,-0.42]},{"shape":"cyl","dims":[0.006,0.006,0.18],"mat":"steel","pos":[0,0.04,-0.4],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.024,0.024,0.42],"mat":"barrel","pos":[0,0,-0.52],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.03,0.03,0.03],"mat":"barrel","pos":[0,0,-0.4],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.036,0.036,0.06],"mat":"steel","pos":[0,0,-0.7],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.01,0.012,0.03],"mat":"mid","pos":[0,0.034,-0.7]},{"shape":"box","dims":[0.01,0.012,0.03],"mat":"mid","pos":[0.028,0.018,-0.7],"rot":[0,0,-0.9]},{"shape":"box","dims":[0.01,0.012,0.03],"mat":"mid","pos":[-0.028,0.018,-0.7],"rot":[0,0,0.9]},{"shape":"box","dims":[0.07,0.24,0.075],"mat":"mid","pos":[0,-0.175,0.04],"rot":[0.18,0,0]},{"shape":"box","dims":[0.075,0.02,0.085],"mat":"dark","pos":[0,-0.295,0.06],"rot":[0.18,0,0]},{"shape":"box","dims":[0.066,0.03,0.07],"mat":"steel","pos":[0,-0.052,0.035]},{"shape":"box","dims":[0.044,0.02,0.02],"mat":"mid","pos":[0.052,-0.035,0.06]},{"shape":"box","dims":[0.04,0.075,0.05],"mat":"grip","pos":[0,-0.085,0.135],"rot":[0.35,0,0]},{"shape":"box","dims":[0.038,0.012,0.045],"mat":"grip","pos":[0,-0.11,0.15],"rot":[0.35,0,0]},{"shape":"box","dims":[0.038,0.012,0.045],"mat":"grip","pos":[0,-0.078,0.122],"rot":[0.35,0,0]},{"shape":"torus","dims":[0.02,0.006],"mat":"mid","pos":[0,-0.04,0.085],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.01,0.022,0.012],"mat":"steel","pos":[0,-0.042,0.075]},{"shape":"cyl","dims":[0.01,0.01,0.024],"mat":"mid","pos":[0.05,0,0.085],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.008,0.008,0.1],"mat":"steel","pos":[0,0.018,0.085],"rot":[0,1.5708,0]},{"shape":"cyl","dims":[0.008,0.008,0.1],"mat":"steel","pos":[0,0.018,0.155],"rot":[0,1.5708,0]},{"shape":"cyl","dims":[0.024,0.024,0.2],"mat":"mid","pos":[0,0.02,0.31],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.07,0.11,0.2],"mat":"dark","pos":[0,-0.018,0.34]},{"shape":"box","dims":[0.05,0.06,0.025],"mat":"dark","pos":[0,0.045,0.3]},{"shape":"box","dims":[0.075,0.13,0.022],"mat":"rubber","pos":[0,-0.018,0.44]},{"shape":"box","dims":[0.02,0.014,0.04],"mat":"mid","pos":[0,-0.085,0.4]},{"shape":"torus","dims":[0.012,0.004],"mat":"steel","pos":[0,-0.06,-0.46],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.024,0.016,0.03],"mat":"dark","pos":[0,0.114,-0.26]},{"shape":"box","dims":[0.006,0.032,0.008],"mat":"steel","pos":[0,0.135,-0.26]},{"shape":"box","dims":[0.03,0.006,0.01],"mat":"dark","pos":[0,0.15,-0.26]},{"shape":"box","dims":[0.005,0.03,0.01],"mat":"dark","pos":[0.013,0.135,-0.26]},{"shape":"box","dims":[0.005,0.03,0.01],"mat":"dark","pos":[-0.013,0.135,-0.26]},{"shape":"box","dims":[0.05,0.016,0.03],"mat":"dark","pos":[0,0.114,-0.01]},{"shape":"box","dims":[0.014,0.03,0.016],"mat":"dark","pos":[0.021,0.132,-0.01]},{"shape":"box","dims":[0.014,0.03,0.016],"mat":"dark","pos":[-0.021,0.132,-0.01]},{"shape":"torus","dims":[0.012,0.004],"mat":"steel","pos":[0,0.132,-0.01],"rot":[1.5708,0,0]}]},"shotgun":{"muzzleZ":-0.7,"parts":[{"shape":"box","dims":[0.12,0.13,0.4],"mat":"dark","pos":[0,0,0]},{"shape":"box","dims":[0.125,0.04,0.41],"mat":"steel","pos":[0,0.055,0]},{"shape":"box","dims":[0.122,0.06,0.3],"mat":"mid","pos":[0,0,-0.02]},{"shape":"box","dims":[0.13,0.05,0.18],"mat":"steel","pos":[0,0.01,0.05]},{"shape":"box","dims":[0.135,0.035,0.12],"mat":"dark","pos":[0.062,0.02,0.04]},{"shape":"box","dims":[0.02,0.045,0.1],"mat":"steel","pos":[0.07,0,0.05]},{"shape":"cyl","dims":[0.015,0.015,0.04],"mat":"steel","pos":[0.085,0,0.05],"rot":[0,1.5708,0]},{"shape":"box","dims":[0.06,0.04,0.08],"mat":"mid","pos":[0,0.04,0.12]},{"shape":"cyl","dims":[0.046,0.048,0.5],"mat":"barrel","pos":[0,0.018,-0.45],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.05,0.05,0.04],"mat":"steel","pos":[0,0.018,-0.21],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.0485,0.0485,0.05],"mat":"steel","pos":[0,0.018,-0.69],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.048,0.006],"mat":"mid","pos":[0,0.018,-0.7],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.043,0.043,0.02],"mat":"dark","pos":[0,0.018,-0.71],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.012,0.022,0.3],"mat":"steel","pos":[0,0.066,-0.45]},{"shape":"box","dims":[0.018,0.012,0.018],"mat":"steel","pos":[0,0.08,-0.66]},{"shape":"sphere","dims":[0.008],"mat":"gold","pos":[0,0.088,-0.66]},{"shape":"box","dims":[0.02,0.01,0.02],"mat":"steel","pos":[0,0.078,-0.25]},{"shape":"cyl","dims":[0.034,0.034,0.42],"mat":"steel","pos":[0,-0.04,-0.42],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.036,0.036,0.03],"mat":"mid","pos":[0,-0.04,-0.215],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.035,0.035,0.025],"mat":"steel","pos":[0,-0.04,-0.62],"rot":[1.5708,0,0]},{"shape":"cone","dims":[0.022,0.03],"mat":"steel","pos":[0,-0.04,-0.635],"rot":[-1.5708,0,0]},{"shape":"box","dims":[0.025,0.03,0.02],"mat":"steel","pos":[0,-0.066,-0.58]},{"shape":"box","dims":[0.09,0.085,0.16],"mat":"dark","pos":[0,-0.02,-0.3]},{"shape":"box","dims":[0.095,0.02,0.16],"mat":"mid","pos":[0,-0.06,-0.3]},{"shape":"box","dims":[0.008,0.05,0.14],"mat":"grip","pos":[0.046,-0.02,-0.3]},{"shape":"box","dims":[0.008,0.05,0.14],"mat":"grip","pos":[-0.046,-0.02,-0.3]},{"shape":"box","dims":[0.07,0.008,0.13],"mat":"grip","pos":[0,0.022,-0.3]},{"shape":"cyl","dims":[0.02,0.02,0.18],"mat":"steel","pos":[0,-0.04,-0.3],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.1,0.05,0.14],"mat":"mid","pos":[0,-0.075,0.04]},{"shape":"box","dims":[0.08,0.04,0.1],"mat":"dark","pos":[0,-0.1,0.03]},{"shape":"box","dims":[0.012,0.05,0.1],"mat":"dark","pos":[0.04,-0.085,0.03]},{"shape":"box","dims":[0.012,0.05,0.1],"mat":"dark","pos":[-0.04,-0.085,0.03]},{"shape":"box","dims":[0.012,0.03,0.025],"mat":"steel","pos":[0,-0.095,0.05]},{"shape":"box","dims":[0.02,0.018,0.02],"mat":"steel","pos":[0,-0.06,0.1]},{"shape":"box","dims":[0.02,0.018,0.018],"mat":"steel","pos":[0,-0.055,-0.05]},{"shape":"box","dims":[0.05,0.1,0.05],"mat":"grip","pos":[0,-0.1,0.15]},{"shape":"box","dims":[0.085,0.15,0.26],"mat":"wood","pos":[0,-0.02,0.3]},{"shape":"box","dims":[0.08,0.05,0.2],"mat":"wood","pos":[0,0.045,0.3]},{"shape":"box","dims":[0.075,0.16,0.03],"mat":"rubber","pos":[0,-0.02,0.435]},{"shape":"box","dims":[0.078,0.05,0.015],"mat":"dark","pos":[0,0.05,0.43]},{"shape":"cyl","dims":[0.012,0.012,0.02],"mat":"steel","pos":[0,-0.1,0.2],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.012,0.004],"mat":"steel","pos":[0,-0.115,0.2]},{"shape":"box","dims":[0.06,0.03,0.04],"mat":"steel","pos":[0,0.05,0.16]},{"shape":"cyl","dims":[0.006,0.006,0.125],"mat":"steel","pos":[0,0,0],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.005,0.005,0.13],"mat":"mid","pos":[0,-0.04,0.08],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.005,0.005,0.13],"mat":"mid","pos":[0,-0.055,0],"rot":[0,0,1.5708]}]},"sniper":{"muzzleZ":-0.86,"parts":[{"shape":"box","dims":[0.1,0.13,0.52],"mat":"dark","pos":[0,0,0]},{"shape":"box","dims":[0.104,0.025,0.5],"mat":"mid","pos":[0,0.058,0]},{"shape":"box","dims":[0.105,0.05,0.3],"mat":"steel","pos":[0.001,0.01,0.1]},{"shape":"box","dims":[0.07,0.05,0.13],"mat":"steel","pos":[0.052,0.03,0.11]},{"shape":"box","dims":[0.02,0.045,0.1],"mat":"dark","pos":[0.058,0.03,0.11]},{"shape":"cyl","dims":[0.018,0.018,0.13],"mat":"steel","pos":[0.085,0.045,0.13],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.016,0.016,0.05],"mat":"mid","pos":[0.105,0.045,0.16],"rot":[0,0,1.5708]},{"shape":"sphere","dims":[0.018],"mat":"steel","pos":[0.128,0.045,0.16]},{"shape":"box","dims":[0.05,0.018,0.4],"mat":"mid","pos":[0,0.069,-0.06]},{"shape":"box","dims":[0.046,0.014,0.012],"mat":"mid","pos":[0,0.082,-0.2]},{"shape":"box","dims":[0.046,0.014,0.012],"mat":"mid","pos":[0,0.082,-0.16]},{"shape":"box","dims":[0.046,0.014,0.012],"mat":"mid","pos":[0,0.082,-0.12]},{"shape":"box","dims":[0.046,0.014,0.012],"mat":"mid","pos":[0,0.082,0.1]},{"shape":"box","dims":[0.046,0.014,0.012],"mat":"mid","pos":[0,0.082,0.14]},{"shape":"cyl","dims":[0.026,0.026,0.6],"mat":"barrel","pos":[0,0.01,-0.55],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.006,0.006,0.4],"mat":"mid","pos":[0.022,0.01,-0.55]},{"shape":"box","dims":[0.006,0.006,0.4],"mat":"mid","pos":[-0.022,0.01,-0.55]},{"shape":"box","dims":[0.006,0.006,0.4],"mat":"mid","pos":[0,0.032,-0.55]},{"shape":"cyl","dims":[0.032,0.032,0.06],"mat":"steel","pos":[0,0.01,-0.27],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.045,0.045,0.09],"mat":"steel","pos":[0,0.01,-0.8],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.094,0.012,0.014],"mat":"dark","pos":[0,0.01,-0.78]},{"shape":"box","dims":[0.094,0.012,0.014],"mat":"dark","pos":[0,0.01,-0.82]},{"shape":"cyl","dims":[0.03,0.03,0.02],"mat":"barrel","pos":[0,0.01,-0.845],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.09,0.07,0.34],"mat":"wood","pos":[0,-0.04,-0.45]},{"shape":"box","dims":[0.06,0.012,0.04],"mat":"dark","pos":[0,-0.078,-0.4]},{"shape":"box","dims":[0.06,0.012,0.04],"mat":"dark","pos":[0,-0.078,-0.5]},{"shape":"box","dims":[0.018,0.018,0.018],"mat":"steel","pos":[0,-0.078,-0.3]},{"shape":"box","dims":[0.014,0.05,0.02],"mat":"steel","pos":[0,0.07,-0.3]},{"shape":"box","dims":[0.04,0.012,0.012],"mat":"steel","pos":[0,0.092,-0.3]},{"shape":"box","dims":[0.04,0.04,0.014],"mat":"steel","pos":[0,0.075,0.18]},{"shape":"cyl","dims":[0.005,0.005,0.016],"mat":"dark","pos":[0,0.082,0.18],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.05,0.05,0.3],"mat":"dark","pos":[0,0.11,-0.05],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.058,0.058,0.06],"mat":"dark","pos":[0,0.11,-0.21],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.055,0.055,0.02],"mat":"glass","pos":[0,0.11,-0.245],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.052,0.052,0.05],"mat":"dark","pos":[0,0.11,0.12],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.045,0.045,0.015],"mat":"glass","pos":[0,0.11,0.148],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.038,0.038,0.05],"mat":"mid","pos":[0,0.135,-0.04]},{"shape":"cyl","dims":[0.034,0.034,0.045],"mat":"mid","pos":[0.05,0.11,-0.04],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.02,0.085,0.025],"mat":"steel","pos":[0,0.05,-0.04]},{"shape":"box","dims":[0.02,0.085,0.025],"mat":"steel","pos":[0,0.05,0.08]},{"shape":"box","dims":[0.07,0.18,0.085],"mat":"mid","pos":[0,-0.14,0.06]},{"shape":"box","dims":[0.072,0.02,0.088],"mat":"dark","pos":[0,-0.235,0.06]},{"shape":"box","dims":[0.05,0.02,0.06],"mat":"steel","pos":[0,-0.04,0.06]},{"shape":"box","dims":[0.075,0.15,0.09],"mat":"grip","pos":[0,-0.11,0.16],"rot":[0.2,0,0]},{"shape":"box","dims":[0.078,0.02,0.092],"mat":"dark","pos":[0,-0.05,0.2]},{"shape":"box","dims":[0.078,0.02,0.092],"mat":"dark","pos":[0,-0.1,0.215]},{"shape":"box","dims":[0.05,0.06,0.04],"mat":"steel","pos":[0,-0.06,0.04]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"steel","pos":[0,-0.055,0.07]},{"shape":"box","dims":[0.08,0.14,0.3],"mat":"wood","pos":[0,-0.02,0.36]},{"shape":"box","dims":[0.04,0.07,0.1],"mat":"dark","pos":[0,0.04,0.32]},{"shape":"box","dims":[0.084,0.05,0.1],"mat":"mid","pos":[0,0.06,0.34]},{"shape":"cyl","dims":[0.006,0.006,0.06],"mat":"steel","pos":[0.03,0.03,0.34]},{"shape":"box","dims":[0.085,0.15,0.04],"mat":"rubber","pos":[0,-0.02,0.5]},{"shape":"box","dims":[0.018,0.018,0.018],"mat":"steel","pos":[0,-0.09,0.48]},{"shape":"cyl","dims":[0.012,0.012,0.2],"mat":"steel","pos":[-0.03,-0.14,-0.55],"rot":[0.5,0,0.35]},{"shape":"cyl","dims":[0.012,0.012,0.2],"mat":"steel","pos":[0.03,-0.14,-0.55],"rot":[0.5,0,-0.35]},{"shape":"box","dims":[0.05,0.03,0.04],"mat":"dark","pos":[0,-0.075,-0.55]},{"shape":"cyl","dims":[0.008,0.008,0.03],"mat":"mid","pos":[-0.045,-0.235,-0.62],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.008,0.008,0.03],"mat":"mid","pos":[0.045,-0.235,-0.62],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.004,0.004,0.105],"mat":"steel","pos":[0,-0.02,0.02],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.004,0.004,0.105],"mat":"steel","pos":[0,-0.02,0.14],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.018,0.04,0.05],"mat":"dark","pos":[0,-0.04,0.13]}]},"mg":{"muzzleZ":-0.72,"parts":[{"shape":"box","dims":[0.14,0.16,0.5],"mat":"dark","pos":[0,0,0]},{"shape":"box","dims":[0.148,0.06,0.46],"mat":"mid","pos":[0,0.06,0]},{"shape":"box","dims":[0.155,0.05,0.3],"mat":"steel","pos":[0,-0.05,0.08]},{"shape":"box","dims":[0.005,0.1,0.42],"mat":"steel","pos":[0.073,0,0]},{"shape":"box","dims":[0.005,0.1,0.42],"mat":"steel","pos":[-0.073,0,0]},{"shape":"box","dims":[0.07,0.05,0.07],"mat":"mid","pos":[0.075,0.03,0.05]},{"shape":"box","dims":[0.02,0.03,0.12],"mat":"steel","pos":[0.082,0.04,-0.02]},{"shape":"box","dims":[0.03,0.025,0.05],"mat":"grip","pos":[0.095,0.05,0.04]},{"shape":"box","dims":[0.1,0.1,0.3],"mat":"neonbright","pos":[0,0,-0.05],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.065,0.012],"mat":"neon","pos":[0,0,0.08],"rot":[1.5708,0,0],"neon":1,"glow":0.55},{"shape":"torus","dims":[0.065,0.012],"mat":"neon","pos":[0,0,-0.18],"rot":[1.5708,0,0],"neon":1,"glow":0.55},{"shape":"box","dims":[0.02,0.105,0.3],"mat":"steel","pos":[0.055,0,-0.05]},{"shape":"box","dims":[0.02,0.105,0.3],"mat":"steel","pos":[-0.055,0,-0.05]},{"shape":"cyl","dims":[0.03,0.03,0.36],"mat":"barrel","pos":[0.04,0.02,-0.5],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.03,0.03,0.36],"mat":"barrel","pos":[-0.04,0.02,-0.5],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.04,0.04,0.06,0],"mat":"steel","pos":[0.04,0.02,-0.3],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.04,0.04,0.06,0],"mat":"steel","pos":[-0.04,0.02,-0.3],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.035,0.008],"mat":"mid","pos":[0.04,0.02,-0.55],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.035,0.008],"mat":"mid","pos":[-0.04,0.02,-0.55],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.035,0.008],"mat":"mid","pos":[0.04,0.02,-0.62],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.035,0.008],"mat":"mid","pos":[-0.04,0.02,-0.62],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.042,0.042,0.07],"mat":"steel","pos":[0.04,0.02,-0.7],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.042,0.042,0.07],"mat":"steel","pos":[-0.04,0.02,-0.7],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.018,0.018,0.05],"mat":"neon","pos":[0.04,0.02,-0.71],"rot":[1.5708,0,0],"neon":1,"glow":0.6},{"shape":"cyl","dims":[0.018,0.018,0.05],"mat":"neon","pos":[-0.04,0.02,-0.71],"rot":[1.5708,0,0],"neon":1,"glow":0.6},{"shape":"box","dims":[0.012,0.04,0.012],"mat":"steel","pos":[0.04,0.06,-0.45]},{"shape":"box","dims":[0.05,0.012,0.012],"mat":"mid","pos":[0,0.075,-0.42]},{"shape":"box","dims":[0.012,0.03,0.012],"mat":"mid","pos":[0.025,0.065,-0.42]},{"shape":"box","dims":[0.012,0.03,0.012],"mat":"mid","pos":[-0.025,0.065,-0.42]},{"shape":"box","dims":[0.05,0.025,0.02],"mat":"mid","pos":[0,0.07,0.18]},{"shape":"box","dims":[0.1,0.014,0.012],"mat":"steel","pos":[0,0.075,0.05]},{"shape":"box","dims":[0.1,0.014,0.012],"mat":"steel","pos":[0,0.075,0]},{"shape":"box","dims":[0.1,0.014,0.012],"mat":"steel","pos":[0,0.075,-0.05]},{"shape":"box","dims":[0.1,0.014,0.012],"mat":"steel","pos":[0,0.075,-0.1]},{"shape":"cyl","dims":[0.05,0.05,0.26],"mat":"mid","pos":[0,0.13,-0.04],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.055,0.055,0.02],"mat":"neonbright","pos":[0,0.13,-0.18],"rot":[1.5708,0,0],"neon":1,"glow":0.8},{"shape":"cyl","dims":[0.05,0.05,0.02],"mat":"glass","pos":[0,0.13,0.085],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.055,0.008],"mat":"neon","pos":[0,0.13,-0.05],"rot":[1.5708,0,0],"neon":1,"glow":0.45},{"shape":"box","dims":[0.025,0.06,0.025],"mat":"steel","pos":[0,0.085,-0.1]},{"shape":"box","dims":[0.025,0.06,0.025],"mat":"steel","pos":[0,0.085,0.02]},{"shape":"cyl","dims":[0.1,0.11,0.1],"mat":"mid","pos":[0,-0.18,0.04],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.095,0.018],"mat":"dark","pos":[0,-0.18,0.095],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.05,0.012],"mat":"neon","pos":[0,-0.18,0.095],"rot":[1.5708,0,0],"neon":1,"glow":0.7},{"shape":"box","dims":[0.05,0.1,0.05],"mat":"mid","pos":[0,-0.1,0.02]},{"shape":"box","dims":[0.08,0.16,0.09],"mat":"grip","pos":[0,-0.12,0.16],"rot":[0.18,0,0]},{"shape":"box","dims":[0.085,0.015,0.07],"mat":"grip","pos":[0,-0.08,0.155],"rot":[0.18,0,0]},{"shape":"box","dims":[0.085,0.015,0.07],"mat":"grip","pos":[0,-0.13,0.165],"rot":[0.18,0,0]},{"shape":"box","dims":[0.02,0.05,0.1],"mat":"dark","pos":[0,-0.05,0.09]},{"shape":"box","dims":[0.014,0.04,0.014],"mat":"steel","pos":[0,-0.06,0.11]},{"shape":"box","dims":[0.07,0.1,0.08],"mat":"grip","pos":[0,-0.14,-0.3],"rot":[-0.15,0,0]},{"shape":"box","dims":[0.075,0.014,0.07],"mat":"grip","pos":[0,-0.17,-0.3],"rot":[-0.15,0,0]},{"shape":"box","dims":[0.1,0.06,0.1],"mat":"dark","pos":[0,-0.04,-0.28]},{"shape":"box","dims":[0.012,0.012,0.3],"mat":"neon","pos":[0.073,0.01,-0.05],"neon":1,"glow":0.5},{"shape":"box","dims":[0.012,0.012,0.3],"mat":"neon","pos":[-0.073,0.01,-0.05],"neon":1,"glow":0.5},{"shape":"box","dims":[0.06,0.1,0.12],"mat":"mid","pos":[0,-0.01,0.27]},{"shape":"box","dims":[0.05,0.14,0.05],"mat":"dark","pos":[0,-0.02,0.34]},{"shape":"box","dims":[0.07,0.04,0.1],"mat":"grip","pos":[0,0.06,0.3]},{"shape":"torus","dims":[0.016,0.005],"mat":"steel","pos":[0,-0.085,0.3],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.016,0.005],"mat":"steel","pos":[0.05,-0.06,-0.26],"rot":[0,1.5708,0]},{"shape":"cyl","dims":[0.006,0.006,0.012],"mat":"steel","pos":[0.07,0.02,0.1],"rot":[0,1.5708,0]},{"shape":"cyl","dims":[0.006,0.006,0.012],"mat":"steel","pos":[0.07,-0.03,-0.1],"rot":[0,1.5708,0]},{"shape":"octa","dims":[0.04],"mat":"neonbright","pos":[0,0,0.2],"neon":1,"glow":0.75}]},"star":{"muzzleZ":-0.82,"parts":[{"shape":"box","dims":[0.16,0.16,0.34],"mat":"dark","pos":[0,0,0.05]},{"shape":"box","dims":[0.17,0.04,0.3],"mat":"mid","pos":[0,0.085,0.04]},{"shape":"box","dims":[0.165,0.05,0.2],"mat":"steel","pos":[0,-0.08,0.06]},{"shape":"box","dims":[0.04,0.1,0.3],"mat":"mid","pos":[0.085,0,0.04]},{"shape":"box","dims":[0.04,0.1,0.3],"mat":"mid","pos":[-0.085,0,0.04]},{"shape":"box","dims":[0.09,0.07,0.1],"mat":"steel","pos":[0.075,0.01,0]},{"shape":"box","dims":[0.02,0.045,0.07],"mat":"dark","pos":[0.1,0.01,0]},{"shape":"cyl","dims":[0.018,0.018,0.12],"mat":"steel","pos":[0.095,0.05,0.07],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.03,0.05,0.025],"mat":"grip","pos":[0.105,0.05,0.13]},{"shape":"cyl","dims":[0.11,0.095,0.3],"mat":"barrel","pos":[0,0,-0.3],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.085,0.08,0.5],"mat":"steel","pos":[0,0,-0.4],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.2,0.03,0.2],"mat":"mid","pos":[0,0.105,-0.2]},{"shape":"box","dims":[0.006,0.05,0.18],"mat":"dark","pos":[0.05,0.12,-0.2]},{"shape":"box","dims":[0.006,0.05,0.18],"mat":"dark","pos":[0,0.12,-0.2]},{"shape":"box","dims":[0.006,0.05,0.18],"mat":"dark","pos":[-0.05,0.12,-0.2]},{"shape":"box","dims":[0.006,0.05,0.18],"mat":"dark","pos":[0.025,0.12,-0.2]},{"shape":"box","dims":[0.006,0.05,0.18],"mat":"dark","pos":[-0.025,0.12,-0.2]},{"shape":"box","dims":[0.1,0.16,0.1],"mat":"steel","pos":[0,0,0.18]},{"shape":"octa","dims":[0.075],"mat":"neonbright","pos":[0,0,0.18],"neon":1,"glow":1},{"shape":"sphere","dims":[0.04],"mat":"neon","pos":[0,0,0.18],"neon":1,"glow":0.7},{"shape":"torus","dims":[0.085,0.012],"mat":"neon","pos":[0,0,0.18],"neon":1,"glow":0.5},{"shape":"torus","dims":[0.085,0.012],"mat":"neon","pos":[0,0,0.18],"rot":[1.5708,0,0],"neon":1,"glow":0.5},{"shape":"cyl","dims":[0.015,0.015,0.55],"mat":"neon","pos":[0,0.04,-0.2],"rot":[1.5708,0,0],"neon":1,"glow":0.5},{"shape":"cyl","dims":[0.012,0.012,0.55],"mat":"neon","pos":[0.05,-0.02,-0.2],"rot":[1.5708,0,0],"neon":1,"glow":0.45},{"shape":"cyl","dims":[0.012,0.012,0.55],"mat":"neon","pos":[-0.05,-0.02,-0.2],"rot":[1.5708,0,0],"neon":1,"glow":0.45},{"shape":"torus","dims":[0.115,0.022],"mat":"neonbright","pos":[0,0,-0.5],"rot":[1.5708,0,0],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.105,0.02],"mat":"neonbright","pos":[0,0,-0.62],"rot":[1.5708,0,0],"neon":1,"glow":0.85},{"shape":"torus","dims":[0.095,0.018],"mat":"neonbright","pos":[0,0,-0.74],"rot":[1.5708,0,0],"neon":1,"glow":0.8},{"shape":"cyl","dims":[0.1,0.1,0.015],"mat":"steel","pos":[0,0,-0.44],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.095,0.095,0.015],"mat":"steel","pos":[0,0,-0.56],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.088,0.088,0.015],"mat":"steel","pos":[0,0,-0.68],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.085,0.075,0.1],"mat":"steel","pos":[0,0,-0.78],"rot":[1.5708,0,0]},{"shape":"cone","dims":[0.075,0.1],"mat":"barrel","pos":[0,0,-0.81],"rot":[-1.5708,0,0]},{"shape":"cyl","dims":[0.05,0.05,0.02],"mat":"neonbright","pos":[0,0,-0.82],"rot":[1.5708,0,0],"neon":1,"glow":1},{"shape":"box","dims":[0.012,0.012,0.06],"mat":"dark","pos":[0.06,0,-0.79]},{"shape":"box","dims":[0.012,0.012,0.06],"mat":"dark","pos":[-0.06,0,-0.79]},{"shape":"box","dims":[0.012,0.012,0.06],"mat":"dark","pos":[0,0.06,-0.79]},{"shape":"box","dims":[0.14,0.012,0.2],"mat":"mid","pos":[0,0.115,0.05]},{"shape":"box","dims":[0.13,0.018,0.008],"mat":"dark","pos":[0,0.128,0.12]},{"shape":"box","dims":[0.13,0.018,0.008],"mat":"dark","pos":[0,0.128,0.1]},{"shape":"box","dims":[0.13,0.018,0.008],"mat":"dark","pos":[0,0.128,0.08]},{"shape":"box","dims":[0.13,0.018,0.008],"mat":"dark","pos":[0,0.128,0.06]},{"shape":"box","dims":[0.13,0.018,0.008],"mat":"dark","pos":[0,0.128,0.04]},{"shape":"box","dims":[0.13,0.018,0.008],"mat":"dark","pos":[0,0.128,0.02]},{"shape":"box","dims":[0.02,0.05,0.012],"mat":"steel","pos":[0,0.155,-0.1]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"steel","pos":[0.03,0.155,-0.1]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"steel","pos":[-0.03,0.155,-0.1]},{"shape":"box","dims":[0.05,0.04,0.012],"mat":"steel","pos":[0,0.15,0.16]},{"shape":"box","dims":[0.018,0.025,0.014],"mat":"dark","pos":[0,0.155,0.16]},{"shape":"box","dims":[0.07,0.13,0.06],"mat":"grip","pos":[0,-0.14,0.16],"rot":[0.25,0,0]},{"shape":"box","dims":[0.072,0.02,0.05],"mat":"dark","pos":[0,-0.1,0.17],"rot":[0.25,0,0]},{"shape":"box","dims":[0.072,0.015,0.045],"mat":"dark","pos":[0,-0.15,0.19],"rot":[0.25,0,0]},{"shape":"box","dims":[0.075,0.03,0.05],"mat":"dark","pos":[0,-0.205,0.21]},{"shape":"box","dims":[0.06,0.045,0.025],"mat":"steel","pos":[0,-0.07,0.1]},{"shape":"box","dims":[0.012,0.05,0.1],"mat":"steel","pos":[0.03,-0.085,0.135]},{"shape":"box","dims":[0.012,0.05,0.1],"mat":"steel","pos":[-0.03,-0.085,0.135]},{"shape":"box","dims":[0.012,0.03,0.018],"mat":"mid","pos":[0,-0.085,0.115]},{"shape":"box","dims":[0.1,0.13,0.07],"mat":"dark","pos":[0,-0.13,0]},{"shape":"box","dims":[0.105,0.02,0.075],"mat":"steel","pos":[0,-0.195,0]},{"shape":"box","dims":[0.085,0.09,0.012],"mat":"neon","pos":[0,-0.13,-0.04],"neon":1,"glow":0.55},{"shape":"box","dims":[0.012,0.07,0.012],"mat":"neon","pos":[0.055,-0.13,0],"neon":1,"glow":0.4},{"shape":"box","dims":[0.012,0.07,0.012],"mat":"neon","pos":[-0.055,-0.13,0],"neon":1,"glow":0.4},{"shape":"box","dims":[0.13,0.14,0.1],"mat":"mid","pos":[0,-0.01,0.3]},{"shape":"box","dims":[0.11,0.1,0.12],"mat":"dark","pos":[0,0,0.4]},{"shape":"box","dims":[0.1,0.05,0.04],"mat":"grip","pos":[0,0.07,0.41]},{"shape":"box","dims":[0.12,0.13,0.03],"mat":"rubber","pos":[0,0,0.47]},{"shape":"torus","dims":[0.02,0.008],"mat":"steel","pos":[0,-0.075,0.4],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.02,0.008],"mat":"steel","pos":[0,-0.1,-0.45],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.006,0.006,0.05],"mat":"steel","pos":[0.085,0.06,0.3],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.006,0.006,0.05],"mat":"steel","pos":[0.085,-0.04,0.12],"rot":[0,0,1.5708]}]},"hole":{"muzzleZ":-0.58,"parts":[{"shape":"box","dims":[0.15,0.15,0.4],"mat":"dark","pos":[0,0,0.02]},{"shape":"box","dims":[0.158,0.05,0.41],"mat":"mid","pos":[0,0.058,0.02]},{"shape":"box","dims":[0.162,0.04,0.3],"mat":"steel","pos":[0,-0.055,0.04]},{"shape":"box","dims":[0.135,0.13,0.04],"mat":"steel","pos":[0,0,-0.19]},{"shape":"box","dims":[0.13,0.12,0.05],"mat":"mid","pos":[0,0,0.22]},{"shape":"box","dims":[0.075,0.05,0.16],"mat":"steel","pos":[0.082,0.01,0.02]},{"shape":"box","dims":[0.06,0.04,0.1],"mat":"dark","pos":[0.088,0.02,0]},{"shape":"cyl","dims":[0.012,0.012,0.07],"mat":"steel","pos":[0.105,0.03,0.05],"rot":[1.5708,0,0]},{"shape":"sphere","dims":[0.022],"mat":"grip","pos":[0.105,0.03,0.085]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,0.085,-0.12]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,0.085,-0.07]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,0.085,-0.02]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,0.085,0.03]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,0.085,0.08]},{"shape":"box","dims":[0.012,0.05,0.012],"mat":"mid","pos":[0,0.085,0.13]},{"shape":"box","dims":[0.05,0.012,0.04],"mat":"steel","pos":[0,0.092,0.12]},{"shape":"box","dims":[0.01,0.035,0.008],"mat":"steel","pos":[0,0.11,-0.16]},{"shape":"torus","dims":[0.022,0.005],"mat":"steel","pos":[0,0.11,-0.16],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.04,0.022,0.012],"mat":"mid","pos":[0,0.105,0.17]},{"shape":"box","dims":[0.008,0.018,0.008],"mat":"steel","pos":[-0.012,0.113,0.17]},{"shape":"box","dims":[0.008,0.018,0.008],"mat":"steel","pos":[0.012,0.113,0.17]},{"shape":"box","dims":[0.05,0.07,0.14],"mat":"grip","pos":[0,-0.13,0.12],"rot":[-0.32,0,0]},{"shape":"box","dims":[0.052,0.012,0.03],"mat":"dark","pos":[0,-0.165,0.155],"rot":[-0.32,0,0]},{"shape":"box","dims":[0.052,0.018,0.04],"mat":"dark","pos":[0,-0.17,0.085]},{"shape":"box","dims":[0.012,0.06,0.05],"mat":"mid","pos":[0,-0.075,-0.04],"rot":[0.25,0,0]},{"shape":"box","dims":[0.012,0.012,0.13],"mat":"mid","pos":[0,-0.105,0.02]},{"shape":"box","dims":[0.012,0.04,0.012],"mat":"steel","pos":[0,-0.082,0],"rot":[0.2,0,0]},{"shape":"box","dims":[0.07,0.16,0.09],"mat":"dark","pos":[0,-0.17,-0.03]},{"shape":"box","dims":[0.074,0.02,0.094],"mat":"mid","pos":[0,-0.255,-0.03]},{"shape":"cyl","dims":[0.022,0.022,0.13],"mat":"neon","pos":[0,-0.17,-0.005],"neon":1,"glow":0.6},{"shape":"box","dims":[0.05,0.012,0.06],"mat":"steel","pos":[0,-0.085,-0.03]},{"shape":"sphere","dims":[0.13],"mat":"0x000000","pos":[0,0,-0.42]},{"shape":"sphere","dims":[0.145],"mat":"neondark","pos":[0,0,-0.42],"neon":1,"glow":0.4},{"shape":"torus","dims":[0.16,0.03],"mat":"neon","pos":[0,0,-0.42],"rot":[1.5708,0,0],"neon":1,"glow":0.8},{"shape":"torus","dims":[0.2,0.025],"mat":"neonbright","pos":[0,0,-0.36],"rot":[1.5708,0,0],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.24,0.018],"mat":"neon","pos":[0,0,-0.3],"rot":[1.5708,0,0],"neon":1,"glow":0.7},{"shape":"torus","dims":[0.12,0.02],"mat":"neonbright","pos":[0,0,-0.48],"rot":[1.5708,0,0],"neon":1,"glow":1},{"shape":"cyl","dims":[0.07,0.085,0.18],"mat":"steel","pos":[0,0,-0.27],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.11,0.11,0.04],"mat":"neon","pos":[0,0,-0.24],"neon":1,"glow":0.7},{"shape":"box","dims":[0.02,0.13,0.02],"mat":"neon","pos":[0.07,0,-0.25],"rot":[0,0,0.785],"neon":1,"glow":0.5},{"shape":"box","dims":[0.02,0.13,0.02],"mat":"neon","pos":[-0.07,0,-0.25],"rot":[0,0,0.785],"neon":1,"glow":0.5},{"shape":"box","dims":[0.13,0.02,0.02],"mat":"neon","pos":[0,0.07,-0.25],"neon":1,"glow":0.5},{"shape":"cyl","dims":[0.008,0.008,0.05],"mat":"neon","pos":[0.05,0.05,-0.18],"rot":[1.5708,0,0],"neon":1,"glow":0.6},{"shape":"cyl","dims":[0.008,0.008,0.05],"mat":"neon","pos":[-0.05,0.05,-0.18],"rot":[1.5708,0,0],"neon":1,"glow":0.6},{"shape":"octa","dims":[0.025],"mat":"neonbright","pos":[0,0.07,-0.1],"neon":1,"glow":0.7},{"shape":"cyl","dims":[0.006,0.006,0.02],"mat":"steel","pos":[0.075,0,0.1],"rot":[0,0,1.5708]},{"shape":"cyl","dims":[0.006,0.006,0.02],"mat":"steel","pos":[-0.075,0,0.1],"rot":[0,0,1.5708]},{"shape":"torus","dims":[0.015,0.005],"mat":"mid","pos":[-0.078,-0.04,0.18],"rot":[0,1.5708,0]},{"shape":"box","dims":[0.04,0.05,0.04],"mat":"mid","pos":[0,-0.02,0.235]}]},"realm":{"muzzleZ":-0.6,"parts":[{"shape":"box","dims":[0.13,0.14,0.42],"mat":"dark","pos":[0,0.02,0.02]},{"shape":"box","dims":[0.135,0.05,0.3],"mat":"mid","pos":[0,0.075,0],"rot":[0.04,0,0]},{"shape":"box","dims":[0.125,0.04,0.3],"mat":"mid","pos":[0,-0.045,0],"rot":[-0.04,0,0]},{"shape":"box","dims":[0.075,0.13,0.32],"mat":"dark","pos":[0.055,0.02,0],"rot":[0,-0.05,0]},{"shape":"box","dims":[0.075,0.13,0.32],"mat":"dark","pos":[-0.055,0.02,0],"rot":[0,0.05,0]},{"shape":"box","dims":[0.012,0.07,0.16],"mat":"steel","pos":[0.064,0.04,0.04]},{"shape":"box","dims":[0.01,0.018,0.05],"mat":"steel","pos":[0.07,0.055,0.1]},{"shape":"cyl","dims":[0.009,0.009,0.04],"mat":"steel","pos":[0.085,0.055,0.1],"rot":[0,0,1.5708]},{"shape":"box","dims":[0.013,0.05,0.07],"mat":"mid","pos":[-0.066,0.04,0.05]},{"shape":"cyl","dims":[0.045,0.045,0.16],"mat":"steel","pos":[0,0.02,-0.18],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.024,0.024,0.3],"mat":"barrel","pos":[0,0.02,-0.34],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.03,0.006],"mat":"steel","pos":[0,0.02,-0.28],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.03,0.006],"mat":"steel","pos":[0,0.02,-0.4],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.02,0.1,0.26],"mat":"steel","pos":[0.06,0.02,-0.3]},{"shape":"box","dims":[0.02,0.1,0.26],"mat":"steel","pos":[-0.06,0.02,-0.3]},{"shape":"box","dims":[0.02,0.085,0.22],"mat":"steel","pos":[0,0.075,-0.3]},{"shape":"box","dims":[0.02,0.085,0.22],"mat":"steel","pos":[0,-0.035,-0.3]},{"shape":"cone","dims":[0.045,0.07],"mat":"steel","pos":[0.06,0.02,-0.46],"rot":[-1.5708,0,0]},{"shape":"cone","dims":[0.045,0.07],"mat":"steel","pos":[-0.06,0.02,-0.46],"rot":[-1.5708,0,0]},{"shape":"cone","dims":[0.04,0.06],"mat":"steel","pos":[0,0.075,-0.45],"rot":[-1.5708,0,0]},{"shape":"cone","dims":[0.04,0.06],"mat":"steel","pos":[0,-0.035,-0.45],"rot":[-1.5708,0,0]},{"shape":"octa","dims":[0.13],"mat":"neonbright","pos":[0,0.02,-0.4],"neon":1,"glow":0.9},{"shape":"octa","dims":[0.075],"mat":"neon","pos":[0,0.02,-0.4],"neon":1,"glow":0.7},{"shape":"sphere","dims":[0.04],"mat":"neonbright","pos":[0,0.02,-0.4],"neon":1,"glow":1},{"shape":"cone","dims":[0.04,0.16],"mat":"neon","pos":[0,0.02,-0.55],"rot":[-1.5708,0,0],"neon":1,"glow":0.8},{"shape":"torus","dims":[0.085,0.012],"mat":"neon","pos":[0,0.02,-0.4],"rot":[1.5708,0,0],"neon":1,"glow":0.6},{"shape":"cyl","dims":[0.03,0.03,0.1],"mat":"neonbright","pos":[0,0.02,-0.18],"rot":[1.5708,0,0],"neon":1,"glow":0.8},{"shape":"box","dims":[0.005,0.05,0.34],"mat":"neon","pos":[0.066,0.04,0],"neon":1,"glow":0.5},{"shape":"box","dims":[0.005,0.05,0.34],"mat":"neon","pos":[-0.066,0.04,0],"neon":1,"glow":0.5},{"shape":"box","dims":[0.05,0.005,0.3],"mat":"neon","pos":[0,0.092,0],"neon":1,"glow":0.5},{"shape":"box","dims":[0.07,0.045,0.1],"mat":"glass","pos":[0,0.1,0.06]},{"shape":"box","dims":[0.05,0.03,0.07],"mat":"glass","pos":[0,0.108,0.06]},{"shape":"sphere","dims":[0.012],"mat":"neonbright","pos":[0,0.108,0.06],"neon":1,"glow":0.6},{"shape":"box","dims":[0.012,0.03,0.02],"mat":"mid","pos":[0,0.1,-0.2]},{"shape":"box","dims":[0.006,0.04,0.012],"mat":"steel","pos":[0,0.115,-0.2]},{"shape":"box","dims":[0.045,0.012,0.012],"mat":"mid","pos":[0,0.105,0.14]},{"shape":"box","dims":[0.09,0.012,0.18],"mat":"mid","pos":[0,0.098,0.04]},{"shape":"box","dims":[0.085,0.008,0.008],"mat":"steel","pos":[0,0.106,-0.02]},{"shape":"box","dims":[0.085,0.008,0.008],"mat":"steel","pos":[0,0.106,0]},{"shape":"box","dims":[0.085,0.008,0.008],"mat":"steel","pos":[0,0.106,0.02]},{"shape":"box","dims":[0.085,0.008,0.008],"mat":"steel","pos":[0,0.106,0.1]},{"shape":"box","dims":[0.085,0.008,0.008],"mat":"steel","pos":[0,0.106,0.12]},{"shape":"box","dims":[0.075,0.16,0.085],"mat":"grip","pos":[0,-0.12,0.15],"rot":[0.22,0,0]},{"shape":"box","dims":[0.078,0.012,0.088],"mat":"dark","pos":[0,-0.045,0.15]},{"shape":"box","dims":[0.078,0.012,0.088],"mat":"dark","pos":[0.008,-0.09,0.17],"rot":[0.22,0,0]},{"shape":"box","dims":[0.078,0.012,0.088],"mat":"dark","pos":[0.016,-0.135,0.19],"rot":[0.22,0,0]},{"shape":"box","dims":[0.012,0.018,0.025],"mat":"steel","pos":[0,-0.04,0.085]},{"shape":"torus","dims":[0.028,0.007],"mat":"mid","pos":[0,-0.055,0.09],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.085,0.14,0.06],"mat":"mid","pos":[0,-0.04,0.18]},{"shape":"box","dims":[0.088,0.02,0.065],"mat":"dark","pos":[0,-0.115,0.18]},{"shape":"box","dims":[0.04,0.1,0.012],"mat":"neon","pos":[0,-0.04,0.21],"neon":1,"glow":0.5},{"shape":"box","dims":[0.07,0.12,0.22],"mat":"mid","pos":[0,-0.02,0.34]},{"shape":"box","dims":[0.075,0.04,0.18],"mat":"dark","pos":[0,0.05,0.34]},{"shape":"box","dims":[0.075,0.14,0.025],"mat":"grip","pos":[0,-0.02,0.44]},{"shape":"cyl","dims":[0.014,0.014,0.03],"mat":"steel","pos":[0,-0.085,0.4],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.005,0.05,0.2],"mat":"neon","pos":[0.036,-0.02,0.34],"neon":1,"glow":0.4},{"shape":"box","dims":[0.012,0.012,0.42],"mat":"steel","pos":[0.052,0.02,-0.1]}]},"tsunami":{"muzzleZ":-0.34,"parts":[{"shape":"box","dims":[0.16,0.14,0.26],"mat":"dark","pos":[0,0,0.1]},{"shape":"box","dims":[0.165,0.05,0.2],"mat":"mid","pos":[0,-0.055,0.08]},{"shape":"box","dims":[0.155,0.06,0.1],"mat":"steel","pos":[0,0.03,0.18]},{"shape":"box","dims":[0.14,0.05,0.06],"mat":"mid","pos":[0,0.04,0.21]},{"shape":"torus","dims":[0.085,0.018],"mat":"steel","pos":[0,0,0.22],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.06,0.1,0.16],"mat":"grip","pos":[0,-0.07,0.16]},{"shape":"box","dims":[0.055,0.02,0.14],"mat":"grip","pos":[0,-0.1,0.16]},{"shape":"box","dims":[0.055,0.02,0.04],"mat":"grip","pos":[0,-0.085,0.1]},{"shape":"box","dims":[0.05,0.04,0.05],"mat":"rubber","pos":[0,-0.1,0.22]},{"shape":"box","dims":[0.18,0.04,0.18],"mat":"neon","pos":[0,0.07,-0.02],"neon":1,"glow":0.8},{"shape":"box","dims":[0.16,0.012,0.16],"mat":"neonbright","pos":[0,0.092,-0.02],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.07,0.012],"mat":"neon","pos":[0,0.095,-0.04],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.165,0.03,0.05],"mat":"steel","pos":[0,0.055,0.07]},{"shape":"box","dims":[0.012,0.025,0.04],"mat":"mid","pos":[0.05,0.06,0.06]},{"shape":"box","dims":[0.012,0.025,0.04],"mat":"mid","pos":[0,0.06,0.06]},{"shape":"box","dims":[0.012,0.025,0.04],"mat":"mid","pos":[-0.05,0.06,0.06]},{"shape":"box","dims":[0.045,0.03,0.06],"mat":"steel","pos":[0,0.06,0.12]},{"shape":"cyl","dims":[0.02,0.025,0.05],"mat":"steel","pos":[0,0.05,-0.1],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.035,0.16,0.2],"mat":"neon","pos":[-0.06,0.02,-0.22],"rot":[-0.5,0,0],"neon":1,"glow":0.7},{"shape":"box","dims":[0.035,0.16,0.2],"mat":"neon","pos":[0,0.02,-0.22],"rot":[-0.5,0,0],"neon":1,"glow":0.7},{"shape":"box","dims":[0.035,0.16,0.2],"mat":"neon","pos":[0.06,0.02,-0.22],"rot":[-0.5,0,0],"neon":1,"glow":0.7},{"shape":"box","dims":[0.02,0.1,0.16],"mat":"neonbright","pos":[-0.06,0.05,-0.24],"rot":[-0.5,0,0],"neon":1,"glow":0.9},{"shape":"box","dims":[0.02,0.1,0.16],"mat":"neonbright","pos":[0,0.05,-0.24],"rot":[-0.5,0,0],"neon":1,"glow":0.9},{"shape":"box","dims":[0.02,0.1,0.16],"mat":"neonbright","pos":[0.06,0.05,-0.24],"rot":[-0.5,0,0],"neon":1,"glow":0.9},{"shape":"sphere","dims":[0.018],"mat":"neonbright","pos":[-0.06,0.1,-0.3],"neon":1,"glow":1},{"shape":"sphere","dims":[0.018],"mat":"neonbright","pos":[0,0.1,-0.3],"neon":1,"glow":1},{"shape":"sphere","dims":[0.018],"mat":"neonbright","pos":[0.06,0.1,-0.3],"neon":1,"glow":1},{"shape":"sphere","dims":[0.1],"mat":"neon","pos":[0,0,-0.12],"neon":1,"glow":0.9},{"shape":"sphere","dims":[0.06],"mat":"neonbright","pos":[0,0,-0.12],"neon":1,"glow":1},{"shape":"torus","dims":[0.115,0.012],"mat":"neonbright","pos":[0,0,-0.12],"rot":[1.5708,0,0],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.115,0.01],"mat":"neon","pos":[0,0,-0.12],"neon":1,"glow":0.7},{"shape":"torus","dims":[0.105,0.008],"mat":"neon","pos":[0,0,-0.12],"rot":[0,1,0.5],"neon":1,"glow":0.6},{"shape":"box","dims":[0.1,0.06,0.04],"mat":"steel","pos":[0,-0.02,-0.04]},{"shape":"box","dims":[0.02,0.07,0.05],"mat":"mid","pos":[0.06,-0.01,-0.06],"rot":[0.4,0,0]},{"shape":"box","dims":[0.02,0.07,0.05],"mat":"mid","pos":[-0.06,-0.01,-0.06],"rot":[0.4,0,0]},{"shape":"box","dims":[0.02,0.07,0.05],"mat":"mid","pos":[0,-0.06,-0.07],"rot":[0.4,0,0]},{"shape":"cyl","dims":[0.025,0.03,0.1],"mat":"steel","pos":[0,-0.02,0.04],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.012,0.012,0.18],"mat":"neon","pos":[0.07,-0.02,-0.04],"neon":1,"glow":0.6},{"shape":"box","dims":[0.012,0.012,0.18],"mat":"neon","pos":[-0.07,-0.02,-0.04],"neon":1,"glow":0.6},{"shape":"box","dims":[0.05,0.05,0.05],"mat":"glass","pos":[0,0.04,0.18]},{"shape":"box","dims":[0.035,0.025,0.035],"mat":"neonbright","pos":[0,0.055,0.18],"neon":1,"glow":0.7},{"shape":"cyl","dims":[0.008,0.008,0.06],"mat":"gold","pos":[0.06,0.045,0],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.008,0.008,0.06],"mat":"gold","pos":[-0.06,0.045,0],"rot":[1.5708,0,0]},{"shape":"octa","dims":[0.025],"mat":"neonbright","pos":[0,0.07,0.18],"neon":1,"glow":0.8},{"shape":"box","dims":[0.14,0.02,0.05],"mat":"mid","pos":[0,-0.06,0]},{"shape":"box","dims":[0.008,0.018,0.04],"mat":"dark","pos":[0.03,-0.072,0]},{"shape":"box","dims":[0.008,0.018,0.04],"mat":"dark","pos":[-0.03,-0.072,0]},{"shape":"box","dims":[0.008,0.018,0.04],"mat":"dark","pos":[0,-0.072,0]}]},"roar":{"muzzleZ":-0.94,"parts":[{"shape":"box","dims":[0.2,0.2,0.36],"mat":"dark","pos":[0,0,0.08]},{"shape":"box","dims":[0.21,0.06,0.37],"mat":"mid","pos":[0,0.09,0.08]},{"shape":"box","dims":[0.215,0.05,0.3],"mat":"steel","pos":[0,-0.085,0.07]},{"shape":"box","dims":[0.06,0.18,0.34],"mat":"mid","pos":[0.1,0,0.08],"rot":[0,0,0.05]},{"shape":"box","dims":[0.06,0.18,0.34],"mat":"mid","pos":[-0.1,0,0.08],"rot":[0,0,-0.05]},{"shape":"box","dims":[0.1,0.05,0.16],"mat":"steel","pos":[0.085,0.04,0.12]},{"shape":"box","dims":[0.03,0.03,0.12],"mat":"barrel","pos":[0.115,0.05,0.1]},{"shape":"box","dims":[0.025,0.05,0.05],"mat":"gold","pos":[0.13,0.05,0.06]},{"shape":"cyl","dims":[0.15,0.12,0.55],"mat":"barrel","pos":[0,0,-0.42],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.155,0.155,0.06],"mat":"steel","pos":[0,0,-0.16],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.105,0.105,0.1],"mat":"mid","pos":[0,0,-0.92],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.02,0.14,0.05],"mat":"steel","pos":[0.085,0,-0.9]},{"shape":"box","dims":[0.02,0.14,0.05],"mat":"steel","pos":[-0.085,0,-0.9]},{"shape":"box","dims":[0.14,0.02,0.05],"mat":"steel","pos":[0,0.085,-0.9]},{"shape":"torus","dims":[0.155,0.022],"mat":"neon","pos":[0,0,-0.5],"rot":[1.5708,0,0],"neon":1,"glow":0.7},{"shape":"torus","dims":[0.15,0.022],"mat":"neonbright","pos":[0,0,-0.62],"rot":[1.5708,0,0],"neon":1,"glow":0.8},{"shape":"torus","dims":[0.14,0.02],"mat":"neon","pos":[0,0,-0.74],"rot":[1.5708,0,0],"neon":1,"glow":0.7},{"shape":"torus","dims":[0.13,0.018],"mat":"neonbright","pos":[0,0,-0.86],"rot":[1.5708,0,0],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.158,0.012],"mat":"neondark","pos":[0,0,-0.3],"rot":[1.5708,0,0],"neon":1,"glow":0.4},{"shape":"sphere","dims":[0.14],"mat":"neon","pos":[0,0,0.2],"neon":1,"glow":1},{"shape":"sphere","dims":[0.16],"mat":"neondark","pos":[0,0,0.2],"neon":1,"glow":0.5},{"shape":"octa","dims":[0.08],"mat":"neonbright","pos":[0,0,0.2],"neon":1,"glow":0.9},{"shape":"torus","dims":[0.17,0.015],"mat":"neon","pos":[0,0,0.2],"rot":[1.5708,0,0],"neon":1,"glow":0.7},{"shape":"torus","dims":[0.17,0.012],"mat":"neonbright","pos":[0,0,0.2],"rot":[0.6,0.4,0],"neon":1,"glow":0.6},{"shape":"cyl","dims":[0.155,0.155,0.05],"mat":"steel","pos":[0,0,0.27],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.03,0.22,0.5],"mat":"neon","pos":[0.105,0.14,-0.3],"neon":1,"glow":0.8},{"shape":"box","dims":[0.03,0.22,0.5],"mat":"neon","pos":[-0.105,0.14,-0.3],"neon":1,"glow":0.8},{"shape":"box","dims":[0.035,0.06,0.5],"mat":"gold","pos":[0.105,0.02,-0.3]},{"shape":"box","dims":[0.035,0.06,0.5],"mat":"gold","pos":[-0.105,0.02,-0.3]},{"shape":"cone","dims":[0.03,0.1],"mat":"neonbright","pos":[0.105,0.26,-0.55],"rot":[-1.2,0,0],"neon":1,"glow":0.7},{"shape":"cone","dims":[0.03,0.1],"mat":"neonbright","pos":[-0.105,0.26,-0.55],"rot":[-1.2,0,0],"neon":1,"glow":0.7},{"shape":"box","dims":[0.02,0.08,0.1],"mat":"gold","pos":[0,0.135,0.18]},{"shape":"box","dims":[0.015,0.06,0.015],"mat":"steel","pos":[0,0.18,0.15]},{"shape":"torus","dims":[0.03,0.008],"mat":"steel","pos":[0,0.17,0.24]},{"shape":"box","dims":[0.012,0.05,0.015],"mat":"steel","pos":[0.028,0.17,0.15]},{"shape":"box","dims":[0.012,0.05,0.015],"mat":"steel","pos":[-0.028,0.17,0.15]},{"shape":"box","dims":[0.07,0.16,0.1],"mat":"grip","pos":[0,-0.18,0.2],"rot":[0.3,0,0]},{"shape":"torus","dims":[0.025,0.008],"mat":"gold","pos":[0,-0.13,0.225],"rot":[1.4,0,0]},{"shape":"box","dims":[0.075,0.02,0.012],"mat":"steel","pos":[0,-0.2,0.235],"rot":[0.3,0,0]},{"shape":"box","dims":[0.075,0.02,0.012],"mat":"steel","pos":[0,-0.23,0.255],"rot":[0.3,0,0]},{"shape":"box","dims":[0.04,0.03,0.1],"mat":"steel","pos":[0,-0.075,0.13]},{"shape":"torus","dims":[0.04,0.009],"mat":"steel","pos":[0,-0.11,0.13],"rot":[0,1.5708,0]},{"shape":"box","dims":[0.012,0.05,0.02],"mat":"gold","pos":[0,-0.11,0.135],"rot":[0.2,0,0]},{"shape":"box","dims":[0.16,0.14,0.1],"mat":"dark","pos":[0,-0.05,0.34]},{"shape":"box","dims":[0.14,0.16,0.05],"mat":"steel","pos":[0,-0.04,0.4]},{"shape":"box","dims":[0.1,0.05,0.1],"mat":"grip","pos":[0,0.08,0.34]},{"shape":"cyl","dims":[0.018,0.018,0.04],"mat":"gold","pos":[0,-0.12,0.36],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.025,0.008],"mat":"steel","pos":[0,-0.14,0.36],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.008,0.008,0.21],"mat":"steel","pos":[0.1,0.06,0.05],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.008,0.008,0.21],"mat":"steel","pos":[-0.1,0.06,0.05],"rot":[1.5708,0,0]},{"shape":"sphere","dims":[0.012],"mat":"gold","pos":[0.1,0,-0.05]},{"shape":"sphere","dims":[0.012],"mat":"gold","pos":[-0.1,0,-0.05]}]},"blade":{"muzzleZ":-1.5,"parts":[{"shape":"cyl","dims":[0.052,0.058,1.78],"mat":"pole","pos":[0,0,-0.05],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.06,0.06,0.05],"mat":"pole","pos":[0,0,0.86],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.058,0.012],"mat":"gold","pos":[0,0,0.55],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.057,0.011],"mat":"gold","pos":[0,0,0.25],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.056,0.011],"mat":"gold","pos":[0,0,-0.05],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.055,0.011],"mat":"gold","pos":[0,0,-0.35],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.054,0.012],"mat":"gold","pos":[0,0,-0.62],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.05,0.05,0.04],"mat":"gold","pos":[0,0,0.1],"rot":[1.5708,0,0]},{"shape":"cyl","dims":[0.068,0.062,0.08],"mat":"gold","pos":[0,0,0.9],"rot":[1.5708,0,0]},{"shape":"cone","dims":[0.06,0.22],"mat":"gold","pos":[0,0,1.04],"rot":[-1.5708,0,0]},{"shape":"sphere","dims":[0.022],"mat":"gold","pos":[0,0,1.16]},{"shape":"cyl","dims":[0.08,0.066,0.12],"mat":"gold","pos":[0,0,-0.78],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.078,0.018],"mat":"gold","pos":[0,0,-0.84],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.14,0.15,0.2],"mat":"dragon","pos":[0,0.01,-0.96],"rot":[0.12,0,0],"neon":1,"glow":0.55},{"shape":"box","dims":[0.12,0.07,0.16],"mat":"dragon","pos":[0,0.07,-1.04],"rot":[-0.25,0,0],"neon":1,"glow":0.55},{"shape":"box","dims":[0.115,0.06,0.15],"mat":"dragon","pos":[0,-0.06,-1.03],"rot":[0.3,0,0],"neon":1,"glow":0.5},{"shape":"box","dims":[0.105,0.05,0.05],"mat":"dragon","pos":[0,0.02,-0.86],"neon":1,"glow":0.45},{"shape":"sphere","dims":[0.03],"mat":"blade","pos":[0.06,0.085,-0.92],"neon":1,"glow":0.75},{"shape":"sphere","dims":[0.03],"mat":"blade","pos":[-0.06,0.085,-0.92],"neon":1,"glow":0.75},{"shape":"box","dims":[0.05,0.025,0.06],"mat":"dragon","pos":[0.065,0.12,-0.9],"rot":[0,0,-0.3],"neon":1,"glow":0.5},{"shape":"box","dims":[0.05,0.025,0.06],"mat":"dragon","pos":[-0.065,0.12,-0.9],"rot":[0,0,0.3],"neon":1,"glow":0.5},{"shape":"cone","dims":[0.022,0.18],"mat":"dragon","pos":[0.07,0.16,-0.86],"rot":[-0.5,0,0.35],"neon":1,"glow":0.6},{"shape":"cone","dims":[0.022,0.18],"mat":"dragon","pos":[-0.07,0.16,-0.86],"rot":[-0.5,0,-0.35],"neon":1,"glow":0.6},{"shape":"cone","dims":[0.013,0.07,0],"mat":"dragon","pos":[0.085,0.075,-0.95],"rot":[0,0,-1],"neon":1,"glow":0.5},{"shape":"cone","dims":[0.013,0.07,0],"mat":"dragon","pos":[-0.085,0.075,-0.95],"rot":[0,0,1],"neon":1,"glow":0.5},{"shape":"cone","dims":[0.012,0.05,0],"mat":"steel","pos":[0.035,0.045,-1.1],"rot":[1.9,0,0]},{"shape":"cone","dims":[0.012,0.05,0],"mat":"steel","pos":[-0.035,0.045,-1.1],"rot":[1.9,0,0]},{"shape":"cone","dims":[0.011,0.045,0],"mat":"steel","pos":[0.035,-0.03,-1.1],"rot":[1.2,0,0]},{"shape":"cone","dims":[0.011,0.045,0],"mat":"steel","pos":[-0.035,-0.03,-1.1],"rot":[1.2,0,0]},{"shape":"box","dims":[0.085,0.012,0.012],"mat":"steel","pos":[0,0.04,-1.09]},{"shape":"octa","dims":[0.04],"mat":"dragon","pos":[0.04,0.06,-0.99],"neon":1,"glow":0.45},{"shape":"octa","dims":[0.04],"mat":"dragon","pos":[-0.04,0.06,-0.99],"neon":1,"glow":0.45},{"shape":"octa","dims":[0.03],"mat":"dragon","pos":[0,0.13,-0.99],"neon":1,"glow":0.4},{"shape":"cyl","dims":[0.05,0.045,0.1],"mat":"gold","pos":[0,0,-1.18],"rot":[1.5708,0,0]},{"shape":"torus","dims":[0.05,0.014],"mat":"gold","pos":[0,0,-1.2],"rot":[1.5708,0,0]},{"shape":"box","dims":[0.02,0.18,0.16],"mat":"blade","pos":[0,0.06,-1.3],"rot":[0,0,0.05],"neon":1,"glow":0.7},{"shape":"box","dims":[0.018,0.2,0.16],"mat":"blade","pos":[0,0.17,-1.4],"rot":[0,0,0.15],"neon":1,"glow":0.72},{"shape":"box","dims":[0.016,0.2,0.15],"mat":"blade","pos":[0,0.31,-1.46],"rot":[0,0,0.28],"neon":1,"glow":0.74},{"shape":"cone","dims":[0.05,0.26,0],"mat":"blade","pos":[0,0.46,-1.5],"rot":[0,0,0.55],"neon":1,"glow":0.78},{"shape":"box","dims":[0.022,0.14,0.13],"mat":"blade","pos":[0,-0.04,-1.26],"rot":[0,0,-0.18],"neon":1,"glow":0.68},{"shape":"box","dims":[0.01,0.42,0.02],"mat":"dragon","pos":[0.012,0.18,-1.34],"rot":[0,0,0.18],"neon":1,"glow":0.6},{"shape":"box","dims":[0.006,0.34,0.012],"mat":"blade","pos":[-0.012,0.16,-1.33],"rot":[0,0,0.16],"neon":1,"glow":0.65},{"shape":"box","dims":[0.005,0.22,0.01],"mat":"dragon","pos":[0.013,0.1,-1.3],"rot":[0,0,0.1],"neon":1,"glow":0.55},{"shape":"cone","dims":[0.045,0.16,0],"mat":"blade","pos":[0,0.12,-1.14],"rot":[1.4,0,0.2],"neon":1,"glow":0.7},{"shape":"box","dims":[0.014,0.06,0.05],"mat":"dragon","pos":[0,0.06,-1.16],"neon":1,"glow":0.55},{"shape":"torus","dims":[0.045,0.02],"mat":"gold","pos":[0,-0.02,-1.06],"rot":[1.5708,0,0]},{"shape":"sphere","dims":[0.03],"mat":"tassel","pos":[0,-0.1,-1.04]},{"shape":"cyl","dims":[0.008,0.004,0.2],"mat":"tassel","pos":[0.02,-0.22,-1.02],"rot":[0.2,0,0.12]},{"shape":"cyl","dims":[0.008,0.004,0.22],"mat":"tassel","pos":[-0.02,-0.23,-1.03],"rot":[0.2,0,-0.12]},{"shape":"cyl","dims":[0.007,0.004,0.18],"mat":"tassel","pos":[0,-0.21,-0.98],"rot":[0.35,0,0]},{"shape":"cyl","dims":[0.007,0.003,0.2],"mat":"tassel","pos":[0.03,-0.22,-1.06],"rot":[0.18,0,0.25]},{"shape":"cyl","dims":[0.007,0.003,0.19],"mat":"tassel","pos":[-0.03,-0.22,-1.05],"rot":[0.18,0,-0.25]}]}};
 
-    function buildGunModel(w) {
+    function buildGunModel(w, mwv) {
       var g = new THREE.Group();
-      if (w.isMecha) { buildMechaViewModel(g, w); return g; }
+      if (w.isMecha) { buildMechaViewModel(g, w, mwv || 0); return g; }
       // 零件表对普通枪按 id 取(pistol…)，对超级武器/仙器按 kind 取(star/roar…，因其 id 是 super_star/xian_roar)
       var d = GUN_PARTS[w.id] || (w.kind ? GUN_PARTS[w.kind] : null);
       if (d) { buildFromParts(g, d.parts, w); g.userData.muzzleZ = d.muzzleZ; return g; }
@@ -789,24 +828,40 @@
       gbox(g, 0.10,0.12,0.46, dark, 0,0,0); gcyl(g, 0.026,0.026,0.4, dark, 0,0.01,-0.5);
       g.userData.muzzleZ = -0.7; return g;
     }
-    // 机甲第一人称：巨大手炮(榴弹炮/熔炮) 或 爆地巨剑(终焉机神武器2)
-    function buildMechaViewModel(g, w) {
+    // 机甲第一人称：mwv 0=手炮/熔炮  1=爆地能量巨剑(终焉机神武器2)
+    function buildMechaViewModel(g, w, mwv) {
       var col = w.col, big = (w.kind === 'godmecha');
-      var metal = gmat(0x2b313b), darkm = gmat(0x14171c), glow = gmat(col, col);
-      gbox(g, 0.36, 0.36, 0.5, metal, 0.04, -0.04, 0.16);         // 前臂/机匣
-      gbox(g, 0.42, 0.16, 0.22, darkm, 0.04, 0.16, 0.18);         // 顶部装甲
-      gbox(g, 0.1, 0.1, 0.46, darkm, 0.22, 0, 0.0, 0,0,0);        // 侧导轨
-      gcyl(g, 0.19, 0.16, 0.74, darkm, 0.04, -0.02, -0.42);       // 粗炮管
-      gcyl(g, 0.24, 0.24, 0.12, metal, 0.04, -0.02, -0.78);       // 炮口
-      [-0.52,-0.64,-0.76].forEach(function (zz) { gcyl(g, 0.21, 0.21, 0.04, glow, 0.04, -0.02, zz); });   // 发光环
-      gpart(g, new THREE.SphereGeometry(big?0.18:0.15, 14, 12), glow, 0.04, -0.02, 0.14);   // 发光弹巢
+      var metal = gmat(0x2b313b), darkm = gmat(0x14171c), glow = gmat(col, col), gold = gmat(0xd4af37, 0x2a2208);
+      if (big && mwv === 1) {
+        // 爆地：精制能量巨剑(仙器级)
+        gbox(g, 0.14, 0.14, 0.44, darkm, 0.04, -0.14, 0.36);                       // 握柄
+        [0.46,0.3,0.14].forEach(function (zz) { gcyl(g, 0.08,0.08,0.035, gold, 0.04,-0.14,zz); });   // 缠金箍
+        gpart(g, new THREE.OctahedronGeometry(0.1,0), glow, 0.04,-0.14,0.55);      // 柄尾宝珠(发光)
+        gbox(g, 0.52, 0.16, 0.16, metal, 0.04, -0.03, 0.0);                        // 十字护手
+        [-0.24,0.24].forEach(function (xx) { gpart(g, new THREE.ConeGeometry(0.07,0.18,4), gold, 0.04+xx,-0.03,0.0, 0,0, xx<0?1.0:-1.0); });  // 护手翼尖
+        gpart(g, new THREE.BoxGeometry(0.045, 0.5, 1.6), glow, 0.04, 0.14, -0.84);  // 主刃(发光)
+        gpart(g, new THREE.BoxGeometry(0.09, 0.18, 1.5), metal, 0.04, 0.12, -0.8);  // 中脊(金属)
+        gpart(g, new THREE.BoxGeometry(0.05, 0.34, 0.5), glow, 0.04, 0.34, -1.72, 0.32);  // 上挑剑尖
+        gpart(g, new THREE.BoxGeometry(0.02, 0.12, 1.0), gmat(0xffffff, col), 0.096, 0.14, -0.84);  // 刃口高光
+        gpart(g, new THREE.BoxGeometry(0.02, 0.12, 1.0), gmat(0xffffff, col), -0.016, 0.14, -0.84);
+        g.userData.muzzleZ = -1.5; return;
+      }
+      // 手炮 / 熔炮(终焉更壮)
+      gbox(g, big?0.42:0.36, big?0.42:0.36, 0.52, metal, 0.04, -0.04, 0.16);     // 前臂/机匣
+      gbox(g, big?0.5:0.42, 0.18, 0.24, darkm, 0.04, big?0.2:0.16, 0.18);        // 顶部装甲
+      gbox(g, 0.1, 0.1, 0.48, darkm, big?0.26:0.22, 0, 0.0);                     // 侧导轨
+      gcyl(g, big?0.23:0.19, big?0.2:0.16, big?0.86:0.74, darkm, 0.04, -0.02, big?-0.48:-0.42);   // 粗炮管
+      gcyl(g, big?0.29:0.24, big?0.29:0.24, 0.13, metal, 0.04, -0.02, big?-0.92:-0.78);           // 炮口
+      (big?[-0.6,-0.72,-0.84,-0.96]:[-0.52,-0.64,-0.76]).forEach(function (zz) { gcyl(g, big?0.26:0.21, big?0.26:0.21, 0.04, glow, 0.04, -0.02, zz); });   // 发光环
+      gpart(g, new THREE.SphereGeometry(big?0.2:0.15, 14, 12), glow, 0.04, -0.02, 0.14);   // 发光弹巢
+      if (big) [-0.1,0.1].forEach(function (xx) { gbox(g, 0.04, 0.3, 0.5, glow, 0.04+xx, 0.18, -0.2); });  // 终焉：侧翼发光
       gbox(g, 0.12, 0.28, 0.16, darkm, 0.04, -0.26, 0.2);         // 握把
-      g.userData.muzzleZ = -0.82;
+      g.userData.muzzleZ = big ? -0.98 : -0.82;
     }
 
     function buildViewGun() {
       if (viewGun) camera.remove(viewGun);
-      viewGun = buildGunModel(activeWeapon());
+      viewGun = buildGunModel(activeWeapon(), mechaWorn ? mechaWeapon : 0);
 
       // 枪口闪光（贴在枪管口，默认隐藏，开火时闪一下）
       gunMuzzle = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -847,7 +902,7 @@
       sp.userData = { cv:cv, ctx:cv.getContext('2d'), tex:tex };
       return sp;
     }
-    function drawLabel(sp, name, hp, alive) {
+    function drawLabel(sp, name, hp, alive, max) {
       var ctx = sp.userData.ctx; ctx.clearRect(0,0,256,80);
       // 名字
       ctx.font = 'bold 26px system-ui, "Microsoft YaHei", sans-serif';
@@ -858,7 +913,7 @@
       var bw = 200, bh = 14, bx = 28, by = 48;
       ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(bx-2, by-2, bw+4, bh+4);
       ctx.fillStyle = '#26323d'; ctx.fillRect(bx, by, bw, bh);
-      var frac = Math.max(0, Math.min(1, hp/100));
+      var frac = Math.max(0, Math.min(1, hp/(max||100)));
       ctx.fillStyle = alive ? (frac > 0.5 ? '#46d17a' : frac > 0.25 ? '#ffb454' : '#ff5a5a') : '#555';
       ctx.fillRect(bx, by, bw*frac, bh);
       sp.userData.tex.needsUpdate = true;
@@ -941,16 +996,16 @@
         r.headMat.color.setHex(0xf1d3b0); r.headMat.emissive.setHex(0); r.headMat.emissiveIntensity = 0;
       }
     }
-    // 远端玩家切换武器 → 重建手中的武器模型
+    // 远端玩家切换武器 → 重建手中的武器模型（机甲武器切换也要重建）
     function setRemoteWeapon(r, wid) {
-      if (!wid || r.wid === wid) return;
+      if (!wid || (r.wid === wid && r._builtMw === (r.mw||0))) return;
       var w = weaponById(wid); if (!w) return;
-      r.wid = wid;
+      r.wid = wid; r._builtMw = r.mw || 0;
       while (r.weaponHolder.children.length) {
         var c = r.weaponHolder.children[0]; r.weaponHolder.remove(c);
         c.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
       }
-      r.weaponHolder.add(buildGunModel(w));
+      r.weaponHolder.add(buildGunModel(w, r.mw || 0));
     }
 
     function removeRemote(id) {
@@ -1069,89 +1124,93 @@
     }
     // 每把枪给一套截然不同的声音性格(层数/频段/时长/信号特征都不同)，不再千篇一律
     function shootSound(w) {
-      if (!actx || muted) return; var t = actx.currentTime;
-      switch (w.id) {
-        case 'pistol':   // 干脆中频"啪"——短、紧、利落
-          nz(t, 0.09, 'bandpass', 1450, 1.1, 0.5, 0.09, 700, true);
-          nz(t, 0.02, 'highpass', 4200, 0, 0.45, 0.02);
-          nz(t, 0.06, 'lowpass', 185, 0, 0.4, 0.06);
-          break;
-        case 'smg':      // 快而干的"哒"——极短 + 金属机械味
-          nz(t, 0.05, 'bandpass', 2000, 0.9, 0.4, 0.05, 1200, true);
-          nz(t, 0.014, 'highpass', 5200, 0, 0.34, 0.014);
-          nz(t, 0.04, 'bandpass', 3100, 7, 0.18, 0.04);   // 金属脆响(枪机)
-          nz(t, 0.04, 'lowpass', 165, 0, 0.3, 0.04);
-          break;
-        case 'rifle':    // 有力的"咔-砰"——强爆响 + 枪机动作 + 中等余响
-          nz(t, 0.13, 'lowpass', 2300, 0, 0.6, 0.13, 800, true);
-          nz(t, 0.022, 'highpass', 3900, 0, 0.72, 0.022);
-          nz(t, 0.05, 'bandpass', 2500, 7, 0.2, 0.05);    // 枪机动作脆响
-          nz(t, 0.1, 'lowpass', 150, 0, 0.55, 0.1);
-          break;
-        case 'shotgun':  // 厚重低频"轰"——boomy + 弹丸散布 + 沉重砰
-          nz(t, 0.26, 'lowpass', 950, 0, 0.95, 0.26, 110, true);
-          nz(t, 0.03, 'highpass', 2600, 0, 0.5, 0.03);
-          nz(t, 0.18, 'bandpass', 600, 0.6, 0.5, 0.18);   // 散布噪声
-          nz(t, 0.12, 'lowpass', 88, 0, 0.72, 0.12);
-          break;
-        case 'sniper':   // 巨响 + 远处双重回声(延迟尾)——最具辨识度
-          nz(t, 0.18, 'lowpass', 1500, 0, 1.0, 0.18, 150, true);
-          nz(t, 0.024, 'highpass', 4600, 0, 1.0, 0.024);
-          nz(t, 0.14, 'lowpass', 120, 0, 0.82, 0.14);
-          nz(t + 0.13, 0.42, 'lowpass', 720, 0, 0.4, 0.42, 250);   // 回声1
-          nz(t + 0.30, 0.5, 'lowpass', 520, 0, 0.22, 0.5, 180);    // 回声2
-          break;
-        default:         // 超级机枪等：厚实快射
-          nz(t, 0.1, 'lowpass', 1600, 0, 0.55, 0.1, 700, true);
-          nz(t, 0.022, 'highpass', 3600, 0, 0.6, 0.022);
-          nz(t, 0.07, 'lowpass', 150, 0, 0.5, 0.07);
-      }
+      if (!actx || muted) return;
+      var t = actx.currentTime;
+      // 噪声爆破
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.18);
+      var bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+      bp.frequency.value = w.id==='sniper'?900 : w.id==='shotgun'?500 : w.id==='smg'?1700 : 1200;
+      bp.Q.value = 0.7;
+      var g = actx.createGain();
+      var vol = w.id==='sniper'?0.9 : w.id==='shotgun'?0.8 : 0.45;
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + (w.id==='sniper'?0.35:0.14));
+      src.connect(bp); bp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+0.4);
+      // 低频"砰"
+      var o = actx.createOscillator(); o.type='triangle';
+      o.frequency.setValueAtTime(w.id==='sniper'?180:240, t);
+      o.frequency.exponentialRampToValueAtTime(60, t+0.12);
+      var og = actx.createGain(); og.gain.setValueAtTime(0.5, t); og.gain.exponentialRampToValueAtTime(0.001, t+0.13);
+      o.connect(og); og.connect(masterGain); o.start(t); o.stop(t+0.15);
     }
-    function hitSound() {        // 命中确认：清脆短促"嗒"(共振噪声，非方波蜂鸣)
+    function hitSound() {
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.05, 'bandpass', 1900, 2.0, 0.32, 0.05);
-      nz(t, 0.03, 'highpass', 4200, 0, 0.18, 0.03);
+      var o = actx.createOscillator(); o.type='square'; o.frequency.setValueAtTime(1400, t);
+      o.frequency.exponentialRampToValueAtTime(2200, t+0.05);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.07);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.08);
     }
-    function deathSound() {      // 倒地：闷响 + 下沉余响(全噪声)
+    function deathSound() {
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.4, 'lowpass', 700, 0, 0.5, 0.4, 130, true);
-      nz(t, 0.12, 'lowpass', 150, 0, 0.45, 0.12);
+      var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(420, t);
+      o.frequency.exponentialRampToValueAtTime(70, t+0.5);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.55);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.6);
     }
-    function reloadSound() {     // 换弹：退弹匣咔 → 上弹匣嗒 → 拉机柄铿(三段机械声)
+    function reloadSound() {
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t,        0.04, 'highpass', 2600, 0, 0.3,  0.04);
-      nz(t + 0.14, 0.05, 'bandpass', 1300, 2.0, 0.36, 0.06);
-      nz(t + 0.30, 0.04, 'highpass', 3200, 0, 0.3,  0.04);
+      var o = actx.createOscillator(); o.type='square'; o.frequency.setValueAtTime(300, t);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.05);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.06);
     }
-    function headshotSound() {   // 爆头：锐响 + 金属共鸣环(高Q共振噪声→金属感，非蜂鸣)
+    function headshotSound() {  // 爆头：更清脆的双音
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.02, 'highpass', 5000, 0, 0.4, 0.02);
-      nz(t, 0.2, 'bandpass', 3100, 20, 0.26, 0.2);
+      [2000, 2800].forEach(function (f, i) {
+        var o = actx.createOscillator(); o.type='square'; o.frequency.setValueAtTime(f, t + i*0.04);
+        var g = actx.createGain(); g.gain.setValueAtTime(0.22, t + i*0.04); g.gain.exponentialRampToValueAtTime(0.001, t + i*0.04 + 0.06);
+        o.connect(g); g.connect(masterGain); o.start(t + i*0.04); o.stop(t + i*0.04 + 0.07);
+      });
     }
-    function pickupSound() {     // 拾取：上扫光泽(共振噪声扫频)，明亮但不电子
+    function pickupSound() {    // 捡到超级武器：上扬和弦
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.28, 'bandpass', 700, 6, 0.3, 0.28, 1900);
-      nz(t + 0.06, 0.22, 'bandpass', 1100, 8, 0.2, 0.22, 2600);
+      [523, 659, 784, 1047].forEach(function (f, i) {
+        var o = actx.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(f, t + i*0.06);
+        var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t + i*0.06);
+        g.gain.exponentialRampToValueAtTime(0.3, t + i*0.06 + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + i*0.06 + 0.18);
+        o.connect(g); g.connect(masterGain); o.start(t + i*0.06); o.stop(t + i*0.06 + 0.2);
+      });
     }
-    function hurtSound() {       // 被击中：闷哼/钝击(低通噪声冲击)
+    function hurtSound() {       // 自己被击中：闷哼
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.14, 'lowpass', 520, 0, 0.34, 0.14, 240, true);
+      var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(220, t);
+      o.frequency.exponentialRampToValueAtTime(110, t+0.12);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.14);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.15);
     }
     var lastStepAt = 0;
     function footstepSound() {   // 脚步：低频短促"嗒"
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.07, 'lowpass', 360, 0, 0.13, 0.07);
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.06);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 380;
+      var g = actx.createGain(); g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.07);
+      src.connect(lp); lp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+0.08);
     }
-    function heartbeatSound() {  // 残血：双跳心跳(低通噪声闷击，非正弦音)
+    function heartbeatSound() {  // 残血：双跳心跳
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t,       0.16, 'lowpass', 95, 0, 0.3,  0.16);
-      nz(t + 0.16, 0.18, 'lowpass', 80, 0, 0.2, 0.18);
+      [0, 0.16].forEach(function (d, i) {
+        var o = actx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(70, t+d);
+        var g = actx.createGain(); g.gain.setValueAtTime(i?0.18:0.28, t+d); g.gain.exponentialRampToValueAtTime(0.001, t+d+0.14);
+        o.connect(g); g.connect(masterGain); o.start(t+d); o.stop(t+d+0.16);
+      });
     }
-    function plasmaBoom() {      // 崩星咆哮炮发射：低沉爆轰(全噪声，非锯齿音)
+    function plasmaBoom() {      // 崩星咆哮炮发射：低沉爆轰 + 高频啸
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.7, 'lowpass', 950, 0, 0.72, 0.7, 85, true);   // 低沉爆轰主体 + 下沉余响
-      nz(t, 0.03, 'highpass', 4200, 0, 0.6, 0.03);          // 初始爆响
-      nz(t, 0.45, 'bandpass', 1700, 1.1, 0.32, 0.45);       // 高频能量啸层
+      var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(40, t+0.6);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.7);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.75);
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.6);
+      var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2200;
+      var g2 = actx.createGain(); g2.gain.setValueAtTime(0.4, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.5);
+      src.connect(bp); bp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.6);
     }
     // 蓄力音效：上升能量啸鸣(噪声经谐振带通由低扫到高) + 低频蓄力嗡鸣，随蓄力时长渐强 → 发射瞬间被爆轰盖过
     function chargeSound(durMs, big) {
@@ -1162,13 +1221,11 @@
       var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(big?0.5:0.34, t+d*0.92); g.gain.exponentialRampToValueAtTime(0.0001, t+d+0.06);
       src.connect(bp); bp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+d+0.12);
-      // 低频蓄力嗡鸣：上升的低通噪声(非振荡器纯音)
-      var src2 = actx.createBufferSource(); src2.buffer = noiseBuffer(d + 0.12);
-      var lp = actx.createBiquadFilter(); lp.type='lowpass';
-      lp.frequency.setValueAtTime(big?70:100, t); lp.frequency.linearRampToValueAtTime(big?135:185, t+d);
+      var o = actx.createOscillator(); o.type='triangle';
+      o.frequency.setValueAtTime(big?36:54, t); o.frequency.linearRampToValueAtTime(big?72:96, t+d);
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.0001, t);
       g2.gain.exponentialRampToValueAtTime(big?0.42:0.26, t+d*0.9); g2.gain.exponentialRampToValueAtTime(0.0001, t+d+0.06);
-      src2.connect(lp); lp.connect(g2); g2.connect(masterGain); src2.start(t); src2.stop(t+d+0.12);
+      o.connect(g2); g2.connect(masterGain); o.start(t); o.stop(t+d+0.12);
     }
     function bladeSwingSound() { // 挥刀：风声
       if (!actx || muted) return; var t = actx.currentTime;
@@ -1177,11 +1234,15 @@
       var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t+0.3); g.gain.exponentialRampToValueAtTime(0.001, t+0.5);
       src.connect(bp); bp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+0.52);
     }
-    function bladeBoom() {       // 落地：地裂巨响(全噪声冲击 + 碎石余响)
+    function bladeBoom() {       // 落地：地裂巨响
       if (!actx || muted) return; var t = actx.currentTime;
-      nz(t, 0.6, 'lowpass', 650, 0, 0.88, 0.6, 65, true);   // 地裂低频冲击 + 余响
-      nz(t, 0.04, 'highpass', 3000, 0, 0.5, 0.04);          // 碎裂脆响
-      nz(t, 0.5, 'bandpass', 820, 0.8, 0.4, 0.5);           // 碎石滚落
+      var o = actx.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(35, t+0.5);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.6);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.62);
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.4);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500;
+      var g2 = actx.createGain(); g2.gain.setValueAtTime(0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.4);
+      src.connect(lp); lp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.42);
     }
     function mechaStompSound() {  // 穿上机甲/重踏：超低频砸地 + 金属铿锵
       if (!actx || muted) return; var t = actx.currentTime;
@@ -1219,6 +1280,7 @@
       if (!cheatMode) {
         cheatMode = true;
         document.getElementById('testbtn').classList.add('on');
+        var dp = document.getElementById('devpanel'); if (dp) dp.hidden = false;   // 开发者面板：添加假人 + 退出机甲
         cheatEquip('mg');
         showNotice('🔧 测试模式：滚轮切换全部武器（无限子弹），含仙器');
       } else {
@@ -1243,6 +1305,8 @@
         keys[e.code] = true;
         if (e.code === 'KeyR') startReload();
         if (e.code === 'KeyM') { muted = !muted; }
+        // 开发者模式(67)：X 退出机甲（正常模式不能脱）
+        if (cheatMode && mechaWorn && e.code === 'KeyX') { dropSuper(); return; }
         // 测试模式：6/7/8/9/0 切换超级武器（再按同键补满弹药）
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
         if (e.code.indexOf('Digit') === 0) {
@@ -1261,6 +1325,11 @@
       testbtn.addEventListener('click', function () {
         testpw.hidden = !testpw.hidden;
         if (!testpw.hidden) { testpw.value = ''; testpw.focus(); }
+      });
+      var dp = document.getElementById('devpanel');
+      if (dp) dp.addEventListener('click', function (e) {
+        var k = e.target && e.target.getAttribute('data-dummy');
+        if (k) { addDummy(k); if (document.pointerLockElement) {} }
       });
       testpw.addEventListener('keydown', function (e) {
         e.stopPropagation();   // 别让 6/7 等按键漏到游戏里
@@ -1303,6 +1372,7 @@
       canvas.addEventListener('wheel', function (e) {
         if (!joined) return; e.preventDefault();
         var dir = e.deltaY > 0 ? 1 : -1;
+        if (mechaWorn && superKind === 'godmecha') { selectWeapon(mechaWeapon === 0 ? 1 : 0); return; }   // 终焉：滚轮切熔炮/爆地
         if (cheatMode) { cheatScroll(dir); return; }   // 测试模式：滚轮在全部超级武器/仙器间切换
         if (superActive) return;
         selectWeapon((weaponIndex + dir + WEAPONS.length) % WEAPONS.length);
@@ -1451,15 +1521,20 @@
     function dropSuper() {
       if (!superActive) return;
       superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0; cheatInfinite = false;
-      if (mechaWorn) { mechaWorn = false; mechaWeapon = 0; maxHp = 100; if (me.hp > 100) me.hp = 100; updateHpHud(); }
+      if (mechaWorn) { mechaWorn = false; mechaWeapon = 0; maxHp = 100; if (me.hp > 100) me.hp = 100; updateHpHud(); updateMechHud(); }
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
     }
-    function wearMecha(kind) {                 // 穿上机甲：变大、移速-30%、巨量血、自带武器
+    function wearMecha(kind) {                 // 穿上机甲：变高、移速-50%、巨量血、自带武器、座舱HUD
       mechaWorn = true; mechaWeapon = 0;
       maxHp = SUPERS[kind].hp; me.hp = maxHp; updateHpHud();
       ads = false; reloadUntil = 0; fireCooldown = now() + 400;
-      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+      buildViewGun(); updateWeaponHud(); updateAmmoHud(); updateMechHud();
       mechaStompSound(); shake = Math.min(shake + 0.45, 0.55);
+    }
+    function updateMechHud() {
+      var el = document.getElementById('mechhud'); if (!el) return;
+      el.hidden = !mechaWorn;
+      el.className = (mechaWorn && superKind === 'godmecha') ? 'god' : '';
     }
 
     function tryFire() {
@@ -1562,9 +1637,10 @@
         var h = hits[0]; end = h.point;
         var ud = h.object.userData || {};
         if (ud.peerId) {
-          // 部位倍率：头 ×2 > 躯干 ×1 > 四肢 ×0.6
-          var mult = ud.part === 'head' ? HEAD_MULT : ud.part === 'limb' ? LIMB_MULT : 1;
-          var isHead = ud.part === 'head';
+          // 部位倍率：头 ×2 > 躯干 ×1 > 四肢 ×0.6；机甲没有爆头/部位倍率(全身 ×1)
+          var tr = remotes[ud.peerId], isMech = tr && tr.mecha;
+          var mult = isMech ? 1 : (ud.part === 'head' ? HEAD_MULT : ud.part === 'limb' ? LIMB_MULT : 1);
+          var isHead = !isMech && ud.part === 'head';
           var dmg = Math.round(w.dmg * mult);
           var cur = hitsThisShot[ud.peerId] || { dmg:0, head:false };
           cur.dmg += dmg; cur.head = cur.head || isHead;
@@ -2238,8 +2314,16 @@
     }
     function updateWeaponHud() {
       var w = activeWeapon();
-      document.getElementById('wepname').innerHTML = esc(w.name) + ' <small>' + esc(weaponDesc(w)) + '</small>';
       var slots;
+      if (mechaWorn) {   // 机甲模式：基础武器全部消失，只剩机甲武器
+        var god = (superKind === 'godmecha');
+        var mname = god ? (mechaWeapon === 1 ? '爆地' : '熔炮') : '机甲手炮';
+        document.getElementById('wepname').innerHTML = esc(mname) + ' <small>' + (god ? '终焉机神' : '超级机甲') + (cheatMode ? ' · 按 X 退出机甲' : '') + '</small>';
+        if (god) slots = '<div class="slot' + (mechaWeapon===0?' active':'') + ' super">✦ 熔炮</div><div class="slot' + (mechaWeapon===1?' active':'') + ' super">✦ 爆地</div>';
+        else slots = '<div class="slot active super">★ 机甲手炮</div>';
+        document.getElementById('slots').innerHTML = slots; updateAmmoHud(); return;
+      }
+      document.getElementById('wepname').innerHTML = esc(w.name) + ' <small>' + esc(weaponDesc(w)) + '</small>';
       if (cheatMode) {
         // 测试模式：下方显示全部超级武器/仙器，滚轮切换，高亮当前
         slots = ALL_SUPER_KINDS.map(function (kk) {
@@ -2413,6 +2497,7 @@
           if (r) {
             r.target.set(msg.x, msg.y - EYE, msg.z); // 网络发的是"眼睛"高度，小人底座 = 眼高-EYE
             r.targetYaw = msg.yaw;
+            r.mw = msg.mw || 0;                          // 机甲武器变体(手炮/巨剑)
             if (msg.wid) setRemoteWeapon(r, msg.wid);   // 看到对方手中的真实武器
             applyRemoteMecha(r, msg.mecha);             // 穿上机甲 → 放大 + 金属化
             if (msg.mecha) setRemoteWeapon(r, SUPERS[msg.mecha].id);   // 机甲手中是手炮/巨剑
@@ -2473,7 +2558,37 @@
 
     function sendHit(victimId, dmg, weaponId, head) {
       if (TEST) lastSentHits.push({ to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
+      var dr = remotes[victimId];
+      if (dr && dr.isDummy) { hitDummy(dr, dmg); return; }   // 假人：本地结算，不联机
       netSend({ type:'hit', from:me.id, to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
+    }
+    // ---- 开发者模式假人：本地可被打的靶子(普通/超级机甲/终焉机神，血量模型与真机甲一致) ----
+    var dummySeq = 0;
+    function addDummy(kind) {
+      if (!joined) return;
+      dummySeq++;
+      var id = 'dummy-' + dummySeq;
+      var col = kind === 'godmecha' ? 0xff2d6e : kind === 'mecha' ? 0xff9a3c : 0x9fb0c0;
+      var name = kind === 'godmecha' ? '终焉机神·假人' : kind === 'mecha' ? '超级机甲·假人' : '假人';
+      var r = ensureRemote(id, name, col); if (!r) return;
+      camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize();
+      var px = playerPos.x + _bf.x * 9 + (dummySeq % 3 - 1) * 3, pz = playerPos.z + _bf.z * 9;
+      r.isDummy = true;
+      r.dummyMax = kind === 'godmecha' ? 10000 : kind === 'mecha' ? 1000 : 100;
+      r.hp = r.dummyMax; r.alive = true;
+      r.target.set(px, 0, pz); r.group.position.set(px, 0, pz); r.spawned = true;
+      r.targetYaw = yaw + Math.PI; r.group.rotation.y = r.targetYaw; r.lastX = px; r.lastZ = pz; r.lastSeen = now();
+      if (kind === 'mecha' || kind === 'godmecha') { r.mw = 0; applyRemoteMecha(r, kind); setRemoteWeapon(r, SUPERS[kind].id); }
+      r.labelDirty = true;
+    }
+    function hitDummy(r, dmg) {
+      if (!r.alive) return;
+      r.hp = Math.max(0, r.hp - dmg); r.labelDirty = true; r.lastSeen = now();
+      if (r.hp <= 0) {
+        r.alive = false; deathSound(); showHitmarker(false);
+        var rid = r.id;
+        setTimeout(function () { var rr = remotes[rid]; if (rr) { rr.hp = rr.dummyMax; rr.alive = true; rr.labelDirty = true; } }, 2500);   // 2.5s 复活满血
+      } else hitSound();
     }
 
     // 约 18Hz 广播自身状态（99 = 持超级武器）
@@ -2483,7 +2598,8 @@
         type:'state', from:me.id, name:me.name, color:me.colorHex,
         x:playerPos.x, y:playerPos.y, z:playerPos.z, yaw:yaw, pitch:pitch,
         wid:activeWeapon().id, hp:me.hp, alive:me.alive, kills:me.kills, deaths:me.deaths,
-        mecha: mechaWorn ? superKind : null   // 穿上的机甲种类(远端据此放大渲染)
+        mecha: mechaWorn ? superKind : null,  // 穿上的机甲种类(远端据此放大渲染)
+        mw: mechaWorn ? mechaWeapon : 0       // 机甲当前武器(0=手炮/熔炮 1=爆地巨剑)
       });
     }
 
@@ -2765,9 +2881,9 @@
         while (dy < -Math.PI) dy += Math.PI*2;
         r.group.rotation.y += dy * k;
         poseRemote(r, dt);                 // 举枪/奔跑/跳跃/死亡 动画
-        if (r.labelDirty) { drawLabel(r.label, r.name, r.hp, r.alive); r.labelDirty = false; }
+        if (r.labelDirty) { drawLabel(r.label, r.name, r.hp, r.alive, r.isDummy ? r.dummyMax : 100); r.labelDirty = false; }
         // 长时间没收到状态（非正常离开）→ 移除
-        if (t - r.lastSeen > 6000) { removeRemote(id); delete scores[id]; updateScoreboard(); }
+        if (!r.isDummy && t - r.lastSeen > 6000) { removeRemote(id); delete scores[id]; updateScoreboard(); }
       }
     }
 
@@ -2811,6 +2927,7 @@
     // 用当前 yaw/pitch(+后坐力) 摆正相机；移动与开枪都基于这个朝向，保证瞄准是"当前帧"的
     function aimCamera() {
       camera.position.copy(playerPos);
+      if (mechaWorn && SUPERS[superKind]) camera.position.y += SUPERS[superKind].lift || 0;   // 机甲：视角变高(变高大)
       camera.rotation.x = pitch + viewRecoil;
       camera.rotation.y = yaw;
       camera.rotation.z = 0;
@@ -3098,7 +3215,8 @@
           superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; },
           wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
-          fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; }
+          fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; },
+          addDummy:function(k){ addDummy(k); }, dummyHp:function(id){ var r=remotes[id]; return r?r.hp:null; }, camY:function(){ return camera.position.y; }
         };
         animate();
       } catch (err) {
