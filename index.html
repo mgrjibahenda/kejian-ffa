@@ -153,6 +153,15 @@
   #netstat{ position:absolute; left:22px; top:16px; font-size:12px; color:var(--muted);
     display:flex; align-items:center; gap:7px; }
   #netstat .dot{ width:9px; height:9px; }
+  /* 左上角测试按钮（z-index 高于暂停层，松开鼠标后可点） */
+  #testpanel{ position:absolute; left:22px; top:38px; z-index:60; pointer-events:auto; display:flex; gap:6px; }
+  #testbtn{ width:26px; height:26px; padding:0; border-radius:7px; border:1px solid var(--line);
+    background:rgba(10,16,22,.85); color:#cdd9e6; font-size:14px; cursor:pointer; line-height:1; }
+  #testbtn:hover{ border-color:var(--accent); }
+  #testbtn.on{ border-color:var(--accent2); background:rgba(255,210,74,.18); }
+  #testpw{ width:88px; padding:3px 8px; font-size:12px; border-radius:7px; border:1px solid var(--accent);
+    background:#0e151d; color:var(--text); }
+  #testpw:focus-visible{ outline:2px solid var(--accent); }
 
   /* 死亡 / 暂停 大屏提示 */
   .bigmsg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -222,6 +231,12 @@
     </div>
 
     <div id="netstat"><span class="dot" id="netdot"></span><span id="nettext">未连接</span></div>
+
+    <!-- 左上角测试按钮：输入密码 67 获得超级武器 / 再输一次补满弹药 -->
+    <div id="testpanel">
+      <button id="testbtn" type="button" title="测试超级武器">🔧</button>
+      <input id="testpw" type="text" inputmode="numeric" maxlength="6" placeholder="密码" hidden autocomplete="off" />
+    </div>
 
     <div id="scorebox">
       <div class="panel"><h3>积分板 · FFA</h3><div id="scorerows"></div></div>
@@ -350,7 +365,7 @@
     // 弹药为无限备弹，换弹把弹匣装满（课间小游戏，不做弹药管理）。
     var WEAPONS = [
       { id:'pistol',  name:'手枪',   dmg:26, rpm:360, mag:12, auto:false, spread:0.010, pellets:1, range:200, reload:1.1, kick:0.012, col:0xffd86b, zoom:0.82 },
-      { id:'smg',     name:'冲锋枪', dmg:15, rpm:850, mag:30, auto:true,  spread:0.045, pellets:1, range:120, reload:1.6, kick:0.010, col:0x9be7ff, zoom:0.85 },
+      { id:'smg',     name:'冲锋枪', dmg:21, rpm:850, mag:30, auto:true,  spread:0.040, pellets:1, range:140, reload:1.6, kick:0.010, col:0x9be7ff, zoom:0.85 },
       { id:'rifle',   name:'步枪',   dmg:32, rpm:480, mag:25, auto:true,  spread:0.020, pellets:1, range:320, reload:2.0, kick:0.016, col:0xff9bd6, zoom:0.78 },
       { id:'shotgun', name:'霰弹枪', dmg:12, rpm:75,  mag:6,  auto:false, spread:0.090, pellets:8, range:45,  reload:0.9, kick:0.030, col:0xffc080, zoom:0.90 },
       { id:'sniper',  name:'狙击',   dmg:92, rpm:48,  mag:5,  auto:false, spread:0.0012,pellets:1, range:600, reload:2.4, kick:0.040, col:0xff6b6b, zoom:0.40, scoped:true }
@@ -408,6 +423,7 @@
     var reloadUntil = 0, reloadDur = 0, fireCooldown = 0, firing = false, viewRecoil = 0;
     var joined = false, paused = false, muted = false, boardOpen = false, deadUntil = 0;
     var lastDamageAt = 0, fireRateMul = 1;   // 回血计时；射速倍率(秘境持枪者更快)
+    var cheatMode = false;                    // 测试模式：密码 67 解锁，6-0 切换超级武器
     // 枪械/视角动画状态：后坐力、鼠标摇晃、走路头部摆动
     var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0;
     var isMoving = false, sprinting = false, muzzleHideAt = 0, gunMuzzle = null;
@@ -935,6 +951,31 @@
       });
     }
 
+    // ------------------------------------------------------------------ 测试模式（密码 67）
+    // 直接装备某把超级武器（满弹），用于测试。再按同一个键即可补满弹药。
+    function cheatEquip(kind) {
+      if (!joined || !me.alive || inRealm || !SUPERS[kind]) return;
+      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag;
+      reloadUntil = 0; fireCooldown = 0; ads = false;
+      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+      showNotice('🔧 ' + SUPERS[kind].name + '（满弹）');
+    }
+    function applyCheat() {
+      if (!cheatMode) {
+        cheatMode = true;
+        document.getElementById('testbtn').classList.add('on');
+        cheatEquip('mg');
+        showNotice('🔧 测试模式开启：按 6/7/8/9/0 切换超级武器，再输 67 补弹');
+      } else if (superActive) {
+        superAmmo = SUPERS[superKind].mag; updateAmmoHud();   // 再输一次 → 补满当前弹药
+        showNotice('🔧 弹药已补满');
+      } else {
+        cheatEquip('mg');
+      }
+    }
+    // 数字键 6/7/8/9/0 → 五种超级武器（仅测试模式）
+    var CHEAT_KEYS = { Digit6:'mg', Digit7:'star', Digit8:'hole', Digit9:'realm', Digit0:'tsunami' };
+
     // ------------------------------------------------------------------ 输入
     function bindInput() {
       var canvas = renderer.domElement;
@@ -942,19 +983,38 @@
 
       window.addEventListener('keydown', function (e) {
         if (!joined) return;
+        // 焦点在输入框（测试密码框）时，游戏不处理按键
+        if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
         if (e.code === 'Tab') { e.preventDefault(); if (!boardOpen) { boardOpen = true; renderFullBoard(); document.getElementById('fullboard').style.display = 'flex'; } return; }
         keys[e.code] = true;
         if (e.code === 'KeyR') startReload();
         if (e.code === 'KeyM') { muted = !muted; }
+        // 测试模式：6/7/8/9/0 切换超级武器（再按同键补满弹药）
+        if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
         if (e.code.indexOf('Digit') === 0) {
           var n = parseInt(e.code.slice(5), 10);
-          if (n >= 1 && n <= WEAPONS.length) selectWeapon(n - 1);
+          if (n >= 1 && n <= WEAPONS.length) { if (superActive) dropSuper(); selectWeapon(n - 1); }
         }
         if (e.code === 'Space' && grounded) { vy = JUMP_V; grounded = false; }
       });
       window.addEventListener('keyup', function (e) {
         keys[e.code] = false;
         if (e.code === 'Tab') { boardOpen = false; document.getElementById('fullboard').style.display = 'none'; }
+      });
+
+      // 测试按钮 + 密码框（密码 67）
+      var testbtn = document.getElementById('testbtn'), testpw = document.getElementById('testpw');
+      testbtn.addEventListener('click', function () {
+        testpw.hidden = !testpw.hidden;
+        if (!testpw.hidden) { testpw.value = ''; testpw.focus(); }
+      });
+      testpw.addEventListener('keydown', function (e) {
+        e.stopPropagation();   // 别让 6/7 等按键漏到游戏里
+        if (e.code === 'Enter' || e.key === 'Enter') {
+          if (testpw.value.trim() === '67') applyCheat();
+          else showNotice('密码错误');
+          testpw.value = ''; testpw.hidden = true; testpw.blur();
+        } else if (e.code === 'Escape') { testpw.value = ''; testpw.hidden = true; testpw.blur(); }
       });
 
       // 鼠标视角（仅在指针锁定时）。开镜时降低灵敏度，方便精瞄。
@@ -1488,7 +1548,11 @@
       list.sort(function (a, b) { return (b.kills - a.kills) || (a.deaths - b.deaths); });
       return list;
     }
-    function updateScoreboard() {
+    // 计分板渲染节流：state 包每秒来很多次，只标脏，由主循环每 ~250ms 真正重建一次 DOM
+    var scoreDirty = true, lastScoreRender = 0;
+    function updateScoreboard() { scoreDirty = true; }
+    function renderScoreboard() {
+      scoreDirty = false; lastScoreRender = now();
       var rows = allScores();
       var top = rows.slice(0, 6).map(function (s) {
         return '<div class="scrow' + (s.me ? ' me' : '') + '"><span class="nm">' + esc(s.name) +
@@ -2115,6 +2179,7 @@
         document.getElementById('reloading').textContent = (now() < reloadUntil) ? '换弹中…' : '';
 
         updateRegen(dt);                   // 受伤 8 秒后开始回血
+        if (scoreDirty && now() - lastScoreRender > 250) renderScoreboard();  // 计分板节流重建
         updateViewBobAndGun(dt);           // 走路头部摆动 + 武器摇晃/后坐/换弹/开镜动画
 
         // 超级武器拾取物：旋转 + 上下浮动
@@ -2215,7 +2280,9 @@
             x:playerPos.x, z:playerPos.z, fireRateMul:fireRateMul }; },
           // 远端小人动画姿态（验证奔跑/跳跃/死亡）
           remotePose:function(id){ var r=remotes[id]; if(!r) return null;
-            return { legL:r.legL.rotation.x, armR:r.armR.rotation.x, leanZ:r.group.rotation.z, y:r.group.position.y }; }
+            return { legL:r.legL.rotation.x, armR:r.armR.rotation.x, leanZ:r.group.rotation.z, y:r.group.position.y }; },
+          // 测试模式 / 刷新概率
+          cheatOn:function(){ return cheatMode; }, nextKind:function(){ return nextSuperKind(); }
         };
         animate();
       } catch (err) {

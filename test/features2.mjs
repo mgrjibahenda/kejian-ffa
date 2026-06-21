@@ -36,6 +36,12 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   await page.waitForFunction(()=>window.__test&&window.__test.joined(),{timeout:5000});
   const myId = await ev(page, ()=>window.__test.myId());
 
+  // ---------- 0) 超级武器刷新概率均等（洗牌袋：每 5 次每种各一次） ----------
+  const counts = {};
+  for (let i=0;i<200;i++){ const k = await ev(page, ()=>window.__test.nextKind()); counts[k]=(counts[k]||0)+1; }
+  const cvals = Object.values(counts);
+  check('5 种超级武器刷新概率均等', Object.keys(counts).length===5 && Math.max(...cvals)-Math.min(...cvals) <= 2, JSON.stringify(counts));
+
   // ---------- 1) 部位伤害：四肢 < 躯干 < 头 ----------
   await ev(page, ()=>window.__test.weapon(4)); // 狙击
   async function shoot(x, y) {
@@ -94,6 +100,22 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   check('崩星炮 5 发',     star.kind==='star' && star.ammo===5, JSON.stringify(star));
   check('黑洞炮 4 发',     hole.kind==='hole' && hole.ammo===4, JSON.stringify(hole));
   check('秘境枪 3 发',     realm.kind==='realm' && realm.ammo===3, JSON.stringify(realm));
+
+  // ---------- 3.5) 测试模式：密码 67 获得超级武器 / 6-0 切换 / 再输补弹 ----------
+  await ev(page, ()=>window.__test.drop());
+  await page.click('#testbtn');
+  await page.fill('#testpw', '67');
+  await page.press('#testpw', 'Enter');
+  const ch1 = await ev(page, ()=>({ on:window.__test.cheatOn(), s:window.__test.superInfo() }));
+  check('密码67→开启测试模式并获得超级武器', ch1.on===true && ch1.s.active===true, JSON.stringify(ch1));
+  await page.keyboard.press('7');   // 7 → 崩星炮
+  const ch2 = await ev(page, ()=>window.__test.superInfo());
+  check('按7→切换崩星炮(满弹)', ch2.kind==='star' && ch2.ammo===5, JSON.stringify(ch2));
+  await ev(page, ()=>window.__test.setSuperAmmo(1));
+  await page.keyboard.press('7');   // 再按7 → 补满
+  const ch3 = await ev(page, ()=>window.__test.superInfo());
+  check('再按7→补满弹药', ch3.kind==='star' && ch3.ammo===5, JSON.stringify(ch3));
+  await ev(page, ()=>window.__test.drop());
 
   // ---------- 4) 崩星炮：0.7s 后贯穿秒杀 ----------
   await ev(page, ()=>window.__test.drop());
