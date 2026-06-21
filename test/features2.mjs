@@ -65,6 +65,22 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   const hpRegen = await ev(page, ()=>window.__test.hp());
   check('受伤 8s 后→开始回血', hpRegen > 48, `hp 40→${hpRegen.toFixed(1)}`);
 
+  // ---------- 2.5) 人物动画：跳跃 / 奔跑 / 死亡 ----------
+  const st = (o)=>Object.assign({type:'state',from:'anim',name:'动画',color:0x4cc9f0,yaw:0,pitch:0,weapon:0,hp:100,alive:true,kills:0,deaths:0,z:-10}, o);
+  await ev(page, (m)=>window.__test.recv(m), st({x:10,y:1.6})); await sleep(500);
+  await ev(page, (m)=>window.__test.recv(m), st({x:10,y:3.0})); await sleep(300);   // 离地=跳跃
+  const jump = await ev(page, ()=>window.__test.remotePose('anim'));
+  check('跳跃→离地收腿', jump && jump.y > 0.5 && jump.legL < -0.3, JSON.stringify(jump));
+  let ran = false;                                                                   // 连续移动=奔跑
+  for (let i=0;i<9;i++){ await ev(page, (m)=>window.__test.recv(m), st({x:10+i*0.9, y:1.6})); await sleep(90);
+    const p = await ev(page, ()=>window.__test.remotePose('anim')); if (Math.abs(p.legL) > 0.12) ran = true; }
+  check('奔跑→腿前后摆动', ran, `ran=${ran}`);
+  await ev(page, (m)=>window.__test.recv(m), Object.assign(st({x:18,y:1.6}), {hp:0,alive:false}));  // 死亡
+  let leaned = false;
+  for (let i=0;i<9 && !leaned;i++){ await sleep(100); const p = await ev(page, ()=>window.__test.remotePose('anim')); if (p.leanZ > 0.6) leaned = true; }
+  check('死亡→倒下动画', leaned, `leaned=${leaned}`);
+  await ev(page, ()=>window.__test.recv({type:'leave', from:'anim'}));
+
   // ---------- 3) 超级武器 4 种 ----------
   async function pickKind(kind) {
     await ev(page, ()=>window.__test.drop());
@@ -130,7 +146,16 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   await ev(page, ()=>window.__test.revive());
   for (let i=0;i<20 && !(await ev(page, ()=>window.__test.alive())); i++) await sleep(100);
 
-  // ---------- 8) 黑洞炮：被吸入处死（放最后，因为会打死自己） ----------
+  // ---------- 8) 黑洞炮·路径致死：飞行途中扫过也能杀人（停下点离玩家>吸力范围，只能是路径致死） ----------
+  await ev(page, ()=>window.__test.setPos(0, 0));
+  await ev(page, ()=>window.__test.recv({type:'blackhole', from:'enemy', hid:'bhp', owner:'enemy', x:0, y:1.2, z:9, dx:0, dz:-1}));
+  let pdied = false;
+  for (let i=0;i<10 && !pdied;i++){ await sleep(100); pdied = !(await ev(page, ()=>window.__test.alive())); }
+  check('黑洞→飞行途中路径上也能杀人', pdied, `alive=${!pdied}`);
+  await ev(page, ()=>window.__test.revive());
+  for (let i=0;i<20 && !(await ev(page, ()=>window.__test.alive())); i++) await sleep(100);
+
+  // ---------- 9) 黑洞炮：停下后被吸入处死 ----------
   await ev(page, ()=>window.__test.setPos(0, 8));
   await ev(page, ()=>window.__test.recv({type:'blackhole', from:'enemy', hid:'bh1', owner:'enemy', x:0, y:1.2, z:24.8, dx:0, dz:-1}));
   const hN = await ev(page, ()=>window.__test.holeCount());

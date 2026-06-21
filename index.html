@@ -362,20 +362,20 @@
     // 回血：受伤后 8 秒开始回血，再 8 秒回满
     var REGEN_DELAY = 8000, REGEN_FULL = 8000;
 
-    // 特色：超级武器（地图每 40 秒随机刷新一个，类型 4 选 1，捡到即用，打光或死亡失去）。
-    var SUPER_INTERVAL = 40000;
+    // 特色：超级武器（地图每 20 秒随机刷新一个，类型 4 选 1，捡到即用，打光或死亡失去）。
+    var SUPER_INTERVAL = 20000;
     var SUPERS = {
       mg:      { kind:'mg',      id:'super_mg',      name:'超级机枪',   dmg:22,   rpm:1500, mag:100, auto:true,  spread:0.006, pellets:1, range:280,  reload:0, kick:0.002, col:0x39ff14, zoom:0.6,  scoped:true, isSuper:true },
-      star:    { kind:'star',    id:'super_star',    name:'崩星炮',     dmg:9999, rpm:40,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
+      star:    { kind:'star',    id:'super_star',    name:'崩星炮',     dmg:9999, rpm:95,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
       hole:    { kind:'hole',    id:'super_hole',    name:'黑洞炮',     dmg:0,    rpm:30,   mag:4,   auto:false, spread:0,     pellets:1, range:80,   reload:0, kick:0.04,  col:0xb14dff, zoom:0.85, isSuper:true },
-      realm:   { kind:'realm',   id:'super_realm',   name:'秘境枪',     dmg:9999, rpm:50,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true },
+      realm:   { kind:'realm',   id:'super_realm',   name:'秘境枪',     dmg:9999, rpm:95,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true },
       tsunami: { kind:'tsunami', id:'super_tsunami', name:'排山倒海手', dmg:0,    rpm:20,   mag:1,   auto:false, spread:0,     pellets:1, range:60,   reload:0, kick:0.08,  col:0x2ec5ff, zoom:0.9,  isSuper:true }
     };
     var SUPER_KINDS = ['mg','star','hole','realm','tsunami'];
 
     // 超级武器特效参数
-    var BEAM_RADIUS = 1.8;          // 崩星/秘境 激光半径（加粗）
-    var BEAM_DELAY  = 700;          // 崩星炮蓄力 0.7s（给被瞄准者反应时间）
+    var BEAM_RADIUS = 2.4;          // 崩星/秘境 激光半径（更粗，更容易扫到）
+    var BEAM_DELAY  = 320;          // 崩星/秘境 蓄力时间缩短（0.32s），出枪更快
     // 黑洞：更快、更大、吸力范围更广
     var HOLE_TRAVEL = 1.2, HOLE_HOLD = 3.0, HOLE_SPEED = 18, HOLE_KILL_R = 1.8, HOLE_SUCK_R = 7.0, HOLE_SCALE = 1.7;
     // 排山倒海：朝前打出巨浪，长=半地图，宽 16，高 4.5；卷进去者翻滚后处死
@@ -742,20 +742,27 @@
       var limbMat = new THREE.MeshLambertMaterial({ color:new THREE.Color(color).multiplyScalar(0.7) });
       var headMat = new THREE.MeshLambertMaterial({ color:0xf1d3b0 });
 
-      // 人形：头(命中×2) / 躯干(×1) / 四肢(×0.6)。每个部位是独立的射线检测网格。
-      function part(mesh, partName) { mesh.userData = { peerId:id, part:partName }; group.add(mesh); return mesh; }
-      var torso = part(new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.64, 0.30), bodyMat), 'body'); torso.position.y = 1.10;
-      var head  = part(new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), headMat), 'head'); head.position.y = 1.62;
-      var armL  = part(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.58, 0.16), limbMat), 'limb'); armL.position.set(-0.34, 1.10, 0);
-      var armR  = part(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.58, 0.16), limbMat), 'limb'); armR.position.set( 0.34, 1.10, 0);
-      var legL  = part(new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.80, 0.20), limbMat), 'limb'); legL.position.set(-0.13, 0.40, 0);
-      var legR  = part(new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.80, 0.20), limbMat), 'limb'); legR.position.set( 0.13, 0.40, 0);
+      // 人形：头(命中×2) / 躯干(×1) / 四肢(×0.6)。四肢用"枢轴组"以便摆动（奔跑/跳跃/死亡动画）。
+      function staticPart(mesh, partName) { mesh.userData = { peerId:id, part:partName }; group.add(mesh); return mesh; }
+      function limb(px, py, sx, sy, sz, partName) {     // 从顶端(肩/胯)垂下，枢轴可旋转摆动
+        var pivot = new THREE.Group(); pivot.position.set(px, py, 0);
+        var mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), limbMat);
+        mesh.position.y = -sy/2; mesh.userData = { peerId:id, part:partName };
+        pivot.add(mesh); group.add(pivot);
+        return { pivot:pivot, mesh:mesh };
+      }
+      var torso = staticPart(new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.62, 0.30), bodyMat), 'body'); torso.position.y = 1.12;
+      var head  = staticPart(new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), headMat), 'head'); head.position.y = 1.62;
       var neck  = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.12,8), headMat); neck.position.y = 1.46; group.add(neck);
-      // 一个小"枪"指示朝向（非命中目标）
+      var armL = limb(-0.32, 1.40, 0.14, 0.56, 0.16, 'limb');
+      var armR = limb( 0.32, 1.40, 0.14, 0.56, 0.16, 'limb');
+      var legL = limb(-0.13, 0.82, 0.17, 0.80, 0.20, 'limb');
+      var legR = limb( 0.13, 0.82, 0.17, 0.80, 0.20, 'limb');
+      // 手里举的枪（朝前，随姿态动；非命中目标）
       var gun = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.10,0.55), new THREE.MeshLambertMaterial({ color:0x20262e }));
-      gun.position.set(0.30, 1.05, -0.32); group.add(gun);
+      gun.position.set(0.18, 1.18, -0.42); group.add(gun);
 
-      var parts = [torso, head, armL, armR, legL, legR, neck, gun];
+      var parts = [torso, head, neck, armL.mesh, armR.mesh, legL.mesh, legR.mesh, gun];
 
       var label = makeLabelSprite();
       label.position.y = 2.30;
@@ -763,8 +770,10 @@
 
       scene.add(group);
       r = remotes[id] = {
-        id:id, name:name || '???', color:color, group:group, parts:parts, head:head, label:label,
-        hitMeshes:[head, torso, armL, armR, legL, legR],
+        id:id, name:name || '???', color:color, group:group, parts:parts, head:head, label:label, gun:gun,
+        hitMeshes:[head, torso, armL.mesh, armR.mesh, legL.mesh, legR.mesh],
+        armL:armL.pivot, armR:armR.pivot, legL:legL.pivot, legR:legR.pivot,
+        runPhase:0, deathLean:0, lastX:0, lastZ:0,
         pos:new THREE.Vector3(), target:new THREE.Vector3(), yaw:0, targetYaw:0,
         hp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now()
       };
@@ -1170,8 +1179,17 @@
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
       mesh.position.copy(origin).addScaledVector(dir, len/2);
     }
+    // 点 (px,pz) 到线段 (ax,az)-(bx,bz) 的 2D 距离（用于黑洞路径致死）
+    function segDist2D(px, pz, ax, az, bx, bz) {
+      var abx = bx-ax, abz = bz-az, apx = px-ax, apz = pz-az;
+      var len2 = abx*abx + abz*abz;
+      var t = len2 > 0 ? (apx*abx + apz*abz) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      var cx = ax + abx*t, cz = az + abz*t;
+      return Math.sqrt((px-cx)*(px-cx) + (pz-cz)*(pz-cz));
+    }
 
-    // 发射激光（崩星炮=贯穿秒杀；秘境枪=只对第一人、拖入秘境）。都先有 0.7s 可见轨迹给反应时间。
+    // 发射激光（崩星炮=贯穿秒杀；秘境枪=只对第一人、拖入秘境）。先有 ~0.32s 蓄力轨迹再发射，给点反应时间。
     function fireBeam(kind, w) {
       var origin = camera.position.clone();
       camera.getWorldDirection(_bf);
@@ -1283,7 +1301,7 @@
       mesh.position.set(msg.x, msg.y, msg.z);
       scene.add(mesh);
       blackholes.push({ hid:msg.hid, owner:msg.owner, start:new THREE.Vector3(msg.x, msg.y, msg.z),
-        dir:dir, mesh:mesh, spawnAt:now() });
+        dir:dir, mesh:mesh, spawnAt:now(), prevX:msg.x, prevZ:msg.z });
       if (msg.owner !== me.id) showNotice('🌀 黑洞来了！离它远点！');
     }
     function updateBlackHoles(dt) {
@@ -1291,11 +1309,11 @@
         var bh = blackholes[i];
         var el = (now() - bh.spawnAt) / 1000;
         if (el > HOLE_TRAVEL + HOLE_HOLD) { disposeBlackHole(bh); blackholes.splice(i, 1); continue; }
-        // 位置：先飞 HOLE_TRAVEL 秒，然后停住
+        // 位置：先飞 HOLE_TRAVEL 秒，然后停住。ux/uz=真实轨迹(用于路径致死)，px/pz=夹取后(仅渲染)
         var travel = Math.min(el, HOLE_TRAVEL);
-        var px = bh.start.x + bh.dir.x * HOLE_SPEED * travel;
-        var pz = bh.start.z + bh.dir.z * HOLE_SPEED * travel;
-        px = Math.max(-28, Math.min(28, px)); pz = Math.max(-28, Math.min(28, pz));
+        var ux = bh.start.x + bh.dir.x * HOLE_SPEED * travel;
+        var uz = bh.start.z + bh.dir.z * HOLE_SPEED * travel;
+        var px = Math.max(-28, Math.min(28, ux)), pz = Math.max(-28, Math.min(28, uz));
         bh.mesh.position.set(px, bh.start.y, pz);
         if (!reduced) { bh.mesh.rotation.y += dt * 3; if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 5; }
         // 快消散时缩小
@@ -1309,9 +1327,13 @@
             var pull = (HOLE_SUCK_R - d) / HOLE_SUCK_R;             // 越近吸力越强
             var step = Math.min(d, (0.4 + pull) * 16 * dt);        // 强吸力
             if (d > 0.001) { playerPos.x -= (dx / d) * step; playerPos.z -= (dz / d) * step; }
-            if (d < HOLE_KILL_R && el > 0.4) die(bh.owner, 'super_hole', false);
+          }
+          // 路径致死：用"未夹取的真实轨迹段"判定，飞行途中扫过也能杀人（和静止时一样）
+          if (el > 0.4 && segDist2D(playerPos.x, playerPos.z, bh.prevX, bh.prevZ, ux, uz) < HOLE_KILL_R) {
+            die(bh.owner, 'super_hole', false);
           }
         }
+        bh.prevX = ux; bh.prevZ = uz;
       }
     }
     function disposeBlackHole(bh) {
@@ -1690,6 +1712,9 @@
             r.targetYaw = msg.yaw;
             r.weapon = msg.weapon;
             if (r.hp !== msg.hp || r.alive !== msg.alive) { r.hp = msg.hp; r.alive = msg.alive; r.labelDirty = true; }
+            // 首个状态：直接吸附到位（避免从原点滑入）并初始化测速基准（避免首帧"奔跑"误判）
+            if (!r.spawned) { r.group.position.copy(r.target); r.group.rotation.y = r.targetYaw;
+              r.lastX = r.target.x; r.lastZ = r.target.z; r.spawned = true; }
             r.lastSeen = now();
           }
           scores[msg.from] = { name:msg.name, kills:msg.kills, deaths:msg.deaths, color:msg.color };
@@ -1845,8 +1870,8 @@
       if (joinDone) return; joinDone = true;
       // 第一个 state 出去，并以 STATE_HZ 周期广播
       setInterval(sendState, Math.round(1000 / STATE_HZ));
-      // 超级武器：只有主机负责生成（首个稍早出现，之后每 40 秒一个，类型随机）
-      setTimeout(function () { if (isHost) hostSpawnSuper(); }, 12000);
+      // 超级武器：只有主机负责生成（首个稍早出现，之后每 20 秒一个，类型轮流）
+      setTimeout(function () { if (isHost) hostSpawnSuper(); }, 8000);
       setInterval(function () { if (isHost) hostSpawnSuper(); }, SUPER_INTERVAL);
     }
 
@@ -1931,10 +1956,46 @@
         while (dy >  Math.PI) dy -= Math.PI*2;
         while (dy < -Math.PI) dy += Math.PI*2;
         r.group.rotation.y += dy * k;
-        for (var pi = 0; pi < r.parts.length; pi++) r.parts[pi].visible = r.alive;
+        poseRemote(r, dt);                 // 举枪/奔跑/跳跃/死亡 动画
         if (r.labelDirty) { drawLabel(r.label, r.name, r.hp, r.alive); r.labelDirty = false; }
         // 长时间没收到状态（非正常离开）→ 移除
         if (t - r.lastSeen > 6000) { removeRemote(id); delete scores[id]; updateScoreboard(); }
+      }
+    }
+
+    // 远端小人动画：根据"自身位移速度 / 是否离地 / 是否存活"摆动四肢
+    function poseRemote(r, dt) {
+      var nx = r.group.position.x, nz = r.group.position.z;
+      var inv = 1 / Math.max(dt, 0.001);
+      var speed = Math.sqrt((nx - r.lastX)*(nx - r.lastX) + (nz - r.lastZ)*(nz - r.lastZ)) * inv;
+      r.lastX = nx; r.lastZ = nz;
+
+      if (!r.alive) {                       // 死亡：缓缓侧倒 + 四肢放松
+        r.deathLean = Math.min(1, r.deathLean + dt * 4);
+        r.group.rotation.z = r.deathLean * 1.45;
+        r.legL.rotation.x = r.legR.rotation.x = 0.25;
+        r.armL.rotation.x = r.armR.rotation.x = 0.4;
+        for (var i = 0; i < r.parts.length; i++) r.parts[i].visible = true;
+        return;
+      }
+      if (r.deathLean) { r.deathLean = 0; r.group.rotation.z = 0; }   // 复活：站起
+      for (var j = 0; j < r.parts.length; j++) r.parts[j].visible = true;
+
+      var airborne = r.group.position.y > 0.2;
+      if (airborne) {                       // 跳跃：收腿 + 抬手
+        r.legL.rotation.x = -0.7; r.legR.rotation.x = -0.4;
+        r.armL.rotation.x = -2.3; r.armR.rotation.x = -1.5;
+        r.runPhase = 0;
+      } else if (speed > 1.0) {             // 奔跑：腿前后摆，左手摆，右手持枪向前
+        r.runPhase += dt * (7 + Math.min(speed, 10) * 0.5);
+        var s = Math.sin(r.runPhase) * 0.9;
+        r.legL.rotation.x = s;  r.legR.rotation.x = -s;
+        r.armL.rotation.x = -1.1 - s * 0.5;
+        r.armR.rotation.x = -1.5;
+      } else {                              // 站立举枪
+        r.legL.rotation.x = 0; r.legR.rotation.x = 0;
+        r.armL.rotation.x = -1.15; r.armR.rotation.x = -1.5;
+        r.runPhase = 0;
       }
     }
 
@@ -2151,7 +2212,10 @@
           tsunamiCount:function(){ return tsunamis.length; }, tumbling:function(){ return now() < tumbleUntil; },
           fireRealmAt:function(id){ startRealmDuel(id); }, revive:function(){ deadUntil = now() - 1; },
           realmInfo:function(){ return { inRealm:inRealm, opponent:realmOpponent, hp:me.hp, maxHp:maxHp,
-            x:playerPos.x, z:playerPos.z, fireRateMul:fireRateMul }; }
+            x:playerPos.x, z:playerPos.z, fireRateMul:fireRateMul }; },
+          // 远端小人动画姿态（验证奔跑/跳跃/死亡）
+          remotePose:function(id){ var r=remotes[id]; if(!r) return null;
+            return { legL:r.legL.rotation.x, armR:r.armR.rotation.x, leanZ:r.group.rotation.z, y:r.group.position.y }; }
         };
         animate();
       } catch (err) {
