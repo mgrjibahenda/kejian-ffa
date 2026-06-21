@@ -1383,32 +1383,37 @@
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.4);
       src.connect(lp); lp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.42);
     }
-    // 青龙偃月刀·落地龙吟：低吼(LFO 调制音高 = 咆哮颤抖) + 咆哮气声 + 落地重击。响而长，像兽吼。
+    // 青龙偃月刀·落地龙吟：以"带共振峰的噪声怒吼"为主角(像张口兽吼)，锯齿只做被过滤的低吼底，
+    // 慢颤(5Hz)而非快抖(去掉之前那种放屁/突突声)，再加一记干净的落地沉雷。
     var roarSfxN = 0;
     function bladeRoarSound() {
-      roarSfxN++;   // 计数(自测确认触发；与是否真出声无关)
+      roarSfxN++;
       if (!actx || muted) return; var t = actx.currentTime;
-      [0, 0.6].forEach(function (det, idx) {   // 两条失谐低吼，叠出厚度
-        var o = actx.createOscillator(); o.type = idx ? 'sawtooth' : 'triangle';
-        o.frequency.setValueAtTime(68 + det, t);
-        o.frequency.linearRampToValueAtTime(155 + det, t + 0.28);
-        o.frequency.exponentialRampToValueAtTime(52 + det, t + 1.05);
-        var lfo = actx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 22 + idx * 6;   // 颤音→咆哮感
-        var lg = actx.createGain(); lg.gain.value = 16;
-        lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + 1.25);
-        var lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1500;
-        var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55, t + 0.1); g.gain.setValueAtTime(0.55, t + 0.75); g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-        o.connect(lp); lp.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 1.25);
-      });
-      var b2 = actx.createBufferSource(); b2.buffer = noiseBuffer(1.1);   // 咆哮气声(formant 扫频)
-      var bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 5;
-      bp.frequency.setValueAtTime(420, t); bp.frequency.exponentialRampToValueAtTime(980, t + 0.3); bp.frequency.exponentialRampToValueAtTime(230, t + 1.0);
-      var g2b = actx.createGain(); g2b.gain.setValueAtTime(0.0001, t); g2b.gain.exponentialRampToValueAtTime(0.42, t + 0.12); g2b.gain.exponentialRampToValueAtTime(0.001, t + 1.05);
-      b2.connect(bp); bp.connect(g2b); g2b.connect(masterGain); b2.start(t); b2.stop(t + 1.1);
-      var b1 = actx.createBufferSource(); b1.buffer = noiseBuffer(0.5);   // 落地重击
-      var lp1 = actx.createBiquadFilter(); lp1.type = 'lowpass'; lp1.frequency.setValueAtTime(800, t); lp1.frequency.exponentialRampToValueAtTime(100, t + 0.4);
-      var g1 = actx.createGain(); g1.gain.setValueAtTime(0.8, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-      b1.connect(lp1); lp1.connect(g1); g1.connect(masterGain); b1.start(t); b1.stop(t + 0.5);
+      // 1) 主角：怒吼气声 —— 噪声经两道共振峰带通，张口般先扬后落
+      var n = actx.createBufferSource(); n.buffer = noiseBuffer(1.3);
+      var fa = actx.createBiquadFilter(); fa.type = 'bandpass'; fa.Q.value = 2.5;
+      fa.frequency.setValueAtTime(550, t); fa.frequency.exponentialRampToValueAtTime(1400, t + 0.22); fa.frequency.exponentialRampToValueAtTime(420, t + 1.05);
+      var fb = actx.createBiquadFilter(); fb.type = 'bandpass'; fb.Q.value = 4;
+      fb.frequency.setValueAtTime(1600, t); fb.frequency.exponentialRampToValueAtTime(2600, t + 0.25); fb.frequency.exponentialRampToValueAtTime(900, t + 1.0);
+      var ng = actx.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(0.7, t + 0.1); ng.gain.setValueAtTime(0.7, t + 0.55); ng.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+      n.connect(fa); fa.connect(ng); n.connect(fb); fb.connect(ng); ng.connect(masterGain); n.start(t); n.stop(t + 1.3);
+      // 2) 低吼底：锯齿基音，慢颤(5Hz)有生命感，经共振峰过滤掉蜂鸣/突突
+      var o = actx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(105, t); o.frequency.linearRampToValueAtTime(140, t + 0.2); o.frequency.exponentialRampToValueAtTime(72, t + 1.05);
+      var vib = actx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.5;
+      var vg = actx.createGain(); vg.gain.value = 5; vib.connect(vg); vg.connect(o.frequency); vib.start(t); vib.stop(t + 1.2);
+      var of = actx.createBiquadFilter(); of.type = 'bandpass'; of.frequency.value = 700; of.Q.value = 3.5;
+      var og = actx.createGain(); og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.4, t + 0.08); og.gain.setValueAtTime(0.4, t + 0.6); og.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+      o.connect(of); of.connect(og); og.connect(masterGain); o.start(t); o.stop(t + 1.2);
+      // 3) 落地沉雷：一记干净的低频冲击(不抖)
+      var sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(72, t); sub.frequency.exponentialRampToValueAtTime(34, t + 0.5);
+      var sg = actx.createGain(); sg.gain.setValueAtTime(0.85, t); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      sub.connect(sg); sg.connect(masterGain); sub.start(t); sub.stop(t + 0.65);
+      // 4) 起始撕裂脆响
+      var c = actx.createBufferSource(); c.buffer = noiseBuffer(0.06);
+      var hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3600;
+      var cg = actx.createGain(); cg.gain.setValueAtTime(0.4, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      c.connect(hp); hp.connect(cg); cg.connect(masterGain); c.start(t); c.stop(t + 0.07);
     }
     function mechaStompSound() {  // 穿上机甲/重踏：超低频砸地 + 金属铿锵
       if (!actx || muted) return; var t = actx.currentTime;
