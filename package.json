@@ -8,8 +8,9 @@
     "smoke": "node test/smoke.mjs",
     "gameplay": "node test/gameplay.mjs",
     "feel": "node test/feel.mjs",
+    "features": "node test/features.mjs",
     "online": "node test/online.mjs",
-    "test": "node test/smoke.mjs && node test/gameplay.mjs && node test/feel.mjs"
+    "test": "node test/smoke.mjs && node test/gameplay.mjs && node test/feel.mjs && node test/features.mjs"
   },
   "devDependencies": {
     "playwright": "^1.49.0"
