@@ -1183,12 +1183,14 @@
         var k = f.life / f.ttl;
         if (k >= 1) {
           scene.remove(f.obj);
+          if (f.fadeGroup) f.obj.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
           if (f.obj.geometry) f.obj.geometry.dispose();
           if (f.ownMap && f.obj.material && f.obj.material.map) f.obj.material.map.dispose();   // 飘字独有贴图才销毁(别动共享 glowTex)
           if (f.obj.material) f.obj.material.dispose();
           fx.splice(i, 1); continue;
         }
-        if (f.fade) f.obj.material.opacity = (f.maxOp || 1) * (1 - k);
+        if (f.fade && f.obj.material) f.obj.material.opacity = (f.maxOp || 1) * (1 - k);
+        if (f.fadeGroup) f.obj.traverse(function (o) { if (o.material) o.material.opacity = (f.maxOp || 1) * (1 - k); });
         if (f.grow) f.obj.scale.setScalar(f.obj.scale.x * (1 + dt*4));
         if (f.expandTo !== undefined) { var s = f.expandFrom + (f.expandTo - f.expandFrom) * (f.ease ? (1-(1-k)*(1-k)) : k); f.obj.scale.setScalar(s); }
         if (f.rise) f.obj.position.y += f.rise * dt;
@@ -1380,6 +1382,23 @@
       var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500;
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.4);
       src.connect(lp); lp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.42);
+    }
+    // 青龙偃月刀·落地召龙：重击 + 龙吟(共振扫频) + 仙气高频
+    function bladeRoarSound() {
+      if (!actx || muted) return; var t = actx.currentTime;
+      var b1 = actx.createBufferSource(); b1.buffer = noiseBuffer(0.6);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(120, t+0.5);
+      var g1 = actx.createGain(); g1.gain.setValueAtTime(0.85, t); g1.gain.exponentialRampToValueAtTime(0.001, t+0.6);
+      b1.connect(lp); lp.connect(g1); g1.connect(masterGain); b1.start(t); b1.stop(t+0.6);
+      var b2 = actx.createBufferSource(); b2.buffer = noiseBuffer(0.95);
+      var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=6;
+      bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(720, t+0.25); bp.frequency.exponentialRampToValueAtTime(170, t+0.85);
+      var g2b = actx.createGain(); g2b.gain.setValueAtTime(0.0001, t); g2b.gain.exponentialRampToValueAtTime(0.55, t+0.12); g2b.gain.exponentialRampToValueAtTime(0.001, t+0.88);
+      b2.connect(bp); bp.connect(g2b); g2b.connect(masterGain); b2.start(t); b2.stop(t+0.95);
+      var b3 = actx.createBufferSource(); b3.buffer = noiseBuffer(0.3);
+      var hp = actx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=5200;
+      var g3 = actx.createGain(); g3.gain.setValueAtTime(0.22, t); g3.gain.exponentialRampToValueAtTime(0.001, t+0.3);
+      b3.connect(hp); hp.connect(g3); g3.connect(masterGain); b3.start(t); b3.stop(t+0.3);
     }
     function mechaStompSound() {  // 穿上机甲/重踏：超低频砸地 + 金属铿锵
       if (!actx || muted) return; var t = actx.currentTime;
@@ -2244,13 +2263,13 @@
         var dx = r.group.position.x - ix, dz = r.group.position.z - iz;
         if (dx*dx + dz*dz < R * R) sendHit(id, dmg, wid, false);
       }
-      var msg = { type:'slam', from:me.id, owner:me.id, x:ix, z:iz, col:col, r:R };
-      spawnSlam(msg); netSend(msg);   // 视觉（地震 + 地裂）广播给所有人
+      var msg = { type:'slam', from:me.id, owner:me.id, x:ix, z:iz, col:col, r:R, dragon: !burst };
+      spawnSlam(msg); netSend(msg);   // 视觉（地震 + 地裂 + 青龙）广播给所有人
     }
     function spawnSlam(msg) {          // 视觉 + 视角地震（命中由发动者用 hit 上报）
       spawnSlamFx(msg.x, msg.z, msg.col, msg.r || BLADE_KILL_R);
-      shake = Math.min(shake + (reduced ? 0 : 0.28), 0.32);
-      bladeBoom();
+      shake = Math.min(shake + (reduced ? 0 : 0.34), 0.4);
+      if (msg.dragon) { spawnDragon(msg.x, msg.z, msg.col); bladeRoarSound(); } else bladeBoom();   // 青龙偃月刀召唤灵龙+龙吟；爆地用地裂声
     }
     function addMat(color, op) { return new THREE.MeshBasicMaterial({ color:color, transparent:true, opacity:op, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }); }
     // ---- 机甲榴弹：抛物线飞行 → 落地/超时爆炸 → AoE 伤害(中心满，边缘衰减) + 爆炸特效 ----
@@ -2344,13 +2363,41 @@
           fx.push({ obj:deb, ttl:0.9, life:0, fade:false, spin:6, vel:{ x:Math.cos(a)*8, y:9+Math.random()*4, z:Math.sin(a)*8 } });
         }
       }
-      // 青龙：一条由发光体盘旋冲天的巨龙
-      if (!reduced) for (var i = 0; i < 22; i++) {
-        var ang = i * 0.62, rr = 2.0 + i * 0.18;
-        var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color: i%4? col : 0xeaffe8, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-        sp.position.set(x + Math.cos(ang)*rr, 0.6 + i*1.05, z + Math.sin(ang)*rr); sp.scale.setScalar(3.4 - i*0.06);
-        scene.add(sp); fx.push({ obj:sp, ttl:0.95, life:0, fade:true, maxOp:1, rise:6 });
+    }
+    // 青龙：一条盘旋冲天的灵龙(龙身分节 + 龙头/角/须/眼)，从落点腾空盘旋后消散
+    function spawnDragon(x, z, col) {
+      if (reduced) return;
+      var g = new THREE.Group(); g.position.set(x, 0.4, z);
+      var N = 20, light = 0xeaffe8;
+      for (var i = 0; i < N; i++) {
+        var t = i / N, ang = i * 0.72, rr = 3.6 * (1 - t * 0.35), h = i * 0.95;
+        var seg = new THREE.Mesh(new THREE.SphereGeometry(1.0 * (1 - t * 0.55) + 0.18, 10, 8), addMat(i % 3 ? col : light, 0.9));
+        seg.position.set(Math.cos(ang) * rr, h, Math.sin(ang) * rr); g.add(seg);
+        if (i % 2 === 0) { var fin = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.7 * (1 - t * 0.5), 4), addMat(light, 0.85)); fin.position.set(Math.cos(ang) * rr, h + 0.5, Math.sin(ang) * rr); g.add(fin); }   // 背鳍
       }
+      var ha = (N - 1) * 0.72, hr = 3.6 * 0.65, hh = (N - 1) * 0.95;
+      var head = new THREE.Group(); head.position.set(Math.cos(ha) * hr, hh, Math.sin(ha) * hr);
+      head.add(new THREE.Mesh(new THREE.OctahedronGeometry(1.15, 0), addMat(light, 0.95)));
+      head.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1.1), addMat(col, 0.9)));   // 口鼻
+      [-1, 1].forEach(function (s) {
+        var horn = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.0, 5), addMat(col, 0.9)); horn.position.set(s * 0.45, 0.8, 0.2); horn.rotation.z = -s * 0.5; horn.rotation.x = 0.4; head.add(horn);
+        var eye = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), addMat(0xffffff, 1)); eye.position.set(s * 0.45, 0.15, -0.55); head.add(eye);
+        var whisk = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.01, 2.2, 5), addMat(col, 0.8)); whisk.position.set(s * 0.5, -0.1, -0.9); whisk.rotation.z = s * 0.5; whisk.rotation.x = 1.2; head.add(whisk);   // 龙须
+      });
+      g.add(head); scene.add(g);
+      fx.push({ obj:g, ttl:1.4, life:0, fadeGroup:true, maxOp:1, rise:5.5, spin:1.3 });
+    }
+    // 出刀光弧：在视角前方留下一道挥砍残影(月牙形)，连成劈砍轨迹
+    var _slashRight = new THREE.Vector3(), _slashUp = new THREE.Vector3(0,1,0);
+    function spawnSlashTrail(col) {
+      camera.getWorldDirection(_bf); _slashRight.crossVectors(_bf, _slashUp).normalize();
+      var tip = camera.position.clone().addScaledVector(_bf, 4).addScaledVector(_slashUp, 0.3);
+      var cr = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.16, 6, 26, Math.PI * 1.3), addMat(Math.random() < 0.4 ? 0xeaffe8 : col, 0.92));
+      cr.position.copy(tip);
+      cr.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), _slashRight);   // 弧面=挥砍平面(前-上)
+      cr.rotateZ(-1.7);   // 弧口朝下(劈)
+      cr.scale.setScalar(1.1 + Math.random() * 0.4);
+      scene.add(cr); fx.push({ obj:cr, ttl:0.2, life:0, fade:true, maxOp:0.9 });
     }
     // 崩星咆哮炮发射时的炮口爆闪 + 沿激光的能量环
     // 崩星咆哮炮·吸星塌缩：星尘从四周被吸进炮口
@@ -3308,6 +3355,10 @@
             var sf2 = Math.min(1, (sp2 - BLADE_RISE - BLADE_LUNGE) / BLADE_SLAM);
             playerPos.y = EYE + BLADE_LUNGE_UP * (1 - sf2) * (1 - sf2);
             aimCamera();
+          }
+          if (sp2 >= BLADE_RISE && !reduced) {   // 突进→劈下：视角前方留劈砍光弧
+            var tcol = burstSlam ? SUPERS.godmecha.col : SUPERS.blade.col;
+            spawnSlashTrail(tcol); if (Math.random() < 0.6) spawnSlashTrail(tcol);
           }
         }
         if (!slamImpactDone && now() >= slamImpactAt) doBladeImpact();
