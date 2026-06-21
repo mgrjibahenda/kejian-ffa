@@ -365,17 +365,21 @@
     // 特色：超级武器（地图每 40 秒随机刷新一个，类型 4 选 1，捡到即用，打光或死亡失去）。
     var SUPER_INTERVAL = 40000;
     var SUPERS = {
-      mg:    { kind:'mg',    id:'super_mg',    name:'超级机枪', dmg:22,   rpm:1500, mag:100, auto:true,  spread:0.006, pellets:1, range:280,  reload:0, kick:0.002, col:0x39ff14, zoom:0.6,  scoped:true, isSuper:true },
-      star:  { kind:'star',  id:'super_star',  name:'崩星炮',   dmg:9999, rpm:40,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
-      hole:  { kind:'hole',  id:'super_hole',  name:'黑洞炮',   dmg:0,    rpm:30,   mag:4,   auto:false, spread:0,     pellets:1, range:80,   reload:0, kick:0.04,  col:0xb14dff, zoom:0.85, isSuper:true },
-      realm: { kind:'realm', id:'super_realm', name:'秘境枪',   dmg:9999, rpm:50,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true }
+      mg:      { kind:'mg',      id:'super_mg',      name:'超级机枪',   dmg:22,   rpm:1500, mag:100, auto:true,  spread:0.006, pellets:1, range:280,  reload:0, kick:0.002, col:0x39ff14, zoom:0.6,  scoped:true, isSuper:true },
+      star:    { kind:'star',    id:'super_star',    name:'崩星炮',     dmg:9999, rpm:40,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
+      hole:    { kind:'hole',    id:'super_hole',    name:'黑洞炮',     dmg:0,    rpm:30,   mag:4,   auto:false, spread:0,     pellets:1, range:80,   reload:0, kick:0.04,  col:0xb14dff, zoom:0.85, isSuper:true },
+      realm:   { kind:'realm',   id:'super_realm',   name:'秘境枪',     dmg:9999, rpm:50,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true },
+      tsunami: { kind:'tsunami', id:'super_tsunami', name:'排山倒海手', dmg:0,    rpm:20,   mag:1,   auto:false, spread:0,     pellets:1, range:60,   reload:0, kick:0.08,  col:0x2ec5ff, zoom:0.9,  isSuper:true }
     };
-    var SUPER_KINDS = ['mg','star','hole','realm'];
+    var SUPER_KINDS = ['mg','star','hole','realm','tsunami'];
 
     // 超级武器特效参数
-    var BEAM_RADIUS = 1.0;          // 崩星/秘境 激光半径(≈角色身高一半)
+    var BEAM_RADIUS = 1.8;          // 崩星/秘境 激光半径（加粗）
     var BEAM_DELAY  = 700;          // 崩星炮蓄力 0.7s（给被瞄准者反应时间）
-    var HOLE_TRAVEL = 1.2, HOLE_HOLD = 3.0, HOLE_SPEED = 14, HOLE_KILL_R = 1.0, HOLE_SUCK_R = 3.8;
+    // 黑洞：更快、更大、吸力范围更广
+    var HOLE_TRAVEL = 1.2, HOLE_HOLD = 3.0, HOLE_SPEED = 18, HOLE_KILL_R = 1.8, HOLE_SUCK_R = 7.0, HOLE_SCALE = 1.7;
+    // 排山倒海：朝前打出巨浪，长=半地图，宽 16，高 4.5；卷进去者翻滚后处死
+    var TSU_LEN = 30, TSU_SPEED = 13, TSU_HALFW = 8, TSU_H = 4.5;
     var REALM_CENTER = new THREE.Vector3(0, EYE, -200);   // 秘境平台（远离主竞技场，被雾遮住）
 
     var PALETTE = [0x4cc9f0,0xf72585,0x90be6d,0xf9c74f,0xff7b00,0x9b5de5,0x00bbf9,0xff5d8f,0x43aa8b,0xe07a5f];
@@ -413,11 +417,12 @@
     var ads = false, adsAmt = 0, BASE_FOV = 76;
     // 超级武器状态
     var superActive = false, superAmmo = 0, superKind = null;
-    var superMesh = null, superSid = 0;
+    var superMesh = null, superSid = 0, superBag = [];
     var lastHitInfo = null, lastSentHits = [];   // 最近一次命中（含部位）/ 已上报的命中，供自测用
-    // 特效实体 + 秘境对决状态
-    var beams = [], blackholes = [];
-    var inRealm = false, realmOpponent = null, maxHp = 100;
+    // 特效实体 + 秘境对决状态 + 被巨浪卷起翻滚
+    var beams = [], blackholes = [], tsunamis = [];
+    var inRealm = false, realmOpponent = null, maxHp = 100, realmEnteredAt = 0;
+    var tumbleUntil = 0, tumbleStart = 0, tumbleKiller = null;
 
     // 当前生效的武器/弹药（普通武器 or 超级武器）
     function activeWeapon() { return superActive ? SUPERS[superKind] : WEAPONS[weaponIndex]; }
@@ -653,6 +658,16 @@
         gbox(g, 0.10,0.12,0.10, gmat(w.col, w.col), 0,0,0.16);
         gbox(g, 0.08,0.18,0.10, grip, 0,-0.16,0.08, 0.18);
         muzzleZ = -0.6;
+
+      } else if (w.isSuper && w.kind === 'tsunami') {  // 排山倒海手：发光的"波涛护手"
+        gbox(g, 0.16,0.14,0.26, gmat(0x0a3450), 0,0,0.10);            // 护手主体
+        gbox(g, 0.18,0.04,0.18, gmat(w.col, w.col), 0,0.07,-0.02);    // 发光顶板
+        [-0.06,0,0.06].forEach(function (xx) {                         // 三道"浪指"
+          gbox(g, 0.035,0.16,0.20, gmat(w.col, w.col), xx,0.02,-0.22, -0.5);
+        });
+        gpart(g, new THREE.SphereGeometry(0.10,14,10), gmat(w.col, w.col), 0,0,-0.12);  // 掌心能量球
+        gbox(g, 0.10,0.16,0.12, grip, 0,-0.13,0.12, 0.2);
+        muzzleZ = -0.34;
 
       } else {                                          // 兜底
         gbox(g, 0.10,0.12,0.46, dark, 0,0,0);
@@ -1051,6 +1066,7 @@
       var kind = superActive ? w.kind : null;
       if (kind === 'star' || kind === 'realm') fireBeam(kind, w);  // 崩星炮 / 秘境枪：激光
       else if (kind === 'hole')                fireBlackHole(w);   // 黑洞炮
+      else if (kind === 'tsunami')             fireTsunami(w);     // 排山倒海手
       else                                     fireHitscan(w);     // 普通武器 + 超级机枪
 
       updateAmmoHud();
@@ -1284,14 +1300,14 @@
         if (!reduced) { bh.mesh.rotation.y += dt * 3; if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 5; }
         // 快消散时缩小
         var fade = el > HOLE_TRAVEL + HOLE_HOLD - 0.5 ? Math.max(0.2, (HOLE_TRAVEL + HOLE_HOLD - el) / 0.5) : 1;
-        bh.mesh.scale.setScalar(fade);
+        bh.mesh.scale.setScalar(fade * HOLE_SCALE);
         // 吸入 + 处死（只判定本机玩家；发射者对自己的黑洞免疫；已激活 0.4s 后才致命）
-        if (me.alive && !paused && bh.owner !== me.id) {
+        if (me.alive && !paused && bh.owner !== me.id && now() >= tumbleUntil) {
           var dx = playerPos.x - px, dz = playerPos.z - pz;
           var d = Math.sqrt(dx*dx + dz*dz);
           if (d < HOLE_SUCK_R) {
             var pull = (HOLE_SUCK_R - d) / HOLE_SUCK_R;             // 越近吸力越强
-            var step = Math.min(d, pull * 9 * dt);
+            var step = Math.min(d, (0.4 + pull) * 16 * dt);        // 强吸力
             if (d > 0.001) { playerPos.x -= (dx / d) * step; playerPos.z -= (dz / d) * step; }
             if (d < HOLE_KILL_R && el > 0.4) die(bh.owner, 'super_hole', false);
           }
@@ -1302,11 +1318,74 @@
       scene.remove(bh.mesh);
       bh.mesh.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
     }
+    function disposeTsunami(ts) {
+      scene.remove(ts.mesh);
+      ts.mesh.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    }
     function clearAllEffects() {
       for (var i = beams.length - 1; i >= 0; i--) disposeBeam(beams[i]);
       beams.length = 0;
       for (var j = blackholes.length - 1; j >= 0; j--) disposeBlackHole(blackholes[j]);
       blackholes.length = 0;
+      for (var k = tsunamis.length - 1; k >= 0; k--) disposeTsunami(tsunamis[k]);
+      tsunamis.length = 0;
+    }
+
+    // ---- 排山倒海手：朝前打出一道滔天巨浪（长=半地图），卷进去的人翻滚后处死 ----
+    function fireTsunami(w) {
+      var origin = playerPos.clone();
+      camera.getWorldDirection(_bf);
+      var msg = { type:'tsunami', from:me.id, tid:(me.id + '-' + (++holeSeq)), owner:me.id,
+        x:origin.x, y:0, z:origin.z, dx:_bf.x, dz:_bf.z };
+      spawnTsunami(msg); netSend(msg);
+    }
+    function makeTsunamiMesh() {
+      var g = new THREE.Group();
+      var waterMat = new THREE.MeshLambertMaterial({ color:0x1f7fd6, emissive:0x0a3a66, emissiveIntensity:0.5,
+        transparent:true, opacity:0.72 });
+      var foamMat = new THREE.MeshLambertMaterial({ color:0xcdeeff, emissive:0x6fb8e6, emissiveIntensity:0.5 });
+      // 主浪墙（宽 X、高 Y、薄 Z），向前微微卷曲
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(TSU_HALFW*2, TSU_H, 1.6), waterMat));   // 居中，y 在下面整体抬起
+      var crest = new THREE.Mesh(new THREE.BoxGeometry(TSU_HALFW*2, 0.7, 2.4), foamMat);
+      crest.position.set(0, TSU_H/2, -0.5); g.add(crest);
+      var lip = new THREE.Mesh(new THREE.BoxGeometry(TSU_HALFW*2, 1.4, 1.0), waterMat);
+      lip.position.set(0, TSU_H/2 - 0.2, -1.0); lip.rotation.x = -0.5; g.add(lip);
+      g.position.y = TSU_H/2;   // 浪底贴地
+      return g;
+    }
+    function spawnTsunami(msg) {
+      var dir = new THREE.Vector3(msg.dx, 0, msg.dz); if (dir.lengthSq() < 1e-6) dir.set(0,0,-1); dir.normalize();
+      var mesh = makeTsunamiMesh();
+      scene.add(mesh);
+      tsunamis.push({ tid:msg.tid, owner:msg.owner, start:new THREE.Vector3(msg.x, 0, msg.z), dir:dir, mesh:mesh, spawnAt:now() });
+      deathSound();
+      if (msg.owner !== me.id) showNotice('🌊 排山倒海！快躲开巨浪！');
+    }
+    function updateTsunamis(dt) {
+      for (var i = tsunamis.length - 1; i >= 0; i--) {
+        var ts = tsunamis[i];
+        var el = (now() - ts.spawnAt) / 1000;
+        var dist = TSU_SPEED * el;
+        if (dist > TSU_LEN) { disposeTsunami(ts); tsunamis.splice(i, 1); continue; }
+        var fx2 = ts.start.x + ts.dir.x * dist, fz2 = ts.start.z + ts.dir.z * dist;
+        ts.mesh.position.set(fx2, TSU_H/2, fz2);
+        ts.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), ts.dir);  // 浪面垂直于前进方向
+        // 卷入判定（本机玩家；发射者免疫）：玩家在浪前缘附近、且横向在浪宽内
+        if (me.alive && !paused && ts.owner !== me.id && now() >= tumbleUntil) {
+          var rx = playerPos.x - ts.start.x, rz = playerPos.z - ts.start.z;
+          var along = rx * ts.dir.x + rz * ts.dir.z;            // 沿浪前进方向的投影
+          var latx = rx - along * ts.dir.x, latz = rz - along * ts.dir.z;
+          var lat = Math.sqrt(latx*latx + latz*latz);
+          if (along > 0 && Math.abs(along - dist) < 2.6 && lat < TSU_HALFW) startTumble(ts.owner);
+        }
+      }
+    }
+    // 被卷入：疯狂翻滚 ~0.9s 后处死
+    function startTumble(killerId) {
+      if (now() < tumbleUntil) return;
+      tumbleStart = now(); tumbleUntil = now() + 900; tumbleKiller = killerId;
+      firing = false; ads = false;
+      showNotice('🌊 被巨浪卷走了！');
     }
 
     // ------------------------------------------------------------------ 受伤 / 死亡 / 重生 / 回血
@@ -1344,10 +1423,10 @@
     }
     function respawn() {
       me.alive = true;
-      vy = 0;
+      vy = 0; tumbleUntil = 0; tumbleKiller = null;
       for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;
       dropSuper();             // 重生用普通武器
-      if (inRealm) exitRealm(); // 在秘境里死亡 → 回到主竞技场
+      if (inRealm) exitRealm(false); // 在秘境里死亡 → 落败，回到主竞技场
       else { me.hp = 100; maxHp = 100; playerPos.copy(randomSpawn()); }
       lastDamageAt = now();
       document.getElementById('deathmsg').style.display = 'none';
@@ -1356,8 +1435,9 @@
 
     // ------------------------------------------------------------------ 秘境 1v1
     function enterRealm(opponentId, myPos, asHolder) {
-      inRealm = true; realmOpponent = opponentId;
-      dropSuper(); ads = false;
+      if (inRealm || !me.alive) return;     // 已在秘境 / 已死亡：忽略（避免被拖入第二个秘境）
+      inRealm = true; realmOpponent = opponentId; realmEnteredAt = now();
+      dropSuper(); ads = false; tumbleUntil = 0; tumbleKiller = null;
       playerPos.copy(myPos); vy = 0;
       yaw = asHolder ? -Math.PI/2 : Math.PI/2; pitch = 0;   // 面朝对手
       for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;  // 秘境里用初始武器，弹匣装满
@@ -1367,14 +1447,14 @@
       updateHpHud(); updateWeaponHud(); updateAmmoHud();
       showNotice(asHolder ? '⚔ 进入秘境！200 血 + 高射速，干掉对手！' : '⚔ 你被拖入秘境！1v1 决生死！');
     }
-    function exitRealm() {
+    function exitRealm(won) {
       if (!inRealm) return;
       inRealm = false; realmOpponent = null;
-      maxHp = 100; me.hp = 100; fireRateMul = 1;
+      maxHp = 100; me.hp = 100; fireRateMul = 1; tumbleUntil = 0; tumbleKiller = null;
       playerPos.copy(randomSpawn()); vy = 0;
       lastDamageAt = now();
       updateHpHud(); updateWeaponHud(); updateAmmoHud();
-      showNotice('🏁 秘境结束，回到战场');
+      showNotice(won ? '🏆 你赢了！回到战场' : '🏁 秘境结束，回到战场');
     }
 
     // ------------------------------------------------------------------ 计分 / 击杀提示
@@ -1439,9 +1519,10 @@
       document.getElementById('ammo').innerHTML = activeAmmo() + '<span class="res"> / ' + w.mag + '</span>';
     }
     function weaponDesc(w) {
-      if (w.kind === 'star')  return '蓄力 0.7s · 贯穿一切 · 碰到即死';
-      if (w.kind === 'hole')  return '发射黑洞 · 吸入即死';
-      if (w.kind === 'realm') return '命中第一人 → 拖入秘境 1v1';
+      if (w.kind === 'star')    return '蓄力 0.7s · 贯穿一切 · 碰到即死';
+      if (w.kind === 'hole')    return '发射黑洞 · 吸入即死';
+      if (w.kind === 'realm')   return '命中第一人 → 拖入秘境 1v1';
+      if (w.kind === 'tsunami') return '一次性 · 滔天巨浪 · 卷入即死';
       return (w.auto ? '全自动' : '单发') + ' · 伤害' + w.dmg + (w.pellets>1?('×'+w.pellets):'') + '（爆头×' + HEAD_MULT + '）';
     }
     function updateWeaponHud() {
@@ -1623,7 +1704,7 @@
           // 远端小人进入死亡态（短暂），等其 state 同步重生
           var rr = remotes[msg.victim]; if (rr) { rr.alive = false; rr.labelDirty = true; }
           // 秘境对决：对手死了 → 我赢了 → 回到主战场
-          if (inRealm && msg.victim === realmOpponent) exitRealm();
+          if (inRealm && msg.victim === realmOpponent) exitRealm(true);
           break;
         case 'super_spawn':           // 主机通知：地图上刷新了超级武器
           applySuperSpawn(msg);
@@ -1636,6 +1717,9 @@
           break;
         case 'blackhole':             // 黑洞炮
           spawnBlackHole(msg);
+          break;
+        case 'tsunami':               // 排山倒海手
+          spawnTsunami(msg);
           break;
         case 'realm_start':           // 被秘境枪命中 → 被拖入 1v1
           if (msg.victim === me.id) {
@@ -1681,8 +1765,21 @@
       }
       return { x:0, y:1.3, z:0 };
     }
+    function makeTextSprite(text, colorHex) {
+      var cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+      var ctx = cv.getContext('2d');
+      ctx.font = 'bold 30px system-ui,"Microsoft YaHei",sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.9)'; ctx.strokeText(text, 128, 34);
+      ctx.fillStyle = '#' + ('000000' + (colorHex >>> 0).toString(16)).slice(-6); ctx.fillText(text, 128, 34);
+      var tex = new THREE.CanvasTexture(cv);
+      tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false, depthWrite:false }));
+      sp.scale.set(2.8, 0.7, 1); sp.renderOrder = 11;
+      return sp;
+    }
     function makeSuperPickup(kind) {
-      var col = (SUPERS[kind] || SUPERS.mg).col;
+      var w = SUPERS[kind] || SUPERS.mg, col = w.col;
       var g = new THREE.Group();
       var core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0),
         new THREE.MeshLambertMaterial({ color:col, emissive:col, emissiveIntensity:0.85 }));
@@ -1690,6 +1787,7 @@
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col,
         transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
       glow.scale.setScalar(2.4); g.add(glow);
+      var label = makeTextSprite(w.name, col); label.position.y = 1.5; g.add(label);   // 头顶显示名字，远远就看得到
       g.userData.core = core; g.userData.kind = kind;
       return g;
     }
@@ -1710,12 +1808,22 @@
       });
       superMesh = null;
     }
-    // 仅主机生成：随机位置 + 随机类型 + 自增 sid，本地渲染并广播
+    // 用"洗牌袋"轮流出，保证每种(含崩星炮)都会规律地刷到，而不是纯随机可能很久不出
+    function nextSuperKind() {
+      if (superBag.length === 0) {
+        superBag = SUPER_KINDS.slice();
+        for (var i = superBag.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var tmp = superBag[i]; superBag[i] = superBag[j]; superBag[j] = tmp;
+        }
+      }
+      return superBag.pop();
+    }
+    // 仅主机生成：随机位置 + 轮流类型 + 自增 sid，本地渲染并广播
     function hostSpawnSuper() {
       superSid++;
       var pos = randomSuperPos();
-      var kind = SUPER_KINDS[Math.floor(Math.random() * SUPER_KINDS.length)];
-      var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:kind, x:pos.x, y:pos.y, z:pos.z };
+      var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:nextSuperKind(), x:pos.x, y:pos.y, z:pos.z };
       applySuperSpawn(msg);
       netSend(msg);
     }
@@ -1923,13 +2031,21 @@
         document.getElementById('scope').style.opacity = (scopedW ? adsAmt : 0).toFixed(2);
         document.getElementById('crosshair').style.opacity = (scopedW ? (1 - adsAmt) : 1).toFixed(2);
 
+        var tumbling = now() < tumbleUntil;   // 被巨浪卷起翻滚中：无法行动
         aimCamera();                       // 先用最新视角摆正相机
-        if (!paused) {
+        if (!paused && !tumbling) {
           updateMovement(dt);
           aimCamera();                     // 移动后同步相机位置
           checkSuperPickup();              // 走到超级武器上就捡起
           if (firing && activeWeapon().auto) tryFire();  // 自动武器持续开火
         } else { isMoving = false; }
+        // 翻滚结束 → 处死
+        if (tumbleUntil && now() >= tumbleUntil) {
+          var tk = tumbleKiller; tumbleUntil = 0; tumbleKiller = null;
+          if (me.alive) die(tk, 'super_tsunami', false);
+        }
+        // 秘境兜底：超过 60s 没分出胜负 → 自动结束，避免卡死
+        if (inRealm && now() - realmEnteredAt > 60000) exitRealm(false);
 
         // 换弹完成（超级武器没有换弹）
         if (reloadUntil && now() >= reloadUntil) {
@@ -1946,6 +2062,14 @@
           if (superMesh.userData.core) superMesh.userData.core.rotation.x += dt * 1.2;
           superMesh.position.y = 1.3 + (reduced ? 0 : Math.sin(now()*0.003) * 0.18);
         }
+
+        // 被巨浪卷起：疯狂翻滚的镜头（覆盖正常相机姿态）
+        if (tumbling && me.alive) {
+          var tp = now() - tumbleStart;
+          camera.position.y = playerPos.y + Math.sin(Math.min(1, tp/900) * Math.PI) * 1.6;
+          camera.rotation.z = tp * 0.018;
+          camera.rotation.x = pitch + Math.sin(tp * 0.03) * 0.7;
+        }
       } else {
         // 菜单背景：缓慢环绕竞技场（reduced-motion 时静止）
         var ang = reduced ? 0.7 : (now() * 0.00008);
@@ -1957,6 +2081,7 @@
       updateFx(dt);
       updateBeams(dt);          // 崩星/秘境 激光轨迹与结算
       updateBlackHoles(dt);     // 黑洞移动 / 吸入 / 处死
+      updateTsunamis(dt);       // 排山倒海巨浪推进 / 卷入
       tickKillfeed();
 
       renderer.render(scene, camera);
@@ -2021,9 +2146,10 @@
           // 命中上报记录（崩星炮/部位伤害用）
           sentHits:function(){ return lastSentHits.slice(); }, clearSentHits:function(){ lastSentHits.length = 0; },
           setPos:function(x,z){ playerPos.set(x, EYE, z); },
-          // 黑洞 / 秘境
+          // 黑洞 / 秘境 / 排山倒海 / 复活
           holeCount:function(){ return blackholes.length; }, beamCount:function(){ return beams.length; },
-          fireRealmAt:function(id){ startRealmDuel(id); },
+          tsunamiCount:function(){ return tsunamis.length; }, tumbling:function(){ return now() < tumbleUntil; },
+          fireRealmAt:function(id){ startRealmDuel(id); }, revive:function(){ deadUntil = now() - 1; },
           realmInfo:function(){ return { inRealm:inRealm, opponent:realmOpponent, hp:me.hp, maxHp:maxHp,
             x:playerPos.x, z:playerPos.z, fireRateMul:fireRateMul }; }
         };

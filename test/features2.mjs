@@ -115,7 +115,22 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   const rv2 = await ev(page, ()=>window.__test.realmInfo());
   check('对手死亡→回到主场', rv2.inRealm===false && rv2.z > -150, JSON.stringify(rv2));
 
-  // ---------- 7) 黑洞炮：被吸入处死（放最后，因为会打死自己） ----------
+  // ---------- 7) 排山倒海手：被巨浪卷起翻滚后处死 ----------
+  await ev(page, ()=>window.__test.setPos(0, 0));
+  await ev(page, ()=>window.__test.recv({type:'tsunami', from:'enemy', tid:'ts1', owner:'enemy', x:0, z:5, dx:0, dz:-1}));
+  const tN = await ev(page, ()=>window.__test.tsunamiCount());
+  check('排山倒海→生成巨浪', tN > 0, `tsunamis=${tN}`);
+  let tumbled = false, tdied = false;
+  for (let i=0;i<26;i++){ await sleep(100);
+    if (!tumbled && await ev(page, ()=>window.__test.tumbling())) tumbled = true;
+    if (!(await ev(page, ()=>window.__test.alive()))) { tdied = true; break; }
+  }
+  check('被巨浪卷起→疯狂翻滚', tumbled, `tumbled=${tumbled}`);
+  check('翻滚后→被处死', tdied, `died=${tdied}`);
+  await ev(page, ()=>window.__test.revive());
+  for (let i=0;i<20 && !(await ev(page, ()=>window.__test.alive())); i++) await sleep(100);
+
+  // ---------- 8) 黑洞炮：被吸入处死（放最后，因为会打死自己） ----------
   await ev(page, ()=>window.__test.setPos(0, 8));
   await ev(page, ()=>window.__test.recv({type:'blackhole', from:'enemy', hid:'bh1', owner:'enemy', x:0, y:1.2, z:24.8, dx:0, dz:-1}));
   const hN = await ev(page, ()=>window.__test.holeCount());
