@@ -381,9 +381,24 @@
     // 回血：受伤后 4 秒开始回血，再 5 秒回满（更快、更短间隔）
     var REGEN_DELAY = 4000, REGEN_FULL = 5000;
 
-    // 超级武器（地图每 20 秒刷新一个；其中 10% 概率刷出更强的"仙器"）。捡到即用，打光或死亡失去。
-    var SUPER_INTERVAL = 20000;
+    // 超级武器刷新由房主选的"模式"驱动（开局广播全房统一生效）。捡到即用，打光或死亡失去。
+    var SUPER_INTERVAL = 20000;   // 兜底
     var XIAN_CHANCE = 0.10;
+    // 四种模式：刷新间隔 + 单次出几个(double=出2概率, triple=出3概率) + 仙器替换概率
+    var MODES = {
+      basic:  { name:'基础武器',       interval:0,     double:0,    triple:0,    xian:0 },
+      normal: { name:'普通',           interval:30000, double:0,    triple:0,    xian:0.05 },
+      more:   { name:'更多超级武器',   interval:20000, double:0.30, triple:0,    xian:0.05 },
+      mega:   { name:'非常多超级武器', interval:15000, double:0.50, triple:0.10, xian:0.05 }
+    };
+    var MODE_LIST = [
+      { id:'basic',  name:'基础武器',       desc:'不刷超级武器' },
+      { id:'normal', name:'普通',           desc:'30秒 1个 · 5%仙器' },
+      { id:'more',   name:'更多超级武器',   desc:'20秒 · 30%出2个 · 5%仙器' },
+      { id:'mega',   name:'非常多超级武器', desc:'15秒 · 50%出2个/10%出3个 · 5%仙器' }
+    ];
+    var roomMode = 'normal', roomMap = 'basic';   // 房主选择(开局广播)
+    var MAX_PICKUPS = 6;                            // 地图上同时存在的拾取物上限
     var SUPERS = {
       mg:      { kind:'mg',      id:'super_mg',      name:'超级机枪',   dmg:22,   rpm:1500, mag:100, auto:true,  spread:0.006, pellets:1, range:280,  reload:0, kick:0.002, col:0x39ff14, zoom:0.6,  scoped:true, isSuper:true },
       star:    { kind:'star',    id:'super_star',    name:'等离子炮',   dmg:9999, rpm:65,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
@@ -426,7 +441,7 @@
     };
 
     var EYE = 1.6, PLAYER_R = 0.42, GRAVITY = 24, JUMP_V = 8.4,
-        SPEED = 6.2, SPRINT = 1.7, SENS = 0.0022, STATE_HZ = 18;
+        SPEED = 6.2, SPRINT = 1.7, SENS = 0.0022, STATE_HZ = 18, STEP_H = 0.7;
 
     // ------------------------------------------------------------------ 本机玩家状态
     var me = {
@@ -452,7 +467,7 @@
     var ads = false, adsAmt = 0, BASE_FOV = 76;
     // 超级武器状态
     var superActive = false, superAmmo = 0, superKind = null;
-    var superMesh = null, superSid = 0, superBag = [];
+    var superPickups = {}, superSid = 0, superBag = [];   // 地图上的超级武器拾取物(sid -> mesh，可多个)
     var lastHitInfo = null, lastSentHits = [];   // 最近一次命中（含部位）/ 已上报的命中，供自测用
     // 特效实体 + 秘境对决状态 + 被巨浪卷起翻滚
     var beams = [], blackholes = [], tsunamis = [];
@@ -516,7 +531,7 @@
       var rim = new THREE.DirectionalLight(0x6f86c0, 0.35);
       rim.position.set(-20, 18, -24); scene.add(rim);
 
-      buildArena();
+      buildMap('basic');
       initBloom();
       clock = new THREE.Clock();
     }
@@ -586,76 +601,84 @@
     }
 
     // 竞技场：地面 + 四周围墙 + 若干掩体（箱子/柱子）+ 多个出生点
-    function buildArena() {
-      var HALF = 30, WALL_H = 7;
-
-      // 地面：PBR 科技面板（贴图 + 法线 + 粗糙度）+ 接收阴影
-      var floorTex = texSet(makePanelPBR(512, 8, 0x32414f), 22);
-      var floorMat = new THREE.MeshStandardMaterial({ map:floorTex.map, normalMap:floorTex.normalMap,
-        roughnessMap:floorTex.roughnessMap, roughness:0.95, metalness:0.05, envMapIntensity:0.3 });
-      var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2), floorMat);
-      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true;
-      scene.add(floor); worldSolids.push(floor);
-
-      var wallTex = texSet(makePanelPBR(512, 6, 0x3c4a5a), 10, 1.4);
-      var wallMat = new THREE.MeshStandardMaterial({ map:wallTex.map, normalMap:wallTex.normalMap,
-        roughnessMap:wallTex.roughnessMap, roughness:0.85, metalness:0.08, envMapIntensity:0.3 });
-      function addBox(cx, cy, cz, sx, sy, sz, mat) {
-        var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-        m.position.set(cx, cy, cz); m.castShadow = true; m.receiveShadow = true;
-        scene.add(m); worldSolids.push(m);
-        solidBoxes.push(new THREE.Box3().setFromObject(m));
-        return m;
-      }
-      addBox(0, WALL_H/2,  HALF, HALF*2, WALL_H, 1, wallMat);
-      addBox(0, WALL_H/2, -HALF, HALF*2, WALL_H, 1, wallMat);
-      addBox( HALF, WALL_H/2, 0, 1, WALL_H, HALF*2, wallMat);
-      addBox(-HALF, WALL_H/2, 0, 1, WALL_H, HALF*2, wallMat);
-
-      // 掩体：金属箱子 + 混凝土柱
-      var crateTex = texSet(makePanelPBR(256, 3, 0x7a5c34), 1);
-      var crateMat = new THREE.MeshStandardMaterial({ map:crateTex.map, normalMap:crateTex.normalMap,
-        roughnessMap:crateTex.roughnessMap, roughness:0.8, metalness:0.1, envMapIntensity:0.3 });
-      var pillarTex = texSet(makePanelPBR(256, 4, 0x55606e), 2, 6);
-      var pillarMat = new THREE.MeshStandardMaterial({ map:pillarTex.map, normalMap:pillarTex.normalMap,
-        roughness:0.92, metalness:0.04, envMapIntensity:0.25 });
-      var crates = [
-        [ 8,0, 8],[-8,0, 8],[ 8,0,-8],[-8,0,-8],
-        [ 0,0,14],[ 0,0,-14],[14,0,0],[-14,0,0]
-      ];
-      crates.forEach(function (c, i) { var s = (i % 3 === 0) ? 3.2 : 2.2; addBox(c[0], s/2, c[2], s, s, s, crateMat); });
-      var pillars = [[16,16],[-16,16],[16,-16],[-16,-16],[0,0]];
-      pillars.forEach(function (p) {
-        var m = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, WALL_H, 24), pillarMat);
-        m.position.set(p[0], WALL_H/2, p[1]); m.castShadow = true; m.receiveShadow = true;
-        scene.add(m); worldSolids.push(m);
-        solidBoxes.push(new THREE.Box3().setFromObject(m));
+    // ---- 地图系统：基础图(最初的模样) + 数据化多层地图，房主选择、全房同步加载 ----
+    var MAP_DATA = {"towers":{"name":"多层平台 Multi-Level Catwalk Arena","theme":{"floorCol":"#32414f","wallCol":"#3c4a5a","accentCol":"#1ad7ff"},"boxes":[{"x":0,"y":3,"z":-25,"sx":50,"sy":0.4,"sz":4,"mat":"metal"},{"x":0,"y":3,"z":25,"sx":50,"sy":0.4,"sz":4,"mat":"metal"},{"x":-25,"y":3,"z":0,"sx":4,"sy":0.4,"sz":50,"mat":"metal"},{"x":25,"y":3,"z":0,"sx":4,"sy":0.4,"sz":50,"mat":"metal"},{"x":-25,"y":3,"z":-25,"sx":4,"sy":0.4,"sz":4,"mat":"metal"},{"x":25,"y":3,"z":-25,"sx":4,"sy":0.4,"sz":4,"mat":"metal"},{"x":-25,"y":3,"z":25,"sx":4,"sy":0.4,"sz":4,"mat":"metal"},{"x":25,"y":3,"z":25,"sx":4,"sy":0.4,"sz":4,"mat":"metal"},{"x":0,"y":3.25,"z":-22.6,"sx":50,"sy":0.5,"sz":0.3,"mat":"accent"},{"x":0,"y":3.25,"z":22.6,"sx":50,"sy":0.5,"sz":0.3,"mat":"accent"},{"x":-22.6,"y":3.25,"z":0,"sx":0.3,"sy":0.5,"sz":50,"mat":"accent"},{"x":22.6,"y":3.25,"z":0,"sx":0.3,"sy":0.5,"sz":50,"mat":"accent"},{"x":-2.5,"y":0.25,"z":-19,"sx":3.5,"sy":0.5,"sz":3,"mat":"metal"},{"x":-2.5,"y":0.75,"z":-20,"sx":3.5,"sy":1.5,"sz":3,"mat":"metal"},{"x":-2.5,"y":1.25,"z":-21,"sx":3.5,"sy":2.5,"sz":3,"mat":"metal"},{"x":-2.5,"y":1.6,"z":-22,"sx":3.5,"sy":3.2,"sz":2,"mat":"metal"},{"x":2.5,"y":0.25,"z":19,"sx":3.5,"sy":0.5,"sz":3,"mat":"metal"},{"x":2.5,"y":0.75,"z":20,"sx":3.5,"sy":1.5,"sz":3,"mat":"metal"},{"x":2.5,"y":1.25,"z":21,"sx":3.5,"sy":2.5,"sz":3,"mat":"metal"},{"x":2.5,"y":1.6,"z":22,"sx":3.5,"sy":3.2,"sz":2,"mat":"metal"},{"x":-19,"y":0.25,"z":2.5,"sx":3,"sy":0.5,"sz":3.5,"mat":"metal"},{"x":-20,"y":0.75,"z":2.5,"sx":3,"sy":1.5,"sz":3.5,"mat":"metal"},{"x":-21,"y":1.25,"z":2.5,"sx":3,"sy":2.5,"sz":3.5,"mat":"metal"},{"x":-22,"y":1.6,"z":2.5,"sx":2,"sy":3.2,"sz":3.5,"mat":"metal"},{"x":19,"y":0.25,"z":-2.5,"sx":3,"sy":0.5,"sz":3.5,"mat":"metal"},{"x":20,"y":0.75,"z":-2.5,"sx":3,"sy":1.5,"sz":3.5,"mat":"metal"},{"x":21,"y":1.25,"z":-2.5,"sx":3,"sy":2.5,"sz":3.5,"mat":"metal"},{"x":22,"y":1.6,"z":-2.5,"sx":2,"sy":3.2,"sz":3.5,"mat":"metal"},{"x":6,"y":1,"z":6,"sx":2.2,"sy":2,"sz":2.2,"mat":"crate"},{"x":-6,"y":1,"z":6,"sx":2.2,"sy":2,"sz":2.2,"mat":"crate"},{"x":6,"y":1,"z":-6,"sx":2.2,"sy":2,"sz":2.2,"mat":"crate"},{"x":-6,"y":1,"z":-6,"sx":2.2,"sy":2,"sz":2.2,"mat":"crate"},{"x":0,"y":0.6,"z":12,"sx":4,"sy":1.2,"sz":1.4,"mat":"crate"},{"x":0,"y":0.6,"z":-12,"sx":4,"sy":1.2,"sz":1.4,"mat":"crate"},{"x":12,"y":0.6,"z":0,"sx":1.4,"sy":1.2,"sz":4,"mat":"crate"},{"x":-12,"y":0.6,"z":0,"sx":1.4,"sy":1.2,"sz":4,"mat":"crate"},{"x":0,"y":0.9,"z":0,"sx":5,"sy":1.8,"sz":5,"mat":"floor"},{"x":0,"y":2.1,"z":0,"sx":1.6,"sy":0.6,"sz":1.6,"mat":"accent"}],"cylinders":[{"x":14,"y":3.5,"z":14,"r":1,"h":7,"mat":"wall"},{"x":-14,"y":3.5,"z":14,"r":1,"h":7,"mat":"wall"},{"x":14,"y":3.5,"z":-14,"r":1,"h":7,"mat":"wall"},{"x":-14,"y":3.5,"z":-14,"r":1,"h":7,"mat":"wall"},{"x":0,"y":3.5,"z":16,"r":0.8,"h":7,"mat":"metal"},{"x":0,"y":3.5,"z":-16,"r":0.8,"h":7,"mat":"metal"},{"x":16,"y":3.5,"z":0,"r":0.8,"h":7,"mat":"metal"},{"x":-16,"y":3.5,"z":0,"r":0.8,"h":7,"mat":"metal"}],"spawns":[[10,10],[-10,10],[10,-10],[-10,-10],[25,25],[-25,25],[25,-25],[-25,-25],[0,14],[0,-14]]},"alley":{"name":"狭窄巷战 Tight Alley Maze","theme":{"floorCol":"#3a3128","wallCol":"#6b5640","accentCol":"#ffab2e"},"boxes":[{"x":-18,"y":1.75,"z":-18,"sx":6,"sy":3.5,"sz":6,"mat":"wall"},{"x":18,"y":1.75,"z":-18,"sx":6,"sy":3.5,"sz":6,"mat":"wall"},{"x":-18,"y":1.75,"z":18,"sx":6,"sy":3.5,"sz":6,"mat":"wall"},{"x":18,"y":1.75,"z":18,"sx":6,"sy":3.5,"sz":6,"mat":"wall"},{"x":0,"y":1.75,"z":-18,"sx":7,"sy":3.5,"sz":5,"mat":"crate"},{"x":0,"y":1.75,"z":18,"sx":7,"sy":3.5,"sz":5,"mat":"crate"},{"x":-18,"y":1.75,"z":0,"sx":5,"sy":3.5,"sz":7,"mat":"crate"},{"x":18,"y":1.75,"z":0,"sx":5,"sy":3.5,"sz":7,"mat":"crate"},{"x":-9,"y":1.75,"z":-9,"sx":5,"sy":3.5,"sz":5,"mat":"wall"},{"x":9,"y":1.75,"z":-9,"sx":5,"sy":3.5,"sz":5,"mat":"wall"},{"x":-9,"y":1.75,"z":9,"sx":5,"sy":3.5,"sz":5,"mat":"wall"},{"x":9,"y":1.75,"z":9,"sx":5,"sy":3.5,"sz":5,"mat":"wall"},{"x":-9,"y":1.75,"z":0,"sx":4,"sy":3.5,"sz":3,"mat":"crate"},{"x":9,"y":1.75,"z":0,"sx":4,"sy":3.5,"sz":3,"mat":"crate"},{"x":0,"y":1.75,"z":-9,"sx":3,"sy":3.5,"sz":4,"mat":"crate"},{"x":0,"y":1.75,"z":9,"sx":3,"sy":3.5,"sz":4,"mat":"crate"},{"x":-18,"y":0.5,"z":-9,"sx":3,"sy":1,"sz":3,"mat":"crate"},{"x":18,"y":0.5,"z":-9,"sx":3,"sy":1,"sz":3,"mat":"crate"},{"x":-18,"y":0.5,"z":9,"sx":3,"sy":1,"sz":3,"mat":"crate"},{"x":18,"y":0.5,"z":9,"sx":3,"sy":1,"sz":3,"mat":"crate"},{"x":-9,"y":0.5,"z":-18,"sx":3,"sy":1,"sz":3,"mat":"crate"},{"x":9,"y":0.5,"z":18,"sx":3,"sy":1,"sz":3,"mat":"crate"},{"x":0,"y":0.5,"z":0,"sx":4,"sy":1,"sz":4,"mat":"metal"},{"x":-18,"y":3.55,"z":-18,"sx":6,"sy":0.1,"sz":0.4,"mat":"accent"},{"x":18,"y":3.55,"z":-18,"sx":6,"sy":0.1,"sz":0.4,"mat":"accent"},{"x":-18,"y":3.55,"z":18,"sx":6,"sy":0.1,"sz":0.4,"mat":"accent"},{"x":18,"y":3.55,"z":18,"sx":6,"sy":0.1,"sz":0.4,"mat":"accent"},{"x":0,"y":1.05,"z":0,"sx":4.1,"sy":0.1,"sz":4.1,"mat":"accent"}],"cylinders":[{"x":-9,"y":1.75,"z":-18,"r":0.6,"h":3.5,"mat":"wall"},{"x":9,"y":1.75,"z":-18,"r":0.6,"h":3.5,"mat":"wall"},{"x":-9,"y":1.75,"z":18,"r":0.6,"h":3.5,"mat":"wall"},{"x":9,"y":1.75,"z":18,"r":0.6,"h":3.5,"mat":"wall"},{"x":-18,"y":1.75,"z":-9,"r":0.6,"h":3.5,"mat":"wall"},{"x":18,"y":1.75,"z":-9,"r":0.6,"h":3.5,"mat":"wall"},{"x":-18,"y":1.75,"z":9,"r":0.6,"h":3.5,"mat":"wall"},{"x":18,"y":1.75,"z":9,"r":0.6,"h":3.5,"mat":"wall"}],"spawns":[[-26,-26],[26,-26],[-26,26],[26,26],[0,-26],[0,26],[-26,0],[26,0]]},"citadel":{"name":"中央高台 Central High Ground","theme":{"floorCol":"#1a1620","wallCol":"#2b2533","accentCol":"#9b5cff"},"boxes":[{"x":0,"y":1.5,"z":0,"sx":14,"sy":3,"sz":14,"mat":"floor"},{"x":0,"y":3.1,"z":6.8,"sx":14,"sy":0.2,"sz":0.4,"mat":"accent"},{"x":0,"y":3.1,"z":-6.8,"sx":14,"sy":0.2,"sz":0.4,"mat":"accent"},{"x":6.8,"y":3.1,"z":0,"sx":0.4,"sy":0.2,"sz":14,"mat":"accent"},{"x":-6.8,"y":3.1,"z":0,"sx":0.4,"sy":0.2,"sz":14,"mat":"accent"},{"x":0,"y":0.5,"z":11,"sx":6,"sy":1,"sz":2,"mat":"metal"},{"x":0,"y":1,"z":9,"sx":6,"sy":2,"sz":2,"mat":"metal"},{"x":0,"y":1.5,"z":7.2,"sx":6,"sy":3,"sz":2,"mat":"metal"},{"x":0,"y":0.5,"z":-11,"sx":6,"sy":1,"sz":2,"mat":"metal"},{"x":0,"y":1,"z":-9,"sx":6,"sy":2,"sz":2,"mat":"metal"},{"x":0,"y":1.5,"z":-7.2,"sx":6,"sy":3,"sz":2,"mat":"metal"},{"x":11,"y":0.5,"z":0,"sx":2,"sy":1,"sz":6,"mat":"metal"},{"x":9,"y":1,"z":0,"sx":2,"sy":2,"sz":6,"mat":"metal"},{"x":7.2,"y":1.5,"z":0,"sx":2,"sy":3,"sz":6,"mat":"metal"},{"x":-11,"y":0.5,"z":0,"sx":2,"sy":1,"sz":6,"mat":"metal"},{"x":-9,"y":1,"z":0,"sx":2,"sy":2,"sz":6,"mat":"metal"},{"x":-7.2,"y":1.5,"z":0,"sx":2,"sy":3,"sz":6,"mat":"metal"},{"x":20,"y":0.6,"z":20,"sx":3,"sy":1.2,"sz":3,"mat":"crate"},{"x":23,"y":0.6,"z":17,"sx":2,"sy":1.2,"sz":2,"mat":"crate"},{"x":-20,"y":0.6,"z":20,"sx":3,"sy":1.2,"sz":3,"mat":"crate"},{"x":-23,"y":0.6,"z":17,"sx":2,"sy":1.2,"sz":2,"mat":"crate"},{"x":20,"y":0.6,"z":-20,"sx":3,"sy":1.2,"sz":3,"mat":"crate"},{"x":23,"y":0.6,"z":-17,"sx":2,"sy":1.2,"sz":2,"mat":"crate"},{"x":-20,"y":0.6,"z":-20,"sx":3,"sy":1.2,"sz":3,"mat":"crate"},{"x":-23,"y":0.6,"z":-17,"sx":2,"sy":1.2,"sz":2,"mat":"crate"},{"x":16,"y":0.5,"z":0,"sx":2,"sy":1,"sz":5,"mat":"crate"},{"x":-16,"y":0.5,"z":0,"sx":2,"sy":1,"sz":5,"mat":"crate"},{"x":0,"y":0.5,"z":16,"sx":5,"sy":1,"sz":2,"mat":"crate"},{"x":0,"y":0.5,"z":-16,"sx":5,"sy":1,"sz":2,"mat":"crate"},{"x":24,"y":0.75,"z":0,"sx":1,"sy":1.5,"sz":4,"mat":"wall"},{"x":-24,"y":0.75,"z":0,"sx":1,"sy":1.5,"sz":4,"mat":"wall"}],"cylinders":[{"x":14,"y":2,"z":14,"r":0.6,"h":4,"mat":"wall"},{"x":-14,"y":2,"z":14,"r":0.6,"h":4,"mat":"wall"},{"x":14,"y":2,"z":-14,"r":0.6,"h":4,"mat":"wall"},{"x":-14,"y":2,"z":-14,"r":0.6,"h":4,"mat":"wall"},{"x":0,"y":4,"z":0,"r":0.5,"h":2,"mat":"accent"}],"spawns":[[24,24],[-24,24],[24,-24],[-24,-24],[26,0],[-26,0],[0,26],[0,-26]]}};            // 由设计阶段批量生成的多层地图(下方注入)
+    var MAP_LIST = [              // 选图菜单顺序
+      { id:'basic',   name:'基础竞技场' },
+      { id:'towers',  name:'多层平台' },
+      { id:'alley',   name:'狭窄巷战' },
+      { id:'citadel', name:'中央高台' }
+    ];
+    var currentMap = 'basic', mapMeshes = [];
+    function clearMap() {
+      for (var i = 0; i < mapMeshes.length; i++) { var m = mapMeshes[i]; scene.remove(m); if (m.geometry) m.geometry.dispose(); }
+      mapMeshes.length = 0; worldSolids.length = 0; solidBoxes.length = 0; spawnPoints.length = 0;
+    }
+    function mAdd(m, ray, collide) { scene.add(m); mapMeshes.push(m); if (ray !== false) worldSolids.push(m); if (collide) solidBoxes.push(new THREE.Box3().setFromObject(m)); return m; }
+    function mBox(cx, cy, cz, sx, sy, sz, mat, collide) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(cx, cy, cz); m.castShadow = true; m.receiveShadow = true;
+      return mAdd(m, true, collide !== false);
+    }
+    function highestSurfaceAt(x, z) {   // 该 (x,z) 上方最高的箱顶(用于出生在平台上)
+      var h = 0;
+      for (var i = 0; i < solidBoxes.length; i++) { var b = solidBoxes[i];
+        if (x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z && b.max.y > h) h = b.max.y; }
+      return h;
+    }
+    function buildMap(id) {
+      clearMap();
+      if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]); else { id = 'basic'; buildBasicMap(); }
+      buildRealm();
+      currentMap = id;
+    }
+    // 基础地图 = 最初的模样：朴素纯色 + 网格线 + 原始掩体布局
+    function buildBasicMap() {
+      var HALF = 30, WH = 7;
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2), new THREE.MeshLambertMaterial({ color:0x2b3947 }));
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+      var grid = new THREE.GridHelper(HALF*2, 30, 0x3a5066, 0x223040); grid.position.y = 0.02; mAdd(grid, false, false);
+      var wallMat = new THREE.MeshLambertMaterial({ color:0x394b5c });
+      mBox(0, WH/2, HALF, HALF*2, WH, 1, wallMat); mBox(0, WH/2, -HALF, HALF*2, WH, 1, wallMat);
+      mBox(HALF, WH/2, 0, 1, WH, HALF*2, wallMat);  mBox(-HALF, WH/2, 0, 1, WH, HALF*2, wallMat);
+      var crateMat = new THREE.MeshLambertMaterial({ color:0x6b5234 }), pillarMat = new THREE.MeshLambertMaterial({ color:0x4a5a6b });
+      [[8,8],[-8,8],[8,-8],[-8,-8],[0,14],[0,-14],[14,0],[-14,0]].forEach(function (c, i) { var s = (i % 3 === 0) ? 3.2 : 2.2; mBox(c[0], s/2, c[1], s, s, s, crateMat); });
+      [[16,16],[-16,16],[16,-16],[-16,-16],[0,0]].forEach(function (p) {
+        var m = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, WH, 24), pillarMat); m.position.set(p[0], WH/2, p[1]); m.castShadow = true; m.receiveShadow = true; mAdd(m, true, true);
       });
-
-      // 秘境平台：紫色地砖 + 发光墙
-      var RHALF = 18, rcx = REALM_CENTER.x, rcz = REALM_CENTER.z;
-      var realmTex = texSet(makePanelPBR(512, 9, 0x2a2040), 12);
-      var realmFloor = new THREE.Mesh(new THREE.PlaneGeometry(RHALF*2, RHALF*2),
-        new THREE.MeshStandardMaterial({ map:realmTex.map, normalMap:realmTex.normalMap, roughness:0.88, metalness:0.08,
-          emissive:0x2a1850, emissiveIntensity:0.25, envMapIntensity:0.3 }));
-      realmFloor.rotation.x = -Math.PI/2; realmFloor.position.set(rcx, 0, rcz); realmFloor.receiveShadow = true;
-      scene.add(realmFloor); worldSolids.push(realmFloor);
-      var realmWallMat = new THREE.MeshStandardMaterial({ color:0x3a2a55, emissive:0x2a1450, emissiveIntensity:0.6,
-        roughness:0.5, metalness:0.4 });
-      addBox(rcx, WALL_H/2, rcz+RHALF, RHALF*2, WALL_H, 1, realmWallMat);
-      addBox(rcx, WALL_H/2, rcz-RHALF, RHALF*2, WALL_H, 1, realmWallMat);
-      addBox(rcx+RHALF, WALL_H/2, rcz, 1, WALL_H, RHALF*2, realmWallMat);
-      addBox(rcx-RHALF, WALL_H/2, rcz, 1, WALL_H, RHALF*2, realmWallMat);
-      addBox(rcx, 1.1, rcz, 2.2, 2.2, 2.2, crateMat);
-      addBox(rcx-7, 1, rcz+5, 2, 2, 2, crateMat);
-      addBox(rcx+7, 1, rcz-5, 2, 2, 2, crateMat);
-
-      // 出生点
-      spawnPoints = [
-        [ 22,  22],[-22,  22],[ 22, -22],[-22, -22],
-        [ 0,  24],[ 0, -24],[ 24, 0],[-24, 0],
-        [ 12, 0],[-12, 0]
-      ].map(function (p) { return new THREE.Vector3(p[0], EYE, p[1]); });
+      spawnPoints = [[22,22],[-22,22],[22,-22],[-22,-22],[0,24],[0,-24],[24,0],[-24,0],[12,0],[-12,0]].map(function (p) { return new THREE.Vector3(p[0], EYE, p[1]); });
+    }
+    function _hex(s, d) { try { return parseInt(String(s).replace('#','0x')) || d; } catch (e) { return d; } }
+    // 数据化地图：地面+四周墙自动生成，箱子/柱子/平台/发光条 + 出生点(自动落到平台顶)
+    function buildMapFromData(d) {
+      var HALF = 30, WH = 7, th = d.theme || {};
+      var floorCol = _hex(th.floorCol, 0x32414f), wallCol = _hex(th.wallCol, 0x3c4a5a), accentCol = _hex(th.accentCol, 0x1ad7ff);
+      var ft = texSet(makePanelPBR(512, 8, floorCol), 22);
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2), new THREE.MeshStandardMaterial({ map:ft.map, normalMap:ft.normalMap, roughnessMap:ft.roughnessMap, roughness:0.95, metalness:0.06, envMapIntensity:0.3 }));
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+      var wt = texSet(makePanelPBR(512, 6, wallCol), 10, 1.4);
+      var wallMat = new THREE.MeshStandardMaterial({ map:wt.map, normalMap:wt.normalMap, roughnessMap:wt.roughnessMap, roughness:0.85, metalness:0.1, envMapIntensity:0.3 });
+      mBox(0, WH/2, HALF, HALF*2, WH, 1, wallMat); mBox(0, WH/2, -HALF, HALF*2, WH, 1, wallMat);
+      mBox(HALF, WH/2, 0, 1, WH, HALF*2, wallMat);  mBox(-HALF, WH/2, 0, 1, WH, HALF*2, wallMat);
+      var crateMat = new THREE.MeshStandardMaterial({ color:new THREE.Color(wallCol).offsetHSL(0.02,0.1,0.06), roughness:0.78, metalness:0.12, envMapIntensity:0.3 });
+      var metalMat = new THREE.MeshStandardMaterial({ color:0x788494, roughness:0.45, metalness:0.55, envMapIntensity:0.6 });
+      var accentMat = new THREE.MeshStandardMaterial({ color:accentCol, emissive:accentCol, emissiveIntensity:2.0, roughness:0.4, metalness:0.2 });
+      function matFor(n) { return n === 'accent' ? accentMat : n === 'metal' ? metalMat : n === 'crate' ? crateMat : n === 'floor' ? wallMat : wallMat; }
+      (d.boxes || []).forEach(function (b) { mBox(b.x, b.y, b.z, b.sx, b.sy, b.sz, matFor(b.mat), b.mat !== 'accent'); });   // 发光条不碰撞
+      (d.cylinders || []).forEach(function (c) { var m = new THREE.Mesh(new THREE.CylinderGeometry(c.r, c.r, c.h, 20), matFor(c.mat || 'wall')); m.position.set(c.x, c.y, c.z); m.castShadow = true; m.receiveShadow = true; mAdd(m, true, true); });
+      spawnPoints = (d.spawns || []).map(function (s) { return new THREE.Vector3(s[0], highestSurfaceAt(s[0], s[1]) + EYE, s[1]); });
+      if (!spawnPoints.length) spawnPoints = [new THREE.Vector3(0, EYE, 0)];
+    }
+    function buildRealm() {
+      var RHALF = 18, WH = 7, rcx = REALM_CENTER.x, rcz = REALM_CENTER.z;
+      var rt = texSet(makePanelPBR(512, 9, 0x2a2040), 12);
+      var realmFloor = new THREE.Mesh(new THREE.PlaneGeometry(RHALF*2, RHALF*2), new THREE.MeshStandardMaterial({ map:rt.map, normalMap:rt.normalMap, roughness:0.88, metalness:0.08, emissive:0x2a1850, emissiveIntensity:0.25, envMapIntensity:0.3 }));
+      realmFloor.rotation.x = -Math.PI/2; realmFloor.position.set(rcx, 0, rcz); realmFloor.receiveShadow = true; mAdd(realmFloor, true, false);
+      var realmWallMat = new THREE.MeshStandardMaterial({ color:0x3a2a55, emissive:0x2a1450, emissiveIntensity:0.6, roughness:0.5, metalness:0.4 });
+      mBox(rcx, WH/2, rcz+RHALF, RHALF*2, WH, 1, realmWallMat); mBox(rcx, WH/2, rcz-RHALF, RHALF*2, WH, 1, realmWallMat);
+      mBox(rcx+RHALF, WH/2, rcz, 1, WH, RHALF*2, realmWallMat); mBox(rcx-RHALF, WH/2, rcz, 1, WH, RHALF*2, realmWallMat);
+      var cm = new THREE.MeshStandardMaterial({ color:0x6b5234, roughness:0.8, metalness:0.1 });
+      mBox(rcx, 1.1, rcz, 2.2, 2.2, 2.2, cm); mBox(rcx-7, 1, rcz+5, 2, 2, 2, cm); mBox(rcx+7, 1, rcz-5, 2, 2, 2, cm);
     }
 
     function randomSpawn() {
@@ -2172,7 +2195,7 @@
       if (!joined) return;
       netStatus('与主机断开，重连中…', 'warn');
       clearAllRemotes();
-      removeSuperPickup();   // 主机走了，旧的超级武器道具失效，避免残留
+      removeAllPickups();   // 主机走了，旧的超级武器道具失效，避免残留
       clearAllEffects();
       for (var k in scores) delete scores[k];
       updateScoreboard();
@@ -2226,8 +2249,8 @@
         case 'super_spawn':           // 主机通知：地图上刷新了超级武器
           applySuperSpawn(msg);
           break;
-        case 'super_taken':           // 有人捡走了超级武器 → 移除地图上的它
-          if (msg.sid === superSid) removeSuperPickup();
+        case 'super_taken':           // 有人捡走了某个超级武器 → 移除地图上的它
+          removeSuperPickup(msg.sid);
           break;
         case 'beam':                  // 崩星炮 / 秘境枪 的激光轨迹（所有人都看得到）
           spawnBeam(msg);
@@ -2319,23 +2342,23 @@
       return g;
     }
     function applySuperSpawn(msg) {
-      removeSuperPickup();
-      superSid = msg.sid;
-      superMesh = makeSuperPickup(msg.kind);
-      superMesh.position.set(msg.x, msg.y, msg.z);
-      scene.add(superMesh);
-      // 仙器出现时给个简短全场提示，普通超级武器不打扰
+      if (superPickups[msg.sid]) return;                      // 已存在(去重)
+      var mesh = makeSuperPickup(msg.kind);
+      mesh.position.set(msg.x, msg.y, msg.z);
+      mesh.userData.sid = msg.sid; mesh.userData.baseY = msg.y;
+      scene.add(mesh); superPickups[msg.sid] = mesh;
+      // 超出上限 → 移除最早的(sid 最小)
+      var sids = Object.keys(superPickups);
+      while (sids.length > MAX_PICKUPS) { var oldest = Math.min.apply(null, sids.map(Number)); removeSuperPickup(oldest); sids = Object.keys(superPickups); }
       if (SUPERS[msg.kind] && SUPERS[msg.kind].isXian) showNotice('✦ 仙器降世：' + SUPERS[msg.kind].name);
     }
-    function removeSuperPickup() {
-      if (!superMesh) return;
-      scene.remove(superMesh);
-      superMesh.traverse(function (o) {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) o.material.dispose();
-      });
-      superMesh = null;
+    function removeSuperPickup(sid) {
+      var m = superPickups[sid]; if (!m) return;
+      scene.remove(m);
+      m.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      delete superPickups[sid];
     }
+    function removeAllPickups() { for (var s in superPickups) removeSuperPickup(s); }
     // 用"洗牌袋"轮流出，保证每种(含崩星炮)都会规律地刷到，而不是纯随机可能很久不出
     function nextSuperKind() {
       if (superBag.length === 0) {
@@ -2347,25 +2370,39 @@
       }
       return superBag.pop();
     }
-    // 仅主机生成：随机位置 + 轮流类型 + 自增 sid，本地渲染并广播
-    function hostSpawnSuper() {
-      superSid++;
-      var pos = randomSuperPos();
-      // 10% 概率刷出仙器，否则从洗牌袋取等概率的普通超级武器
-      var kind = (Math.random() < XIAN_CHANCE) ? XIAN_KINDS[Math.floor(Math.random()*XIAN_KINDS.length)] : nextSuperKind();
-      var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:kind, x:pos.x, y:pos.y, z:pos.z };
-      applySuperSpawn(msg);
-      netSend(msg);
+    // 当前模式这一次刷新出几个超级武器
+    function spawnCountThisTick() {
+      var m = MODES[roomMode]; if (!m || !m.interval) return 0;
+      var r = Math.random();
+      if (m.triple && r < m.triple) return 3;
+      if (m.double && r < m.triple + m.double) return 2;
+      return 1;
     }
-    // 每帧检查：走到拾取物附近就捡起（任何人都可以捡，先到先得）
+    // 仅主机生成：按模式决定数量，每个随机位置/类型(各 5% 仙器)，本地渲染并广播
+    function hostSpawnSuper() {
+      var n = spawnCountThisTick(); if (n <= 0) return;
+      var xian = (MODES[roomMode] && MODES[roomMode].xian) || 0;
+      for (var k = 0; k < n; k++) {
+        superSid++;
+        var pos = randomSuperPos();
+        var kind = (Math.random() < xian) ? XIAN_KINDS[Math.floor(Math.random()*XIAN_KINDS.length)] : nextSuperKind();
+        var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:kind, x:pos.x, y:pos.y, z:pos.z };
+        applySuperSpawn(msg); netSend(msg);
+      }
+    }
+    // 每帧检查：走到任一拾取物附近就捡起（先到先得）
     function checkSuperPickup() {
-      if (!superMesh || !me.alive || paused || superActive || inRealm) return;
-      var dx = playerPos.x - superMesh.position.x, dz = playerPos.z - superMesh.position.z;
-      if (dx*dx + dz*dz < 1.8*1.8) {
-        var sid = superSid, kind = superMesh.userData.kind;
-        removeSuperPickup();
-        netSend({ type:'super_taken', from:me.id, sid:sid });
-        pickupSuper(kind);
+      if (!me.alive || paused || superActive || inRealm) return;
+      for (var sid in superPickups) {
+        var m = superPickups[sid];
+        var dx = playerPos.x - m.position.x, dz = playerPos.z - m.position.z;
+        if (dx*dx + dz*dz < 1.8*1.8) {
+          var kind = m.userData.kind;
+          removeSuperPickup(sid);
+          netSend({ type:'super_taken', from:me.id, sid:Number(sid) });
+          pickupSuper(kind);
+          return;
+        }
       }
     }
 
@@ -2375,9 +2412,15 @@
       if (joinDone) return; joinDone = true;
       // 第一个 state 出去，并以 STATE_HZ 周期广播
       setInterval(sendState, Math.round(1000 / STATE_HZ));
-      // 超级武器：只有主机负责生成（首个稍早出现，之后每 20 秒一个，类型轮流）
-      setTimeout(function () { if (isHost) hostSpawnSuper(); }, 8000);
-      setInterval(function () { if (isHost) hostSpawnSuper(); }, SUPER_INTERVAL);
+      // 超级武器：只有主机负责生成，间隔/数量由模式决定（基础模式不刷）。首刷稍早。
+      setTimeout(hostSpawnLoop, 8000);
+    }
+    var spawnTimer = 0;
+    function hostSpawnLoop() {
+      var iv = (MODES[roomMode] && MODES[roomMode].interval) || 0;
+      if (isHost && iv) hostSpawnSuper();
+      clearTimeout(spawnTimer);
+      spawnTimer = setTimeout(hostSpawnLoop, iv || 5000);   // 基础模式 iv=0：5s 空转(不刷)；模式不变则恒定
     }
 
     function doJoin() {
@@ -2430,21 +2473,38 @@
       if (!collides(playerPos.x, nz)) playerPos.z = nz;
 
       // 重力 / 跳跃
+      // 垂直：支持站在箱子/平台顶部（多层地图）。支撑面 = 脚下能落上的最高箱顶，否则地面 0。
+      var feet0 = playerPos.y - EYE;
+      var support = groundHeightAt(playerPos.x, playerPos.z, feet0);
       vy -= GRAVITY * dt; playerPos.y += vy * dt;
-      if (playerPos.y <= EYE) { playerPos.y = EYE; vy = 0; grounded = true; } else grounded = false;
+      var minY = support + EYE;
+      if (playerPos.y <= minY) { playerPos.y = minY; vy = 0; grounded = true; } else grounded = false;
     }
 
+    // 脚下支撑高度：玩家所站箱子的顶面（可迈上 STEP_H 内的矮台/台阶），否则地面 0
+    function groundHeightAt(x, z, feetY) {
+      var h = 0;
+      for (var i = 0; i < solidBoxes.length; i++) {
+        var b = solidBoxes[i];
+        if (x > b.min.x - PLAYER_R && x < b.max.x + PLAYER_R &&
+            z > b.min.z - PLAYER_R && z < b.max.z + PLAYER_R) {
+          if (b.max.y <= feetY + STEP_H && b.max.y > h) h = b.max.y;   // 顶面在脚 + 一步以内 → 可作支撑
+        }
+      }
+      return h;
+    }
     function collides(x, z) {
       // 场地边界（秘境里用秘境平台的边界）
       var bx = inRealm ? REALM_CENTER.x : 0, bz = inRealm ? REALM_CENTER.z : 0;
       var lim = inRealm ? 17.5 : 29.5;
       if (x < bx - lim || x > bx + lim || z < bz - lim || z > bz + lim) return true;
+      var feet = playerPos.y - EYE, head = feet + 1.7;
       for (var i = 0; i < solidBoxes.length; i++) {
         var b = solidBoxes[i];
         if (x > b.min.x - PLAYER_R && x < b.max.x + PLAYER_R &&
             z > b.min.z - PLAYER_R && z < b.max.z + PLAYER_R) {
-          // 仅当玩家高度落在该障碍高度范围内才算碰撞（可跳过矮箱顶部其实不行，这里统一当实心处理）
-          if (playerPos.y - EYE < b.max.y) return true;
+          // 仅当箱体挡住身体(顶面高出脚一步以上、且底面低于头顶)才算墙；矮于一步的台可直接迈上、头顶上方的平台可从下面穿过
+          if (b.max.y > feet + STEP_H && b.min.y < head) return true;
         }
       }
       return false;
@@ -2666,11 +2726,12 @@
         if (scoreDirty && now() - lastScoreRender > 250) renderScoreboard();  // 计分板节流重建
         updateViewBobAndGun(dt);           // 走路头部摆动 + 武器摇晃/后坐/换弹/开镜动画
 
-        // 超级武器拾取物：旋转 + 上下浮动
-        if (superMesh) {
-          superMesh.rotation.y += dt * 1.6;
-          if (superMesh.userData.core) superMesh.userData.core.rotation.x += dt * 1.2;
-          superMesh.position.y = 1.3 + (reduced ? 0 : Math.sin(now()*0.003) * 0.18);
+        // 超级武器拾取物：旋转 + 上下浮动（可多个，错相浮动）
+        for (var _s in superPickups) {
+          var _pm = superPickups[_s];
+          _pm.rotation.y += dt * 1.6;
+          if (_pm.userData.core) _pm.userData.core.rotation.x += dt * 1.2;
+          _pm.position.y = (_pm.userData.baseY || 1.3) + (reduced ? 0 : Math.sin(now()*0.003 + (_pm.userData.sid||0)) * 0.18);
         }
 
         // 被巨浪卷起：疯狂翻滚的镜头（覆盖正常相机姿态）
@@ -2764,8 +2825,8 @@
           crosshairOpacity:function(){ var e=document.getElementById('crosshair'); return e?parseFloat(e.style.opacity||'1'):1; },
           gunVisible:function(){ return viewGun ? viewGun.visible : null; },
           lastHit:function(){ return lastHitInfo; },
-          spawnSuperAt:function(x,z,kind){ applySuperSpawn({ sid: superSid+1, kind:kind||'mg', x:x, y:1.3, z:z }); },
-          superInfo:function(){ return { active:superActive, kind:superKind, ammo:superAmmo, onMap: !!superMesh }; },
+          spawnSuperAt:function(x,z,kind){ superSid++; applySuperSpawn({ sid: superSid, kind:kind||'mg', x:x, y:1.3, z:z }); },
+          superInfo:function(){ return { active:superActive, kind:superKind, ammo:superAmmo, onMap: Object.keys(superPickups).length > 0 }; },
           setSuperAmmo:function(n){ superAmmo = n; updateAmmoHud(); }, drop:function(){ dropSuper(); },
           // 回血
           setHp:function(n){ me.hp = n; updateHpHud(); }, maxHp:function(){ return maxHp; },
@@ -2785,7 +2846,13 @@
           // 测试模式 / 刷新概率 / 仙器
           cheatOn:function(){ return cheatMode; }, nextKind:function(){ return nextSuperKind(); },
           equipSuper:function(k){ cheatMode = true; cheatEquip(k); }, slamming:function(){ return now() < slamUntil; },
-          spawnShot:function(){ spawnRemoteShot({ from:'x', col:0xffe6a0, mx:0,my:1.6,mz:0, ex:0,ey:1.6,ez:-40 }); }
+          spawnShot:function(){ spawnRemoteShot({ from:'x', col:0xffe6a0, mx:0,my:1.6,mz:0, ex:0,ey:1.6,ez:-40 }); },
+          // 地图 / 物理 / 模式
+          loadMap:function(id){ buildMap(id); }, mapInfo:function(){ return { map:currentMap, solids:solidBoxes.length, spawns:spawnPoints.length }; },
+          setPos3:function(x,y,z){ playerPos.set(x,y,z); vy = 0; }, surfaceAt:function(x,z){ return highestSurfaceAt(x,z); },
+          playerY:function(){ return playerPos.y; }, grounded:function(){ return grounded; },
+          setMode:function(m){ roomMode = m; }, spawnCount:function(){ return spawnCountThisTick(); },
+          superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; }
         };
         animate();
       } catch (err) {

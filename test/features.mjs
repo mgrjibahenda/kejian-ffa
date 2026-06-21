@@ -86,8 +86,8 @@ const results=[]; const check=(l,p,e='')=>{ results.push(p); console.log(`[${p?'
   await sleep(120);
   const onMap = await page.evaluate(()=>window.__test.superInfo());
   check('超级武器在地图上出现(远处未捡)', onMap.onMap === true && onMap.active === false, JSON.stringify(onMap));
-  // 再刷到脚下 → 下一帧自动捡起（旧的会被替换）
-  await page.evaluate(p=>window.__test.spawnSuperAt(p.x, p.z), pos);
+  // 走到那把超级武器上 → 下一帧自动捡起（多拾取物系统：捡走的那一个消失）
+  await page.evaluate(p=>window.__test.setPos(p.x + 5, p.z), pos);
   await sleep(160);
   const got = await page.evaluate(()=>window.__test.superInfo());
   check('走到上面→捡起超级武器', got.active === true, `active=${got.active}`);
