@@ -724,7 +724,8 @@
 
     function buildGunModel(w) {
       var g = new THREE.Group();
-      var d = GUN_PARTS[w.id];
+      // 零件表对普通枪按 id 取(pistol…)，对超级武器/仙器按 kind 取(star/roar…，因其 id 是 super_star/xian_roar)
+      var d = GUN_PARTS[w.id] || (w.kind ? GUN_PARTS[w.kind] : null);
       if (d) { buildFromParts(g, d.parts, w); g.userData.muzzleZ = d.muzzleZ; return g; }
       var dark = gmat(0x171c22);                       // 兜底
       gbox(g, 0.10,0.12,0.46, dark, 0,0,0); gcyl(g, 0.026,0.026,0.4, dark, 0,0.01,-0.5);
