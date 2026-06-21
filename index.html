@@ -374,19 +374,30 @@
     // 命中部位伤害倍率：头 > 躯干 > 四肢
     var HEAD_MULT = 2.0, LIMB_MULT = 0.6;   // 躯干 = 1.0
 
-    // 回血：受伤后 8 秒开始回血，再 8 秒回满
-    var REGEN_DELAY = 8000, REGEN_FULL = 8000;
+    // 回血：受伤后 4 秒开始回血，再 5 秒回满（更快、更短间隔）
+    var REGEN_DELAY = 4000, REGEN_FULL = 5000;
 
-    // 特色：超级武器（地图每 20 秒随机刷新一个，类型 4 选 1，捡到即用，打光或死亡失去）。
+    // 超级武器（地图每 20 秒刷新一个；其中 10% 概率刷出更强的"仙器"）。捡到即用，打光或死亡失去。
     var SUPER_INTERVAL = 20000;
+    var XIAN_CHANCE = 0.10;
     var SUPERS = {
       mg:      { kind:'mg',      id:'super_mg',      name:'超级机枪',   dmg:22,   rpm:1500, mag:100, auto:true,  spread:0.006, pellets:1, range:280,  reload:0, kick:0.002, col:0x39ff14, zoom:0.6,  scoped:true, isSuper:true },
-      star:    { kind:'star',    id:'super_star',    name:'崩星炮',     dmg:9999, rpm:95,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
+      star:    { kind:'star',    id:'super_star',    name:'等离子炮',   dmg:9999, rpm:65,   mag:5,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0xffd84d, zoom:0.7,  isSuper:true },
       hole:    { kind:'hole',    id:'super_hole',    name:'黑洞炮',     dmg:0,    rpm:30,   mag:4,   auto:false, spread:0,     pellets:1, range:80,   reload:0, kick:0.04,  col:0xb14dff, zoom:0.85, isSuper:true },
-      realm:   { kind:'realm',   id:'super_realm',   name:'秘境枪',     dmg:9999, rpm:95,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true },
-      tsunami: { kind:'tsunami', id:'super_tsunami', name:'排山倒海手', dmg:0,    rpm:20,   mag:1,   auto:false, spread:0,     pellets:1, range:60,   reload:0, kick:0.08,  col:0x2ec5ff, zoom:0.9,  isSuper:true }
+      realm:   { kind:'realm',   id:'super_realm',   name:'秘境炮',     dmg:9999, rpm:65,   mag:3,   auto:false, spread:0,     pellets:1, range:9999, reload:0, kick:0.05,  col:0x33ffa0, zoom:0.7,  isSuper:true },
+      tsunami: { kind:'tsunami', id:'super_tsunami', name:'排山倒海手', dmg:0,    rpm:20,   mag:1,   auto:false, spread:0,     pellets:1, range:60,   reload:0, kick:0.08,  col:0x2ec5ff, zoom:0.9,  isSuper:true },
+      // ===== 仙器（远超超级武器的特效；10% 概率刷出，67 工具也能解锁）=====
+      roar:    { kind:'roar',  id:'xian_roar',  name:'崩星咆哮炮',   dmg:9999, rpm:18, mag:5,  auto:false, spread:0, pellets:1, range:9999, reload:0, kick:0.06, col:0xff4dd8, zoom:0.75, isSuper:true, isXian:true },
+      blade:   { kind:'blade', id:'xian_blade', name:'青龙偃月刀',   dmg:9999, rpm:60, mag:1,  auto:false, spread:0, pellets:1, range:12,   reload:0, kick:0.0,  col:0x33ff88, zoom:1.0,  isSuper:true, isXian:true, melee:true }
     };
-    var SUPER_KINDS = ['mg','star','hole','realm','tsunami'];
+    var SUPER_KINDS = ['mg','star','hole','realm','tsunami'];   // 普通超级武器(洗牌袋，等概率)
+    var XIAN_KINDS  = ['roar','blade'];                          // 仙器
+    var ALL_SUPER_KINDS = SUPER_KINDS.concat(XIAN_KINDS);        // 测试模式滚轮可切的全部
+
+    // 仙器特效参数
+    var ROAR_CHARGE = 2000, ROAR_RADIUS = 15, ROAR_PERSIST = 1000;   // 崩星咆哮炮：蓄力2s、半地图直径、持续1s
+    var BLADE_KILL_R = 7.5, BLADE_CD = 3000;                          // 青龙偃月刀：1/4 地图直径、3s 冷却
+    var BLADE_RISE = 450, BLADE_LUNGE = 350, BLADE_SLAM = 300;        // 三段动画时长(ms)
 
     // 超级武器特效参数
     var BEAM_RADIUS = 2.4;          // 崩星/秘境 激光半径（更粗，更容易扫到）
@@ -423,9 +434,10 @@
     var reloadUntil = 0, reloadDur = 0, fireCooldown = 0, firing = false, viewRecoil = 0;
     var joined = false, paused = false, muted = false, boardOpen = false, deadUntil = 0;
     var lastDamageAt = 0, fireRateMul = 1;   // 回血计时；射速倍率(秘境持枪者更快)
-    var cheatMode = false;                    // 测试模式：密码 67 解锁，6-0 切换超级武器
+    var cheatMode = false, cheatInfinite = false;   // 测试模式：密码 67 解锁，滚轮切换、无限子弹
+    var cheatSel = 0;                                // 测试模式滚轮选择的武器序号
     // 枪械/视角动画状态：后坐力、鼠标摇晃、走路头部摆动
-    var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0;
+    var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0, shake = 0;
     var isMoving = false, sprinting = false, muzzleHideAt = 0, gunMuzzle = null;
     var GUN_BASE = { x:0.22, y:-0.18, z:-0.5 };
     var ADS_BASE  = { x:0.0, y:-0.16, z:-0.42 };   // 开镜(非狙)时枪下沉到准星下方，不挡视线
@@ -439,6 +451,7 @@
     var beams = [], blackholes = [], tsunamis = [];
     var inRealm = false, realmOpponent = null, maxHp = 100, realmEnteredAt = 0;
     var tumbleUntil = 0, tumbleStart = 0, tumbleKiller = null;
+    var slamUntil = 0, slamStart = 0, bladeReadyAt = 0, lastHeartAt = 0;   // 青龙偃月刀：挥砍锁定 / 冷却；心跳计时
 
     // 当前生效的武器/弹药（普通武器 or 超级武器）
     function activeWeapon() { return superActive ? SUPERS[superKind] : WEAPONS[weaponIndex]; }
@@ -684,6 +697,24 @@
         gpart(g, new THREE.SphereGeometry(0.10,14,10), gmat(w.col, w.col), 0,0,-0.12);  // 掌心能量球
         gbox(g, 0.10,0.16,0.12, grip, 0,-0.13,0.12, 0.2);
         muzzleZ = -0.34;
+
+      } else if (w.isSuper && w.kind === 'roar') {     // 仙器·崩星咆哮炮：巨型充能炮
+        gbox(g, 0.20,0.20,0.36, gmat(0x2a0a26), 0,0,0.08);
+        gcyl(g, 0.15,0.12,0.55, gmat(0x3a0f34), 0,0,-0.42);                         // 粗炮管
+        [-0.50,-0.62,-0.74,-0.86].forEach(function (zz) { gcyl(g, 0.17,0.17,0.035, gmat(w.col, w.col), 0,0,zz); }); // 发光环
+        gpart(g, new THREE.SphereGeometry(0.14,16,12), gmat(w.col, w.col), 0,0,0.2);  // 充能核
+        [-0.08,0.08].forEach(function (xx) { gbox(g, 0.03,0.22,0.5, gmat(w.col, w.col), xx,0.14,-0.3); }); // 侧翼
+        gbox(g, 0.10,0.20,0.12, grip, 0,-0.18,0.12, 0.18);
+        muzzleZ = -0.94;
+
+      } else if (w.isSuper && w.kind === 'blade') {    // 仙器·青龙偃月刀：长柄大刀
+        gcyl(g, 0.028,0.028,1.1, gmat(0x5a3a1a), 0.05,-0.05,-0.35);                 // 刀杆(朝前下)
+        var bladeMat = gmat(0xdfffe9, w.col);
+        gpart(g, new THREE.BoxGeometry(0.02,0.42,0.5), bladeMat, 0.05,0.12,-0.92, 0.2, 0, 0.3);  // 弯月刀身
+        gpart(g, new THREE.BoxGeometry(0.02,0.2,0.24), bladeMat, 0.05,0.30,-1.12, 0.2,0,0.3);    // 刀尖
+        gpart(g, new THREE.OctahedronGeometry(0.08,0), gmat(w.col, w.col), 0.05,-0.02,-0.55);    // 青龙吞口
+        gbox(g, 0.05,0.05,0.14, gmat(0xc8a24a), 0.05,-0.02,-0.2);                   // 护手
+        muzzleZ = -1.1;
 
       } else {                                          // 兜底
         gbox(g, 0.10,0.12,0.46, dark, 0,0,0);
@@ -950,30 +981,84 @@
         o.connect(g); g.connect(masterGain); o.start(t + i*0.06); o.stop(t + i*0.06 + 0.2);
       });
     }
+    function hurtSound() {       // 自己被击中：闷哼
+      if (!actx || muted) return; var t = actx.currentTime;
+      var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(220, t);
+      o.frequency.exponentialRampToValueAtTime(110, t+0.12);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.14);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.15);
+    }
+    var lastStepAt = 0;
+    function footstepSound() {   // 脚步：低频短促"嗒"
+      if (!actx || muted) return; var t = actx.currentTime;
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.06);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 380;
+      var g = actx.createGain(); g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.07);
+      src.connect(lp); lp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+0.08);
+    }
+    function heartbeatSound() {  // 残血：双跳心跳
+      if (!actx || muted) return; var t = actx.currentTime;
+      [0, 0.16].forEach(function (d, i) {
+        var o = actx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(70, t+d);
+        var g = actx.createGain(); g.gain.setValueAtTime(i?0.18:0.28, t+d); g.gain.exponentialRampToValueAtTime(0.001, t+d+0.14);
+        o.connect(g); g.connect(masterGain); o.start(t+d); o.stop(t+d+0.16);
+      });
+    }
+    function plasmaBoom() {      // 崩星咆哮炮发射：低沉爆轰 + 高频啸
+      if (!actx || muted) return; var t = actx.currentTime;
+      var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(40, t+0.6);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.7);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.75);
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.6);
+      var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2200;
+      var g2 = actx.createGain(); g2.gain.setValueAtTime(0.4, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.5);
+      src.connect(bp); bp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.6);
+    }
+    function bladeSwingSound() { // 挥刀：风声
+      if (!actx || muted) return; var t = actx.currentTime;
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.5);
+      var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(600, t); bp.frequency.exponentialRampToValueAtTime(2600, t+0.45);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t+0.3); g.gain.exponentialRampToValueAtTime(0.001, t+0.5);
+      src.connect(bp); bp.connect(g); g.connect(masterGain); src.start(t); src.stop(t+0.52);
+    }
+    function bladeBoom() {       // 落地：地裂巨响
+      if (!actx || muted) return; var t = actx.currentTime;
+      var o = actx.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(35, t+0.5);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.6);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.62);
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.4);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500;
+      var g2 = actx.createGain(); g2.gain.setValueAtTime(0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.4);
+      src.connect(lp); lp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.42);
+    }
 
     // ------------------------------------------------------------------ 测试模式（密码 67）
-    // 直接装备某把超级武器（满弹），用于测试。再按同一个键即可补满弹药。
+    // 装备某把超级武器/仙器（无限子弹）。测试模式下用鼠标滚轮切换，下方武器栏显示全部。
     function cheatEquip(kind) {
       if (!joined || !me.alive || inRealm || !SUPERS[kind]) return;
-      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag;
+      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag; cheatInfinite = true;
+      cheatSel = ALL_SUPER_KINDS.indexOf(kind); if (cheatSel < 0) cheatSel = 0;
       reloadUntil = 0; fireCooldown = 0; ads = false;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
-      showNotice('🔧 ' + SUPERS[kind].name + '（满弹）');
+      showNotice((SUPERS[kind].isXian ? '✦ 仙器：' : '🔧 ') + SUPERS[kind].name + '（无限）');
+    }
+    function cheatScroll(dir) {           // 滚轮在全部超级武器/仙器之间切换
+      cheatSel = (cheatSel + dir + ALL_SUPER_KINDS.length) % ALL_SUPER_KINDS.length;
+      cheatEquip(ALL_SUPER_KINDS[cheatSel]);
     }
     function applyCheat() {
       if (!cheatMode) {
         cheatMode = true;
         document.getElementById('testbtn').classList.add('on');
         cheatEquip('mg');
-        showNotice('🔧 测试模式开启：按 6/7/8/9/0 切换超级武器，再输 67 补弹');
-      } else if (superActive) {
-        superAmmo = SUPERS[superKind].mag; updateAmmoHud();   // 再输一次 → 补满当前弹药
-        showNotice('🔧 弹药已补满');
+        showNotice('🔧 测试模式：滚轮切换全部武器（无限子弹），含仙器');
       } else {
-        cheatEquip('mg');
+        cheatInfinite = true;
+        if (superActive) { superAmmo = SUPERS[superKind].mag; updateAmmoHud(); }
+        showNotice('🔧 弹药已补满');
       }
     }
-    // 数字键 6/7/8/9/0 → 五种超级武器（仅测试模式）
+    // 数字键 6/7/8/9/0 → 五种普通超级武器（仍保留，方便快速选）
     var CHEAT_KEYS = { Digit6:'mg', Digit7:'star', Digit8:'hole', Digit9:'realm', Digit0:'tsunami' };
 
     // ------------------------------------------------------------------ 输入
@@ -1048,8 +1133,9 @@
       // 滚轮换枪（持有超级武器时锁定，不能换）
       canvas.addEventListener('wheel', function (e) {
         if (!joined) return; e.preventDefault();
-        if (superActive) return;
         var dir = e.deltaY > 0 ? 1 : -1;
+        if (cheatMode) { cheatScroll(dir); return; }   // 测试模式：滚轮在全部超级武器/仙器间切换
+        if (superActive) return;
         selectWeapon((weaponIndex + dir + WEAPONS.length) % WEAPONS.length);
       }, { passive:false });
 
@@ -1107,43 +1193,52 @@
     // 捡到 / 失去 超级武器
     function pickupSuper(kind) {
       if (!SUPERS[kind]) kind = 'mg';
-      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag; reloadUntil = 0; fireCooldown = 0; ads = false;
+      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag; cheatInfinite = false;
+      reloadUntil = 0; fireCooldown = 0; ads = false;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
-      pickupSound(); showNotice('🔫 拿到「' + SUPERS[kind].name + '」！' + SUPERS[kind].mag + ' 发，打光为止');
+      pickupSound();
+      var xx = SUPERS[kind].isXian;
+      showNotice((xx ? '✦✦ 拿到仙器「' : '🔫 拿到「') + SUPERS[kind].name + (xx ? '」！' : '」！' + SUPERS[kind].mag + ' 发，打光为止'));
     }
     function dropSuper() {
       if (!superActive) return;
-      superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0;
+      superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0; cheatInfinite = false;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
     }
 
     function tryFire() {
       if (!joined || paused || !me.alive) return;
+      if (now() < slamUntil) return;                 // 青龙刀挥砍动画中：不能行动
       var w = activeWeapon();
+      var kind = superActive ? w.kind : null;
+
+      // 青龙偃月刀：独立冷却 + 挥砍动画，不消耗弹药
+      if (kind === 'blade') { if (now() >= bladeReadyAt) startBladeSlam(); return; }
+
       if (now() < reloadUntil) return;
       if (now() < fireCooldown) return;
       if (activeAmmo() <= 0) { if (!superActive) startReload(); return; }
 
       aimCamera();   // 直接点击开火时，确保用最新的视角方向做射线检测
-      if (superActive) superAmmo--; else ammo[weaponIndex]--;
+      if (superActive) { if (!cheatInfinite) superAmmo--; } else ammo[weaponIndex]--;
       fireCooldown = now() + (60000 / w.rpm) * fireRateMul;
       shootSound(w);
       viewRecoil = Math.min(viewRecoil + w.kick, 0.12);   // 视角向上的后坐力
       gunKick = Math.min(gunKick + w.kick * 7 + 0.12, 1.3); // 枪械后坐（后顶 + 上抬）
-      fireMuzzle();                                         // 枪口闪光
+      if (kind !== 'roar') fireMuzzle();                  // 咆哮炮有自己的蓄力特效
 
-      var kind = superActive ? w.kind : null;
-      if (kind === 'star' || kind === 'realm') fireBeam(kind, w);  // 崩星炮 / 秘境枪：激光
+      if (kind === 'star' || kind === 'realm' || kind === 'roar') fireBeam(kind, w);  // 等离子/秘境/崩星咆哮：激光
       else if (kind === 'hole')                fireBlackHole(w);   // 黑洞炮
       else if (kind === 'tsunami')             fireTsunami(w);     // 排山倒海手
       else                                     fireHitscan(w);     // 普通武器 + 超级机枪
 
       updateAmmoHud();
-      if (superActive) { if (superAmmo <= 0) dropSuper(); }     // 弹药打光 → 失去
-      else if (ammo[weaponIndex] <= 0) startReload();
+      if (superActive && !cheatInfinite) { if (superAmmo <= 0) dropSuper(); }   // 弹药打光 → 失去
+      else if (!superActive && ammo[weaponIndex] <= 0) startReload();
     }
 
     // 普通 hitscan（含超级机枪）：逐颗弹丸射线 + 部位伤害 + 上报
+    var lastShotBroadcast = 0;
     function fireHitscan(w) {
       var spreadMul = 1 - adsAmt * 0.65;
       var hitsThisShot = {};               // pid -> { dmg, head }
@@ -1159,6 +1254,18 @@
         if (anyHead) headshotSound(); else hitSound();
         lastHitInfo = { dmg: lastDmg, head: anyHead, target: lastPid };
       }
+      // 让别人看到我开枪（枪口闪光 + 弹道），全自动时节流到 ~14Hz
+      if (now() - lastShotBroadcast > 70) {
+        lastShotBroadcast = now();
+        camera.getWorldDirection(_fwd);
+        netSend({ type:'shot', from:me.id, col:w.col,
+          mx:camera.position.x + _fwd.x*0.6, my:camera.position.y + _fwd.y*0.6 - 0.12, mz:camera.position.z + _fwd.z*0.6,
+          ex:camera.position.x + _fwd.x*48, ey:camera.position.y + _fwd.y*48, ez:camera.position.z + _fwd.z*48 });
+      }
+    }
+    function spawnRemoteShot(msg) {
+      spawnTracer(new THREE.Vector3(msg.mx, msg.my, msg.mz), new THREE.Vector3(msg.ex, msg.ey, msg.ez), msg.col || 0xffe6a0);
+      spawnGlow(new THREE.Vector3(msg.mx, msg.my, msg.mz), msg.col || 0xffd9a0, 0.55, 0.06);   // 远端枪口闪光
     }
 
     var _ray = new THREE.Raycaster();
@@ -1249,7 +1356,13 @@
       return Math.sqrt((px-cx)*(px-cx) + (pz-cz)*(pz-cz));
     }
 
-    // 发射激光（崩星炮=贯穿秒杀；秘境枪=只对第一人、拖入秘境）。先有 ~0.32s 蓄力轨迹再发射，给点反应时间。
+    // 激光参数（按武器种类）：delay=蓄力时间，radius=激光半径，persist=发射后持续时间
+    function beamParams(kind) {
+      if (kind === 'roar')  return { delay:ROAR_CHARGE, radius:ROAR_RADIUS, persist:ROAR_PERSIST, weaponId:'xian_roar' };
+      if (kind === 'realm') return { delay:BEAM_DELAY,  radius:BEAM_RADIUS, persist:240, weaponId:'super_realm' };
+      return                       { delay:BEAM_DELAY,  radius:BEAM_RADIUS, persist:240, weaponId:'super_star' };
+    }
+    // 等离子炮 / 秘境炮 / 崩星咆哮炮：蓄力可见轨迹 → 发射粗激光（roar 直径半地图、持续 1s）
     function fireBeam(kind, w) {
       var origin = camera.position.clone();
       camera.getWorldDirection(_bf);
@@ -1261,38 +1374,46 @@
     function spawnBeam(msg) {
       var origin = new THREE.Vector3(msg.x, msg.y, msg.z);
       var dir = new THREE.Vector3(msg.dx, msg.dy, msg.dz).normalize();
-      var len = 400;
-      var thin = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, len, 8),
-        new THREE.MeshBasicMaterial({ color:msg.col, transparent:true, opacity:0.5,
+      var P = beamParams(msg.kind), len = 400;
+      var thinR = (msg.kind === 'roar') ? 0.5 : 0.28;   // 加粗轨迹，正对着也看得见（修"激光不显示"）
+      var thin = new THREE.Mesh(new THREE.CylinderGeometry(thinR, thinR, len, 12),
+        new THREE.MeshBasicMaterial({ color:msg.col, transparent:true, opacity:0.6,
           blending:THREE.AdditiveBlending, depthWrite:false }));
       orientCyl(thin, origin, dir, len);
       scene.add(thin);
       beams.push({ bid:msg.bid, kind:msg.kind, owner:msg.owner, origin:origin, dir:dir, col:msg.col,
-        thin:thin, thick:null, len:len, fireAt:now() + BEAM_DELAY, resolved:false, deadAt:0,
-        isOwner:(msg.owner === me.id) });
-      if (msg.owner !== me.id) showNotice('⚠ 小心！有人在用' + (msg.kind === 'star' ? '崩星炮' : '秘境枪') + '瞄准！');
+        thin:thin, thick:null, len:len, thinR:thinR, radius:P.radius, persist:P.persist, weaponId:P.weaponId,
+        spawnAt:now(), fireAt:now() + P.delay, resolved:false, deadAt:0, isOwner:(msg.owner === me.id) });
+      if (msg.owner !== me.id) showNotice('⚠ 小心「' + (SUPERS[msg.kind] ? SUPERS[msg.kind].name : '激光') + '」瞄准了！快躲！');
     }
     function updateBeams(dt) {
       for (var i = beams.length - 1; i >= 0; i--) {
         var b = beams[i];
         if (!b.resolved && now() >= b.fireAt) {
-          b.resolved = true; b.deadAt = now() + 240;
-          // 轨迹变成粗激光闪一下
-          b.thick = new THREE.Mesh(new THREE.CylinderGeometry(BEAM_RADIUS, BEAM_RADIUS, b.len, 16),
+          b.resolved = true; b.deadAt = now() + b.persist;
+          b.thick = new THREE.Mesh(new THREE.CylinderGeometry(b.radius, b.radius, b.len, 28),
             new THREE.MeshBasicMaterial({ color:b.col, transparent:true, opacity:0.85,
               blending:THREE.AdditiveBlending, depthWrite:false }));
           orientCyl(b.thick, b.origin, b.dir, b.len);
           scene.add(b.thick);
-          deathSound();
+          if (b.kind === 'roar') { plasmaBoom(); shake = Math.min(shake + 0.08, 0.1); } else deathSound();
           if (b.isOwner) resolveBeam(b);   // 只有发射者结算（用"现在"的位置，所以躲得开）
         }
         if (b.resolved) {
-          var k = (b.deadAt - now()) / 240;
-          if (b.thin) b.thin.material.opacity = Math.max(0, 0.5 * k);
-          if (b.thick) b.thick.material.opacity = Math.max(0, 0.85 * k);
+          var k = (b.deadAt - now()) / b.persist;
+          if (b.thin) b.thin.material.opacity = Math.max(0, 0.6 * k);
+          if (b.thick) {
+            var pulse = (b.kind === 'roar' && !reduced) ? (0.7 + 0.3 * Math.abs(Math.sin(now()*0.02))) : 1;  // 等离子脉动
+            b.thick.material.opacity = Math.max(0, 0.85 * k) * pulse;
+          }
           if (k <= 0) { disposeBeam(b); beams.splice(i, 1); }
         } else if (!reduced) {
-          b.thin.material.opacity = 0.35 + 0.22 * Math.sin(now() * 0.02);  // 蓄力闪烁
+          if (b.kind === 'roar') {     // 充能：轨迹由细变粗
+            var ch = Math.min(1, (now() - b.spawnAt) / Math.max(1, b.fireAt - b.spawnAt));
+            var sc = 1 + (b.radius / b.thinR - 1) * ch * 0.45;
+            b.thin.scale.set(sc, 1, sc);
+          }
+          b.thin.material.opacity = 0.4 + 0.3 * Math.sin(now() * 0.02);  // 蓄力闪烁
         }
       }
     }
@@ -1300,7 +1421,7 @@
       [b.thin, b.thick].forEach(function (m) { if (m) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
     }
     // 找出在无限激光圆柱内的远端玩家（按距离排序）
-    function beamTargets(origin, dir) {
+    function beamTargets(origin, dir, radius) {
       var out = [];
       for (var id in remotes) {
         var r = remotes[id]; if (!r.alive) continue;
@@ -1310,17 +1431,17 @@
         if (t <= 0) continue;                             // 在身后
         var px = origin.x + dir.x*t, py = origin.y + dir.y*t, pz = origin.z + dir.z*t;
         var d = Math.sqrt((cx-px)*(cx-px) + (cy-py)*(cy-py) + (cz-pz)*(cz-pz));
-        if (d < BEAM_RADIUS + 0.55) out.push({ id:id, t:t });
+        if (d < radius + 0.55) out.push({ id:id, t:t });
       }
       out.sort(function (a, b) { return a.t - b.t; });
       return out;
     }
     function resolveBeam(b) {
-      var hits = beamTargets(b.origin, b.dir);
-      if (b.kind === 'star') {                 // 崩星炮：贯穿一切，全部秒杀
-        for (var i = 0; i < hits.length; i++) sendHit(hits[i].id, 9999, 'super_star', false);
+      var hits = beamTargets(b.origin, b.dir, b.radius);
+      if (b.kind === 'star' || b.kind === 'roar') {   // 等离子炮 / 崩星咆哮炮：贯穿一切，全部秒杀
+        for (var i = 0; i < hits.length; i++) sendHit(hits[i].id, 9999, b.weaponId, false);
         if (hits.length) { showHitmarker(false); hitSound(); }
-      } else if (b.kind === 'realm') {         // 秘境枪：只对第一个命中的人，1v1
+      } else if (b.kind === 'realm') {                // 秘境炮：只对第一个命中的人，1v1
         if (hits.length) startRealmDuel(hits[0].id);
       }
     }
@@ -1379,17 +1500,17 @@
         // 快消散时缩小
         var fade = el > HOLE_TRAVEL + HOLE_HOLD - 0.5 ? Math.max(0.2, (HOLE_TRAVEL + HOLE_HOLD - el) / 0.5) : 1;
         bh.mesh.scale.setScalar(fade * HOLE_SCALE);
-        // 吸入 + 处死（只判定本机玩家；发射者对自己的黑洞免疫；已激活 0.4s 后才致命）
+        // 吸入 + 处死（飞行途中与静止时效果一致；发射者免疫；激活 0.4s 后才致命）
         if (me.alive && !paused && bh.owner !== me.id && now() >= tumbleUntil) {
           var dx = playerPos.x - px, dz = playerPos.z - pz;
           var d = Math.sqrt(dx*dx + dz*dz);
           if (d < HOLE_SUCK_R) {
             var pull = (HOLE_SUCK_R - d) / HOLE_SUCK_R;             // 越近吸力越强
-            var step = Math.min(d, (0.4 + pull) * 16 * dt);        // 强吸力
+            var step = Math.min(d, (0.7 + pull * 1.4) * 26 * dt);  // 强力吸附，飞行中也能把人拽进去
             if (d > 0.001) { playerPos.x -= (dx / d) * step; playerPos.z -= (dz / d) * step; }
           }
-          // 路径致死：用"未夹取的真实轨迹段"判定，飞行途中扫过也能杀人（和静止时一样）
-          if (el > 0.4 && segDist2D(playerPos.x, playerPos.z, bh.prevX, bh.prevZ, ux, uz) < HOLE_KILL_R) {
+          // 致死：当前位置或本帧扫过的轨迹段在致死半径内（飞行途中扫过也能杀人）
+          if (el > 0.4 && (d < HOLE_KILL_R || segDist2D(playerPos.x, playerPos.z, bh.prevX, bh.prevZ, ux, uz) < HOLE_KILL_R)) {
             die(bh.owner, 'super_hole', false);
           }
         }
@@ -1470,12 +1591,72 @@
       showNotice('🌊 被巨浪卷走了！');
     }
 
+    // ---- 仙器·青龙偃月刀：挑起→突进→劈砍（动画期间无法行动），落点 1/4 地图圆形内全部处死 ----
+    var slamImpactDone = true, slamImpactAt = 0;
+    function startBladeSlam() {
+      slamStart = now();
+      slamUntil = now() + BLADE_RISE + BLADE_LUNGE + BLADE_SLAM;   // 锁定到动画结束
+      slamImpactAt = slamStart + BLADE_RISE + BLADE_LUNGE + BLADE_SLAM * 0.82;  // 刀触地瞬间
+      slamImpactDone = false;
+      bladeReadyAt = slamUntil + BLADE_CD;                          // 劈完冷却 3s
+      firing = false; ads = false;
+      bladeSwingSound();
+      showNotice('🐉 青龙偃月刀·斩！');
+    }
+    function doBladeImpact() {
+      slamImpactDone = true;
+      camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize();
+      var ix = playerPos.x + _bf.x * 3, iz = playerPos.z + _bf.z * 3;
+      // 圈内远端玩家全部秒杀（发动者权威上报，和激光一致；发动者自己免疫）
+      for (var id in remotes) {
+        var r = remotes[id]; if (!r.alive) continue;
+        var dx = r.group.position.x - ix, dz = r.group.position.z - iz;
+        if (dx*dx + dz*dz < BLADE_KILL_R * BLADE_KILL_R) sendHit(id, 9999, 'xian_blade', false);
+      }
+      var msg = { type:'slam', from:me.id, owner:me.id, x:ix, z:iz, col:SUPERS.blade.col };
+      spawnSlam(msg); netSend(msg);   // 视觉（地震 + 青龙 + 地裂）广播给所有人
+    }
+    function spawnSlam(msg) {          // 视觉 + 视角地震（命中由发动者用 hit 上报）
+      spawnSlamFx(msg.x, msg.z, msg.col);
+      shake = Math.min(shake + (reduced ? 0 : 0.28), 0.32);
+      bladeBoom();
+    }
+    function spawnSlamFx(x, z, col) {
+      // 地面致死圆盘
+      var disc = new THREE.Mesh(new THREE.CircleGeometry(BLADE_KILL_R, 44),
+        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.45, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
+      disc.rotation.x = -Math.PI/2; disc.position.set(x, 0.05, z); scene.add(disc); fx.push({ obj:disc, ttl:0.8, life:0, fade:true });
+      // 上冲光柱
+      var pillar = new THREE.Mesh(new THREE.CylinderGeometry(BLADE_KILL_R*0.5, 0.6, 16, 24, 1, true),
+        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.7, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
+      pillar.position.set(x, 8, z); scene.add(pillar); fx.push({ obj:pillar, ttl:0.7, life:0, fade:true });
+      // 扩张冲击环
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.35, 8, 44),
+        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false }));
+      ring.rotation.x = -Math.PI/2; ring.position.set(x, 0.35, z); scene.add(ring); fx.push({ obj:ring, ttl:0.55, life:0, fade:true, grow:true });
+      // 地裂：几条放射状裂纹
+      for (var c = 0; c < 6; c++) {
+        var a = c * Math.PI/3 + 0.2, L = BLADE_KILL_R;
+        var crack = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.06, L),
+          new THREE.MeshBasicMaterial({ color:0x222222 }));
+        crack.position.set(x + Math.cos(a)*L/2, 0.06, z + Math.sin(a)*L/2); crack.rotation.y = -a;
+        scene.add(crack); fx.push({ obj:crack, ttl:1.4, life:0, fade:false });
+      }
+      // 青龙：盘旋上升的发光体
+      if (!reduced) for (var i = 0; i < 9; i++) {
+        var ang = i * 0.8, rr = 1.4 + i * 0.25;
+        var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+        sp.position.set(x + Math.cos(ang)*rr, 0.6 + i*0.95, z + Math.sin(ang)*rr); sp.scale.setScalar(2.6 - i*0.1);
+        scene.add(sp); fx.push({ obj:sp, ttl:0.8, life:0, fade:true });
+      }
+    }
+
     // ------------------------------------------------------------------ 受伤 / 死亡 / 重生 / 回血
     function applyDamage(dmg, byId, weapon, head) {
       if (!me.alive) return;
       me.hp -= dmg;
-      lastDamageAt = now();    // 受伤计时：重新开始等 8 秒才回血
-      flashDamage();
+      lastDamageAt = now();    // 受伤计时：重新开始等回血
+      flashDamage(); hurtSound();
       updateHpHud();
       if (me.hp <= 0) { me.hp = 0; die(byId, weapon, !!head); }
     }
@@ -1505,7 +1686,7 @@
     }
     function respawn() {
       me.alive = true;
-      vy = 0; tumbleUntil = 0; tumbleKiller = null;
+      vy = 0; tumbleUntil = 0; tumbleKiller = null; slamUntil = 0; slamImpactDone = true; shake = 0;
       for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;
       dropSuper();             // 重生用普通武器
       if (inRealm) exitRealm(false); // 在秘境里死亡 → 落败，回到主竞技场
@@ -1602,21 +1783,31 @@
     }
     function updateAmmoHud() {
       var w = activeWeapon();
-      document.getElementById('ammo').innerHTML = activeAmmo() + '<span class="res"> / ' + w.mag + '</span>';
+      var amt = cheatInfinite ? '∞' : activeAmmo();
+      var mag = (w.melee || cheatInfinite) ? '∞' : w.mag;
+      document.getElementById('ammo').innerHTML = amt + '<span class="res"> / ' + mag + '</span>';
     }
     function weaponDesc(w) {
-      if (w.kind === 'star')    return '蓄力 0.7s · 贯穿一切 · 碰到即死';
+      if (w.kind === 'star')    return '蓄力 · 贯穿一切 · 碰到即死';
       if (w.kind === 'hole')    return '发射黑洞 · 吸入即死';
       if (w.kind === 'realm')   return '命中第一人 → 拖入秘境 1v1';
       if (w.kind === 'tsunami') return '一次性 · 滔天巨浪 · 卷入即死';
+      if (w.kind === 'roar')    return '✦仙器 蓄力2s · 半地图直径激光 · 持续1s';
+      if (w.kind === 'blade')   return '✦仙器 左键蓄势猛劈 · 1/4地图圆内全灭 · 冷却3s';
       return (w.auto ? '全自动' : '单发') + ' · 伤害' + w.dmg + (w.pellets>1?('×'+w.pellets):'') + '（爆头×' + HEAD_MULT + '）';
     }
     function updateWeaponHud() {
       var w = activeWeapon();
       document.getElementById('wepname').innerHTML = esc(w.name) + ' <small>' + esc(weaponDesc(w)) + '</small>';
       var slots;
-      if (superActive) {
-        slots = '<div class="slot active super"><b>★</b>' + esc(w.name) + '</div>';
+      if (cheatMode) {
+        // 测试模式：下方显示全部超级武器/仙器，滚轮切换，高亮当前
+        slots = ALL_SUPER_KINDS.map(function (kk) {
+          var on = superActive && superKind === kk, xian = SUPERS[kk].isXian;
+          return '<div class="slot' + (on?' active':'') + (xian?' super':'') + '">' + (xian?'✦':'★') + esc(SUPERS[kk].name) + '</div>';
+        }).join('');
+      } else if (superActive) {
+        slots = '<div class="slot active super">' + (w.isXian?'✦':'★') + ' ' + esc(w.name) + '</div>';
       } else {
         slots = WEAPONS.map(function (ww, i) {
           return '<div class="slot' + (i===weaponIndex?' active':'') + '"><b>' + (i+1) + '</b>' + esc(ww.name) + '</div>';
@@ -1810,6 +2001,12 @@
         case 'tsunami':               // 排山倒海手
           spawnTsunami(msg);
           break;
+        case 'slam':                  // 青龙偃月刀劈砍：地震 + 圈内处死
+          spawnSlam(msg);
+          break;
+        case 'shot':                  // 别人开了一枪：渲染其枪口闪光 + 弹道
+          spawnRemoteShot(msg);
+          break;
         case 'realm_start':           // 被秘境枪命中 → 被拖入 1v1
           if (msg.victim === me.id) {
             enterRealm(msg.holder, new THREE.Vector3(msg.vx, msg.vy, msg.vz), false);
@@ -1912,7 +2109,9 @@
     function hostSpawnSuper() {
       superSid++;
       var pos = randomSuperPos();
-      var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:nextSuperKind(), x:pos.x, y:pos.y, z:pos.z };
+      // 10% 概率刷出仙器，否则从洗牌袋取等概率的普通超级武器
+      var kind = (Math.random() < XIAN_CHANCE) ? XIAN_KINDS[Math.floor(Math.random()*XIAN_KINDS.length)] : nextSuperKind();
+      var msg = { type:'super_spawn', from:me.id, sid:superSid, kind:kind, x:pos.x, y:pos.y, z:pos.z };
       applySuperSpawn(msg);
       netSend(msg);
     }
@@ -2141,6 +2340,7 @@
       gunKick    *= Math.exp(-dt * 13);
       gunSwayX   *= Math.exp(-dt * 9);
       gunSwayY   *= Math.exp(-dt * 9);
+      shake      *= Math.exp(-dt * 6);     // 视角地震衰减
 
       if (joined) {
         // 死亡重生计时
@@ -2157,18 +2357,35 @@
         document.getElementById('crosshair').style.opacity = (scopedW ? (1 - adsAmt) : 1).toFixed(2);
 
         var tumbling = now() < tumbleUntil;   // 被巨浪卷起翻滚中：无法行动
+        var slamming = now() < slamUntil;     // 青龙刀挥砍中：无法行动
         aimCamera();                       // 先用最新视角摆正相机
-        if (!paused && !tumbling) {
+        if (!paused && !tumbling && !slamming) {
           updateMovement(dt);
           aimCamera();                     // 移动后同步相机位置
           checkSuperPickup();              // 走到超级武器上就捡起
           if (firing && activeWeapon().auto) tryFire();  // 自动武器持续开火
+          // 脚步声（按步伐节奏）
+          if (isMoving && grounded && now() - lastStepAt > (sprinting ? 270 : 380)) { lastStepAt = now(); footstepSound(); }
         } else { isMoving = false; }
+        // 青龙刀：突进阶段向前冲；触地瞬间结算
+        if (slamming) {
+          var sp2 = now() - slamStart;
+          if (sp2 > BLADE_RISE && sp2 < BLADE_RISE + BLADE_LUNGE && me.alive) {
+            camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq()>1e-6) _bf.normalize();
+            var lx = playerPos.x + _bf.x * 17 * dt, lz = playerPos.z + _bf.z * 17 * dt;
+            if (!collides(lx, playerPos.z)) playerPos.x = lx;
+            if (!collides(playerPos.x, lz)) playerPos.z = lz;
+            aimCamera();
+          }
+        }
+        if (!slamImpactDone && now() >= slamImpactAt) doBladeImpact();
         // 翻滚结束 → 处死
         if (tumbleUntil && now() >= tumbleUntil) {
           var tk = tumbleKiller; tumbleUntil = 0; tumbleKiller = null;
           if (me.alive) die(tk, 'super_tsunami', false);
         }
+        // 残血心跳
+        if (me.alive && me.hp < 30 && now() - lastHeartAt > 850) { lastHeartAt = now(); heartbeatSound(); }
         // 秘境兜底：超过 60s 没分出胜负 → 自动结束，避免卡死
         if (inRealm && now() - realmEnteredAt > 60000) exitRealm(false);
 
@@ -2195,6 +2412,23 @@
           camera.position.y = playerPos.y + Math.sin(Math.min(1, tp/900) * Math.PI) * 1.6;
           camera.rotation.z = tp * 0.018;
           camera.rotation.x = pitch + Math.sin(tp * 0.03) * 0.7;
+        }
+
+        // 青龙偃月刀：挑起 → 突进 → 劈下（覆盖武器/相机姿态）
+        if (slamming && viewGun) {
+          var sp3 = now() - slamStart, rx3, fwd3 = 0;
+          if (sp3 < BLADE_RISE) { rx3 = -1.5 * (sp3 / BLADE_RISE); }                       // 挑起
+          else if (sp3 < BLADE_RISE + BLADE_LUNGE) { rx3 = -1.5; fwd3 = 0.12; }            // 突进保持高举
+          else { var sf = Math.min(1, (sp3 - BLADE_RISE - BLADE_LUNGE) / BLADE_SLAM); rx3 = -1.5 + 3.4 * sf; }  // 猛劈
+          viewGun.position.set(GUN_BASE.x * 0.35, GUN_BASE.y + 0.12, GUN_BASE.z - fwd3);
+          viewGun.rotation.set(rx3, 0, 0);
+          if (sp3 > BLADE_RISE + BLADE_LUNGE) camera.rotation.x = pitch + ((sp3 - BLADE_RISE - BLADE_LUNGE) / BLADE_SLAM) * 0.32;  // 劈下镜头压低
+        }
+        // 视角地震（shake：被青龙刀/咆哮炮等触发）
+        if (shake > 0.001 && !reduced) {
+          camera.rotation.z += (Math.random() - 0.5) * shake;
+          camera.position.x += (Math.random() - 0.5) * shake * 2;
+          camera.position.y += (Math.random() - 0.5) * shake * 2;
         }
       } else {
         // 菜单背景：缓慢环绕竞技场（reduced-motion 时静止）
@@ -2281,8 +2515,10 @@
           // 远端小人动画姿态（验证奔跑/跳跃/死亡）
           remotePose:function(id){ var r=remotes[id]; if(!r) return null;
             return { legL:r.legL.rotation.x, armR:r.armR.rotation.x, leanZ:r.group.rotation.z, y:r.group.position.y }; },
-          // 测试模式 / 刷新概率
-          cheatOn:function(){ return cheatMode; }, nextKind:function(){ return nextSuperKind(); }
+          // 测试模式 / 刷新概率 / 仙器
+          cheatOn:function(){ return cheatMode; }, nextKind:function(){ return nextSuperKind(); },
+          equipSuper:function(k){ cheatMode = true; cheatEquip(k); }, slamming:function(){ return now() < slamUntil; },
+          spawnShot:function(){ spawnRemoteShot({ from:'x', col:0xffe6a0, mx:0,my:1.6,mz:0, ex:0,ey:1.6,ez:-40 }); }
         };
         animate();
       } catch (err) {

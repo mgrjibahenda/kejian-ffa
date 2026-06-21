@@ -117,6 +117,35 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   check('再按7→补满弹药', ch3.kind==='star' && ch3.ammo===5, JSON.stringify(ch3));
   await ev(page, ()=>window.__test.drop());
 
+  // ---------- 3.6) 看到别人开枪 + 仙器（崩星咆哮炮 / 青龙偃月刀）+ 无限子弹 ----------
+  const fxB = await ev(page, ()=>window.__test.fxCount());
+  await ev(page, ()=>window.__test.spawnShot());
+  check('看到别人开枪→弹道+枪口闪光', (await ev(page, ()=>window.__test.fxCount())) > fxB, '');
+
+  await ev(page, ()=>window.__test.recv({type:'state',from:'rx',name:'敌',color:0xff3344,x:20,y:1.6,z:-6,yaw:0,pitch:0,weapon:0,hp:100,alive:true,kills:0,deaths:0}));
+  await ev(page, ()=>window.__test.equipSuper('roar'));
+  const ri = await ev(page, ()=>window.__test.superInfo());
+  check('仙器·崩星咆哮炮装备', ri.kind==='roar', JSON.stringify(ri));
+  await ev(page, ()=>window.__test.clearSentHits());
+  await ev(page, ()=>window.__test.fire());
+  await sleep(2300);   // 蓄力 2s 后发射
+  const rhits = await ev(page, ()=>window.__test.sentHits());
+  check('崩星咆哮炮→蓄力后贯穿秒杀', rhits.some(h=>h.to==='rx'&&h.dmg>=9999&&h.weapon==='xian_roar'), JSON.stringify(rhits));
+  check('67解锁武器→无限子弹', (await ev(page, ()=>window.__test.superInfo())).ammo===5, '');
+
+  await ev(page, ()=>window.__test.recv({type:'state',from:'bx',name:'近敌',color:0x90be6d,x:20,y:1.6,z:-3,yaw:0,pitch:0,weapon:0,hp:100,alive:true,kills:0,deaths:0}));
+  await sleep(300);
+  await ev(page, ()=>window.__test.equipSuper('blade'));
+  await ev(page, ()=>window.__test.clearSentHits());
+  await ev(page, ()=>window.__test.fire());
+  check('青龙偃月刀→挥砍锁定', (await ev(page, ()=>window.__test.slamming()))===true, '');
+  await sleep(1300);   // 等劈下结算
+  const bh2 = await ev(page, ()=>window.__test.sentHits());
+  check('青龙偃月刀→圈内秒杀', bh2.some(h=>h.to==='bx'&&h.dmg>=9999&&h.weapon==='xian_blade'), JSON.stringify(bh2));
+  // 清理：移除靶子、复位玩家位置（青龙刀突进会移动玩家，避免影响后续用例）
+  await ev(page, ()=>{ window.__test.drop(); window.__test.recv({type:'leave',from:'rx'}); window.__test.recv({type:'leave',from:'bx'}); window.__test.setPos(20, 0); });
+  await sleep(120);
+
   // ---------- 4) 崩星炮：0.7s 后贯穿秒杀 ----------
   await ev(page, ()=>window.__test.drop());
   await ev(page, ()=>window.__test.recv({type:'state',from:'v1',name:'敌',color:0xff3344,x:20,y:1.6,z:-5,yaw:0,pitch:0,weapon:0,hp:100,alive:true,kills:0,deaths:0}));
