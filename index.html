@@ -218,6 +218,9 @@
   /* 处于激光范围内：屏幕渐亮（不是纯白挡视线） */
   #beamflash{ position:absolute; inset:0; pointer-events:none; opacity:0;
     background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.95), rgba(220,235,255,.4)); mix-blend-mode:screen; }
+  /* 崩星咆哮炮蓄力：力量汇聚的压暗角(只压边缘，中心清楚，不糊持枪者) */
+  #chargevig{ position:absolute; inset:0; pointer-events:none; opacity:0;
+    background:radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 30%, rgba(40,0,40,.5) 70%, rgba(10,0,16,.92) 100%); }
   /* 机甲座舱 HUD + 滤镜（穿上机甲时） */
   #mechhud{ position:absolute; inset:0; pointer-events:none; --mhc:255,154,60; }
   #mechhud.god{ --mhc:255,60,120; }
@@ -318,6 +321,7 @@
 
     <div id="dmgflash"></div>
     <div id="beamflash"></div>
+    <div id="chargevig"></div>
     <div id="mechhud" hidden>
       <div class="mh-corner tl"></div><div class="mh-corner tr"></div><div class="mh-corner bl"></div><div class="mh-corner br"></div>
       <div class="mh-ring"></div><div class="mh-ring inner"></div>
@@ -539,6 +543,7 @@
     var gunKick = 0, gunSwayX = 0, gunSwayY = 0, bobT = 0, bobAmp = 0, shake = 0;
     var isMoving = false, sprinting = false, muzzleHideAt = 0, gunMuzzle = null;
     var gunCharge = null, chargeUntil = 0, chargeStart = 0, chargeCol = 0xffffff;   // 充能动画(等离子/崩星/秘境/青龙)
+    var roarOrbit = null;   // 崩星咆哮炮弹巢的小星 + 自转轨道环
     var GUN_BASE = { x:0.22, y:-0.18, z:-0.5 };
     var ADS_BASE  = { x:0.0, y:-0.16, z:-0.42 };   // 开镜(非狙)时枪下沉到准星下方，不挡视线
     // 开镜（瞄准）状态
@@ -938,6 +943,19 @@
       gunCharge.visible = false;
       viewGun.add(gunCharge);
 
+      // 崩星咆哮炮：弹巢里关着一颗脉动的小星 + 两道自转轨道环（"里面困着一颗星"）
+      roarOrbit = null;
+      if (activeWeapon().kind === 'roar') {
+        var rc = activeWeapon().col, chamberZ = 0.2;
+        var star = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 14), gmat(0xffffff, rc));
+        star.position.set(0, 0, chamberZ);
+        var ringMat = gmat(rc, rc);
+        var r1 = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.018, 8, 28), ringMat); r1.position.set(0,0,chamberZ); r1.rotation.x = 1.2;
+        var r2 = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.014, 8, 28), ringMat); r2.position.set(0,0,chamberZ); r2.rotation.y = 1.0;
+        viewGun.add(star); viewGun.add(r1); viewGun.add(r2);
+        roarOrbit = { star:star, r1:r1, r2:r2 };
+      }
+
       viewGun.position.set(GUN_BASE.x, GUN_BASE.y, GUN_BASE.z);
       viewGun.rotation.order = 'YXZ';
       camera.add(viewGun);
@@ -1163,7 +1181,8 @@
         if (f.expandTo !== undefined) { var s = f.expandFrom + (f.expandTo - f.expandFrom) * (f.ease ? (1-(1-k)*(1-k)) : k); f.obj.scale.setScalar(s); }
         if (f.rise) f.obj.position.y += f.rise * dt;
         if (f.spin) f.obj.rotation.y += f.spin * dt;
-        if (f.vel) { f.obj.position.x += f.vel.x*dt; f.obj.position.y += f.vel.y*dt; f.obj.position.z += f.vel.z*dt; f.vel.y -= 14*dt; }
+        if (f.vel) { f.obj.position.x += f.vel.x*dt; f.obj.position.y += f.vel.y*dt; f.obj.position.z += f.vel.z*dt; if (!f.nograv) f.vel.y -= 14*dt; }
+        if (f.toward) { var tx=f.toward.x-f.obj.position.x, ty=f.toward.y-f.obj.position.y, tz=f.toward.z-f.obj.position.z; var dd=Math.sqrt(tx*tx+ty*ty+tz*tz)||1; var sp=f.towardSpd*dt; f.obj.position.x+=tx/dd*sp; f.obj.position.y+=ty/dd*sp; f.obj.position.z+=tz/dd*sp; }
       }
     }
 
@@ -1822,10 +1841,10 @@
       orientCyl(thin, origin, dir, len);
       scene.add(thin);
       // 崩星咆哮炮：炮口充能球（蓄力时由小变大）
-      if (msg.kind === 'roar') {
+      if (msg.kind === 'roar') {   // 蓄力汇聚的"星核"：在前方 6 米成形(不在脸上)，由小变大
         var orb = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:msg.col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-        orb.position.copy(origin).addScaledVector(dir, 1.2); orb.scale.setScalar(0.5);
-        scene.add(orb); fx.push({ obj:orb, ttl:P.delay/1000, life:0, fade:false, expandFrom:0.5, expandTo:9, spin:2 });
+        orb.position.copy(origin).addScaledVector(dir, 6); orb.scale.setScalar(0.35);
+        scene.add(orb); fx.push({ obj:orb, ttl:P.delay/1000, life:0, fade:false, expandFrom:0.35, expandTo:2.7, spin:2 });
       }
       var beam = { bid:msg.bid, kind:msg.kind, owner:msg.owner, origin:origin, dir:dir, col:msg.col,
         thin:thin, thick:null, field:null, dots:null, muzzleOrb:null, len:len, thinR:thinR, radius:P.radius, persist:P.persist, weaponId:P.weaponId, dmg:P.dmg,
@@ -1875,7 +1894,7 @@
       }
     }
     function updateBeams(dt) {
-      var glow = 0;   // 玩家被激光笼罩时的"屏幕渐亮"强度
+      var glow = 0, chargeVig = 0;   // 屏幕渐亮 / 蓄力压暗角
       for (var i = beams.length - 1; i >= 0; i--) {
         var b = beams[i];
         if (!b.resolved && now() >= b.fireAt) {
@@ -1883,7 +1902,11 @@
           b.thick = addBeamCyl(b.col, Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光
           orientCyl(b.thick, b.origin, b.dir, b.len);
           if (b.radius > 4) { b.field = addBeamCyl(b.col, b.radius, b.len, 0.12); orientCyl(b.field, b.origin, b.dir, b.len); }  // 大范围淡光场(不白屏)
-          if (b.kind === 'roar') { plasmaBoom(); shake = Math.min(shake + 0.22, 0.26); spawnRoarBlast(b.origin, b.dir, b.col); } else deathSound();
+          if (b.kind === 'roar') {
+            b.whitecore = addBeamCyl(0xffffff, 0.95, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
+            b.corona = addBeamCyl(b.col, 4.6, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
+            plasmaBoom(); shake = Math.min(shake + 0.4, 0.45); spawnRoarBlast(b.origin, b.dir, b.col);
+          } else deathSound();
           if (b.isOwner && me.alive) resolveBeam(b);   // 死亡后不再造成伤害（修 bug）
         }
         if (b.resolved) {
@@ -1894,6 +1917,13 @@
           if (b.field) b.field.material.opacity = Math.max(0, 0.13 * k) * pulse;
           setBeamGlow(b, Math.max(0, 0.95 * k) * pulse, 1 + (1 - k) * 0.5);   // 发射：发光球最亮、随消散微微膨胀
           if (b.muzzleOrb) b.muzzleOrb.material.opacity = Math.max(0, 0.9 * k);
+          if (b.kind === 'roar' && !reduced) {   // 宇宙长枪：白核湍流明灭 + 沿线星屑飞溅 + 偶发电弧
+            var turb = 0.65 + 0.35 * Math.abs(Math.sin(now()*0.05) + 0.5*Math.sin(now()*0.013));
+            if (b.whitecore) { b.whitecore.material.opacity = Math.max(0, 0.95*k)*turb; var ws = 0.8 + 0.35*Math.abs(Math.sin(now()*0.04)); b.whitecore.scale.set(ws,1,ws); }
+            if (b.corona) b.corona.material.opacity = Math.max(0, 0.2*k)*pulse;
+            for (var sp = 0; sp < 2; sp++) { var pp = b.origin.clone().addScaledVector(b.dir, 3 + Math.random()*(ROAR_RADIUS*4)); spawnStarSpark(pp, b.dir, b.col); }
+            if (Math.random() < 0.4) { var p1 = b.origin.clone().addScaledVector(b.dir, 3 + Math.random()*55); spawnArc(p1, p1.clone().addScaledVector(b.dir, 2 + Math.random()*3), b.col); }
+          }
           // 玩家处于激光范围内：屏幕渐亮 + 粒子。自己发的炮不晃自己(发射者不被自己的光辉糊眼)。
           if (me.alive && !b.isOwner) {
             var dd = pointRayDist(playerPos, b.origin, b.dir);
@@ -1908,17 +1938,24 @@
           if (b.kind === 'roar') {     // 充能：轨迹由细变粗
             var sc = 1 + (b.radius / b.thinR - 1) * ch * 0.45;
             b.thin.scale.set(sc, 1, sc);
+            // 吸星塌缩：星尘汇聚成一颗"前方 6 米处"的星(不糊持枪者的脸)，越蓄越密；临界期爬电弧
+            var gather = b.origin.clone().addScaledVector(b.dir, 6);
+            var n = 1 + Math.floor(ch * 2);
+            for (var ip = 0; ip < n; ip++) spawnIntakeParticle(gather, b.dir, b.col, ch);
+            if (ch > 0.6 && Math.random() < (ch - 0.5)) { var aa = gather.clone().addScaledVector(b.dir, -0.8 - Math.random()*0.8); spawnArc(aa, gather.clone().addScaledVector(b.dir, (Math.random()-0.5)*1.4), b.col); }
+            if (b.isOwner) chargeVig = Math.max(chargeVig, ch * ch * 0.8);   // 力量汇聚的压暗角(给充能者，压边缘)
           }
           var flick = 0.5 + 0.5 * Math.abs(Math.sin(now() * 0.012));
           b.thin.material.opacity = (0.35 + 0.35 * ch) * flick;          // 蓄力闪烁
           setBeamGlow(b, (0.18 + 0.42 * ch) * flick, 0.4 + 0.6 * ch);    // 蓄力预警：枪线发光球渐亮渐大（提前看见弹道）
-          if (b.muzzleOrb) { b.muzzleOrb.material.opacity = (0.4 + 0.5 * ch) * flick; b.muzzleOrb.scale.setScalar(0.6 + 3.2 * ch); }
+          if (b.muzzleOrb) { var mo = (b.kind === 'roar') ? 0.6 : 1; b.muzzleOrb.material.opacity = (0.4 + 0.5 * ch) * flick * mo; b.muzzleOrb.scale.setScalar((b.kind === 'roar' ? (0.5 + 1.1 * ch) : (0.6 + 3.2 * ch))); }
         }
       }
       var bf = document.getElementById('beamflash'); if (bf) bf.style.opacity = glow.toFixed(2);
+      var cv = document.getElementById('chargevig'); if (cv) cv.style.opacity = chargeVig.toFixed(2);
     }
     function disposeBeam(b) {
-      [b.thin, b.thick, b.field].forEach(function (m) { if (m) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
+      [b.thin, b.thick, b.field, b.whitecore, b.corona].forEach(function (m) { if (m) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
       if (b.dots) b.dots.forEach(function (s) { scene.remove(s); s.material.dispose(); });
       if (b.muzzleOrb) { scene.remove(b.muzzleOrb); b.muzzleOrb.material.dispose(); }
     }
@@ -2244,10 +2281,45 @@
       }
     }
     // 崩星咆哮炮发射时的炮口爆闪 + 沿激光的能量环
+    // 崩星咆哮炮·吸星塌缩：星尘从四周被吸进炮口
+    var _rt = new THREE.Vector3(), _rr = new THREE.Vector3(), _ru = new THREE.Vector3();
+    function spawnIntakeParticle(muzzle, dir, col, ch) {
+      _rr.set(dir.z, 0, -dir.x); if (_rr.lengthSq() < 1e-6) _rr.set(1,0,0); _rr.normalize(); _ru.crossVectors(dir, _rr).normalize();
+      var ang = Math.random()*Math.PI*2, rad = (3.5 - ch*2.2) + Math.random()*2;        // 蓄满时吸得越来越近
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:(Math.random()<0.4?0xffffff:col), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      sp.position.copy(muzzle).addScaledVector(_rr, Math.cos(ang)*rad).addScaledVector(_ru, Math.sin(ang)*rad).addScaledVector(dir, (Math.random()-0.3)*2);
+      sp.scale.setScalar(0.12 + Math.random()*0.18); scene.add(sp);
+      fx.push({ obj:sp, ttl:0.34, life:0, fade:true, maxOp:0.85, toward:muzzle.clone(), towardSpd:9 + ch*8 });
+    }
+    function spawnStarSpark(pos, dir, col) {     // 炮线上向外飞溅的星屑
+      _rr.set(dir.z, 0, -dir.x).normalize(); _ru.crossVectors(dir, _rr).normalize();
+      var a = Math.random()*Math.PI*2, spd = 7 + Math.random()*12;
+      var s = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:(Math.random()<0.5?0xffffff:col), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      s.position.copy(pos); s.scale.setScalar(0.25 + Math.random()*0.4); scene.add(s);
+      var vx = (_rr.x*Math.cos(a)+_ru.x*Math.sin(a))*spd, vy = (_rr.y*Math.cos(a)+_ru.y*Math.sin(a))*spd, vz = (_rr.z*Math.cos(a)+_ru.z*Math.sin(a))*spd;
+      fx.push({ obj:s, ttl:0.4 + Math.random()*0.3, life:0, fade:true, maxOp:1, vel:{x:vx,y:vy,z:vz}, nograv:true });
+    }
+    function spawnArc(a, b2, col) {               // 一段电弧(几节抖动的细管)
+      var seg = 5, prev = a.clone();
+      for (var i = 1; i <= seg; i++) {
+        var t = i/seg, p = a.clone().lerp(b2, t);
+        if (i < seg) { p.x += (Math.random()-0.5)*0.5; p.y += (Math.random()-0.5)*0.5; p.z += (Math.random()-0.5)*0.5; }
+        var mid = prev.clone().add(p).multiplyScalar(0.5), L = prev.distanceTo(p);
+        var m = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, L, 5), addMat(Math.random()<0.5?0xffffff:col, 0.95));
+        m.position.copy(mid); m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), p.clone().sub(prev).normalize());
+        scene.add(m); fx.push({ obj:m, ttl:0.12, life:0, fade:true, maxOp:0.95 });
+        prev = p;
+      }
+    }
     function spawnRoarBlast(origin, dir, col) {
-      var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-      flash.position.copy(origin).addScaledVector(dir, 1.5); flash.scale.setScalar(ROAR_RADIUS*1.6);
-      scene.add(flash); fx.push({ obj:flash, ttl:0.4, life:0, fade:true, maxOp:1 });
+      // 超新星出膛：炮口闪(收小，不糊持枪者) + 贴地冲击波环 + 沿线扩张环
+      var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      flash.position.copy(origin).addScaledVector(dir, 4.0); flash.scale.setScalar(ROAR_RADIUS*0.9);
+      scene.add(flash); fx.push({ obj:flash, ttl:0.35, life:0, fade:true, maxOp:0.95, expandFrom:ROAR_RADIUS*0.9, expandTo:ROAR_RADIUS*1.6 });
+      // 贴地冲击波(在炮口正下方地面扩张)
+      var ground = new THREE.Mesh(new THREE.TorusGeometry(ROAR_RADIUS*1.4, 0.6, 10, 80), addMat(0xffffff, 0.9));
+      ground.rotation.x = -Math.PI/2; ground.position.set(origin.x, 0.15, origin.z); ground.scale.setScalar(0.05);
+      scene.add(ground); fx.push({ obj:ground, ttl:0.7, life:0, fade:true, maxOp:0.9, expandFrom:0.05, expandTo:1, ease:true });
       if (!reduced) for (var i = 0; i < 6; i++) {
         var ring = new THREE.Mesh(new THREE.TorusGeometry(ROAR_RADIUS, 0.9, 10, 64), addMat(i%2?0xffffff:col, 0.85));
         ring.position.copy(origin).addScaledVector(dir, 5 + i*7);
@@ -3095,6 +3167,15 @@
           gunCharge.scale.setScalar((0.03 + charging * charging * 0.18) * fl);    // 收小，避免糊持炮者的眼
           gunCharge.material.opacity = Math.min(0.6, 0.28 + charging * 0.35);
         } else if (gunCharge.visible) { gunCharge.visible = false; }
+      }
+      // 崩星咆哮炮弹巢小星：自转轨道环 + 脉动；蓄力时转得越来越快、星越来越亮(白热)
+      if (roarOrbit) {
+        var spin = 1 + charging * 9, tt = now();
+        roarOrbit.r1.rotation.z += dt * spin * 1.6; roarOrbit.r1.rotation.x = 1.2 + Math.sin(tt*0.002)*0.3;
+        roarOrbit.r2.rotation.z -= dt * spin * 2.1; roarOrbit.r2.rotation.y = 1.0 + Math.cos(tt*0.0023)*0.3;
+        var puls = 1 + 0.18*Math.sin(tt*(0.01 + charging*0.05)) + charging*0.6;
+        roarOrbit.star.scale.setScalar(puls);
+        roarOrbit.star.material.emissiveIntensity = 1.6 + charging * 3.5;   // 蓄力白热
       }
 
       // 枪口闪光到时收起
