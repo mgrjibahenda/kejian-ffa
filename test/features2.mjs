@@ -141,7 +141,7 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   check('青龙偃月刀→挥砍锁定', (await ev(page, ()=>window.__test.slamming()))===true, '');
   await sleep(1300);   // 等劈下结算
   const bh2 = await ev(page, ()=>window.__test.sentHits());
-  check('青龙偃月刀→圈内造成3000伤害', bh2.some(h=>h.to==='bx'&&h.dmg===3000&&h.weapon==='xian_blade'), JSON.stringify(bh2));
+  check('青龙偃月刀→圈内造成5000伤害', bh2.some(h=>h.to==='bx'&&h.dmg===5000&&h.weapon==='xian_blade'), JSON.stringify(bh2));
   // 清理：移除靶子、复位玩家位置（青龙刀突进会移动玩家，避免影响后续用例）
   await ev(page, ()=>{ window.__test.drop(); window.__test.recv({type:'leave',from:'rx'}); window.__test.recv({type:'leave',from:'bx'}); window.__test.setPos(20, 0); });
   await sleep(120);

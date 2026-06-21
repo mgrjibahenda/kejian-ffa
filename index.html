@@ -477,7 +477,7 @@
       tsunami: { kind:'tsunami', id:'super_tsunami', name:'排山倒海手', dmg:0,    rpm:20,   mag:1,   auto:false, spread:0,     pellets:1, range:60,   reload:0, kick:0.08,  col:0x2ec5ff, zoom:0.9,  isSuper:true },
       // ===== 仙器（远超超级武器的特效；10% 概率刷出，67 工具也能解锁）=====
       roar:    { kind:'roar',  id:'xian_roar',  name:'崩星咆哮炮',   dmg:10000, rpm:18, mag:5,  auto:false, spread:0, pellets:1, range:9999, reload:0, kick:0.06, col:0xff4dd8, zoom:0.75, isSuper:true, isXian:true },
-      blade:   { kind:'blade', id:'xian_blade', name:'青龙偃月刀',   dmg:3000,  rpm:60, mag:1,  auto:false, spread:0, pellets:1, range:12,   reload:0, kick:0.0,  col:0x33ff88, zoom:1.0,  isSuper:true, isXian:true, melee:true },
+      blade:   { kind:'blade', id:'xian_blade', name:'青龙偃月刀',   dmg:5000,  rpm:60, mag:1,  auto:false, spread:0, pellets:1, range:12,   reload:0, kick:0.0,  col:0x33ff88, zoom:1.0,  isSuper:true, isXian:true, melee:true },
       // ===== 机甲：捡到→第6格→左键穿上(不可脱)，移速-30%，巨大模型，自带武器 =====
       mecha:    { kind:'mecha',    id:'super_mecha',   name:'超级机甲', dmg:100, rpm:48, mag:15, auto:false, spread:0.012, pellets:1, range:130, reload:0, kick:0.05, col:0xff9a3c, zoom:0.98, isSuper:true, isMecha:true, hp:1000,  speedMul:0.5, lift:1.7 },
       godmecha: { kind:'godmecha', id:'xian_godmecha', name:'终焉机神', dmg:120, rpm:90, mag:50, auto:true,  spread:0.012, pellets:1, range:180, reload:0, kick:0.05, col:0xff2d6e, zoom:0.98, isSuper:true, isXian:true, isMecha:true, hp:10000, speedMul:0.5, lift:3.3 }
@@ -595,15 +595,15 @@
       renderer.outputEncoding = THREE.sRGBEncoding;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.22;
-      renderer.physicallyCorrectLights = true;
+      renderer.physicallyCorrectLights = false;   // 与最初版一致(物理光照会让同样强度暗很多)
       renderer.shadowMap.enabled = false;   // 极简：移除光影(阴影)
       gameRoot.appendChild(renderer.domElement);
       try { document.getElementById('dotWebgl').className = 'dot ok'; } catch (e) {}
 
-      // 极简平光：均匀天光 + 一束柔和方向光(不投影)，没有戏剧性光影
-      var hemi = new THREE.HemisphereLight(0xcfe0f5, 0x404652, 1.25);
+      // 还原最初的平光：与第一版完全一致的天光 + 方向光，颜色观感回到当时
+      var hemi = new THREE.HemisphereLight(0xbfe3ff, 0x2a3340, 0.95);
       scene.add(hemi);
-      var key = new THREE.DirectionalLight(0xffffff, 0.6);
+      var key = new THREE.DirectionalLight(0xffffff, 0.65);
       key.position.set(20, 40, 12); scene.add(key);
 
       buildMap('basic');
@@ -1074,6 +1074,22 @@
       scene.add(sp);
       fx.push({ obj:sp, ttl:ttl, life:0, fade:true, grow:true });
     }
+    // 命中飘字：在敌人头顶上方升起并淡出的伤害数字
+    function spawnDamageNumber(x, y, z, dmg, big) {
+      var cv = document.createElement('canvas'); cv.width = 160; cv.height = 72;
+      var c = cv.getContext('2d');
+      c.font = 'bold ' + (big ? 56 : 42) + 'px system-ui, "Microsoft YaHei", sans-serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      var txt = String(dmg);
+      c.lineWidth = 7; c.strokeStyle = 'rgba(0,0,0,.9)'; c.strokeText(txt, 80, 38);
+      c.fillStyle = big ? '#ffd34d' : '#ffffff'; c.fillText(txt, 80, 38);
+      var tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false, depthWrite:false }));
+      sp.position.set(x + (Math.random()-0.5)*0.6, y, z);
+      sp.scale.set(big ? 1.5 : 1.0, big ? 0.68 : 0.45, 1); sp.renderOrder = 12;
+      scene.add(sp);
+      fx.push({ obj:sp, ttl:0.85, life:0, fade:true, maxOp:1, rise:1.7, ownMap:true });
+    }
     function updateFx(dt) {
       for (var i = fx.length - 1; i >= 0; i--) {
         var f = fx[i]; f.life += dt;
@@ -1081,6 +1097,7 @@
         if (k >= 1) {
           scene.remove(f.obj);
           if (f.obj.geometry) f.obj.geometry.dispose();
+          if (f.ownMap && f.obj.material && f.obj.material.map) f.obj.material.map.dispose();   // 飘字独有贴图才销毁(别动共享 glowTex)
           if (f.obj.material) f.obj.material.dispose();
           fx.splice(i, 1); continue;
         }
@@ -1343,6 +1360,7 @@
       // 鼠标视角（仅在指针锁定时）。开镜时降低灵敏度，方便精瞄。
       document.addEventListener('mousemove', function (e) {
         if (document.pointerLockElement !== canvas) return;
+        if (now() < chargeUntil) return;   // 打炮蓄力中：视角也不能转动
         var mxv = e.movementX || 0, myv = e.movementY || 0;
         var effSens = SENS * (1 - adsAmt * 0.5);
         yaw   -= mxv * effSens;
@@ -1432,13 +1450,26 @@
       '  s += texture2D(tDiffuse, vUv - o2).rgb * 0.0702702703;',
       '  gl_FragColor = vec4(s, 1.0); }'
     ].join('\n');
+    // 合成 + FXAA 抗锯齿（修"边缘粗糙/锐化"）。输出走线性(与最初版一致)，颜色观感回到当时。
     var COMP_FS = [
-      'varying vec2 vUv; uniform sampler2D tScene; uniform sampler2D tBloom; uniform float strength; uniform float exposure;',
-      'vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }',
-      'void main(){ vec3 c = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * strength;',
-      '  c = aces(c * exposure);',
-      '  c = pow(c, vec3(1.0/2.2));',
-      '  gl_FragColor = vec4(c, 1.0); }'
+      'varying vec2 vUv; uniform sampler2D tScene; uniform sampler2D tBloom; uniform float strength; uniform float exposure; uniform vec2 texel;',
+      'vec3 fin(vec2 uv){ vec3 c = texture2D(tScene,uv).rgb + texture2D(tBloom,uv).rgb*strength; return clamp(c*exposure, 0.0, 1.0); }',
+      'float lum(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }',
+      'void main(){',
+      '  vec3 cM = fin(vUv); float lM = lum(cM);',
+      '  float lNW=lum(fin(vUv+vec2(-texel.x,-texel.y))), lNE=lum(fin(vUv+vec2(texel.x,-texel.y)));',
+      '  float lSW=lum(fin(vUv+vec2(-texel.x, texel.y))), lSE=lum(fin(vUv+vec2(texel.x, texel.y)));',
+      '  float lMin=min(lM,min(min(lNW,lNE),min(lSW,lSE))), lMax=max(lM,max(max(lNW,lNE),max(lSW,lSE)));',
+      '  if (lMax-lMin < 0.05) { gl_FragColor=vec4(cM,1.0); return; }',
+      '  vec2 dir=vec2(-((lNW+lNE)-(lSW+lSE)), ((lNW+lSW)-(lNE+lSE)));',
+      '  float red=max((lNW+lNE+lSW+lSE)*0.03125, 0.0008);',
+      '  float rcp=1.0/(min(abs(dir.x),abs(dir.y))+red);',
+      '  dir=clamp(dir*rcp, -8.0, 8.0)*texel;',
+      '  vec3 a=0.5*(fin(vUv+dir*(-0.1667))+fin(vUv+dir*0.1667));',
+      '  vec3 b=a*0.5+0.25*(fin(vUv+dir*(-0.5))+fin(vUv+dir*0.5));',
+      '  float lB=lum(b);',
+      '  gl_FragColor=vec4((lB<lMin||lB>lMax)?a:b, 1.0);',
+      '}'
     ].join('\n');
     var bloom = null;
     function initBloom() {
@@ -1456,7 +1487,7 @@
           fs: fs, fc: fc, quad: quad, hw: hw, hh: hh,
           bright: new THREE.ShaderMaterial({ uniforms:{ tDiffuse:{value:null}, threshold:{value:0.85}, soft:{value:0.45} }, vertexShader:BLOOM_VS, fragmentShader:BRIGHT_FS, depthTest:false, depthWrite:false }),
           blur:   new THREE.ShaderMaterial({ uniforms:{ tDiffuse:{value:null}, dir:{value:new THREE.Vector2()} }, vertexShader:BLOOM_VS, fragmentShader:BLUR_FS, depthTest:false, depthWrite:false }),
-          comp:   new THREE.ShaderMaterial({ uniforms:{ tScene:{value:null}, tBloom:{value:null}, strength:{value:0.95}, exposure:{value:1.12} }, vertexShader:BLOOM_VS, fragmentShader:COMP_FS, depthTest:false, depthWrite:false })
+          comp:   new THREE.ShaderMaterial({ uniforms:{ tScene:{value:null}, tBloom:{value:null}, strength:{value:0.95}, exposure:{value:1.0}, texel:{value:new THREE.Vector2(1/window.innerWidth, 1/window.innerHeight)} }, vertexShader:BLOOM_VS, fragmentShader:COMP_FS, depthTest:false, depthWrite:false })
         };
       } catch (e) { if (window.console) console.warn('bloom 初始化失败，回退直接渲染', e); bloom = null; }
     }
@@ -1479,7 +1510,7 @@
         bloom.blur.uniforms.tDiffuse.value = dst.texture; bloom.blur.uniforms.dir.value.set(0, (1.5 + i) / bloom.hh); fsPass(bloom.blur, src);
       }
       bloom.comp.uniforms.tScene.value = bloom.rtScene.texture; bloom.comp.uniforms.tBloom.value = src.texture;
-      bloom.comp.uniforms.exposure.value = renderer.toneMappingExposure;
+      bloom.comp.uniforms.texel.value.set(1 / window.innerWidth, 1 / window.innerHeight);
       renderer.setRenderTarget(null); bloom.quad.material = bloom.comp; renderer.render(bloom.fs, bloom.fc);   // 合成到屏幕
     }
 
@@ -1806,8 +1837,8 @@
           if (b.field) b.field.material.opacity = Math.max(0, 0.13 * k) * pulse;
           setBeamGlow(b, Math.max(0, 0.95 * k) * pulse, 1 + (1 - k) * 0.5);   // 发射：发光球最亮、随消散微微膨胀
           if (b.muzzleOrb) b.muzzleOrb.material.opacity = Math.max(0, 0.9 * k);
-          // 玩家处于激光范围内：不是白屏挡视线，而是屏幕渐亮 + 粒子飞舞 + 仍看得见轨迹
-          if (me.alive) {
+          // 玩家处于激光范围内：屏幕渐亮 + 粒子。自己发的炮不晃自己(发射者不被自己的光辉糊眼)。
+          if (me.alive && !b.isOwner) {
             var dd = pointRayDist(playerPos, b.origin, b.dir);
             if (dd >= 0 && dd < b.radius + 1.2) {
               glow = Math.max(glow, (1 - dd / (b.radius + 1.2)) * Math.min(1, k * 1.4) * 0.82);
@@ -2038,7 +2069,7 @@
       slamImpactDone = true;
       var burst = burstSlam; burstSlam = false;
       if (!me.alive) return;   // 死亡后这一刀不再生效（修"死后还能造成伤害"）
-      var R = burst ? BURST_KILL_R : BLADE_KILL_R, dmg = burst ? 80 : SUPERS.blade.dmg;
+      var R = burst ? BURST_KILL_R : BLADE_KILL_R, dmg = burst ? 1000 : SUPERS.blade.dmg;
       var wid = burst ? 'xian_godmecha' : 'xian_blade', col = burst ? SUPERS.godmecha.col : SUPERS.blade.col;
       camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize();
       var ix = playerPos.x + _bf.x * 3, iz = playerPos.z + _bf.z * 3;
@@ -2092,7 +2123,11 @@
           var r = remotes[id]; if (!r.alive) continue;
           var dx = r.group.position.x - p.x, dy = (r.group.position.y + 1.0) - p.y, dz = r.group.position.z - p.z;
           var d = Math.sqrt(dx*dx + dy*dy + dz*dz);
-          if (d < R) sendHit(id, Math.max(1, Math.round(g.dmg * (1 - (d/R)*0.6))), g.big ? 'xian_godmecha' : 'super_mecha', false);
+          if (d < R) {
+            var dmg = g.dmg * (1 - (d/R)*0.6);
+            if (g.big && r.mecha) dmg *= 10;   // 熔炮对机甲 ×10
+            sendHit(id, Math.max(1, Math.round(dmg)), g.big ? 'xian_godmecha' : 'super_mecha', false);
+          }
         }
       }
       var dme = playerPos.distanceTo(p); if (dme < R*2.2) shake = Math.min(shake + 0.35*(1 - dme/(R*2.2)), 0.45);
@@ -2559,6 +2594,7 @@
     function sendHit(victimId, dmg, weaponId, head) {
       if (TEST) lastSentHits.push({ to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
       var dr = remotes[victimId];
+      if (dr) { var gp = dr.group.position; spawnDamageNumber(gp.x, gp.y + (dr.mecha ? 2.8 : 2.0), gp.z, dmg, dmg >= 200); }   // 头顶飘伤害数字
       if (dr && dr.isDummy) { hitDummy(dr, dmg); return; }   // 假人：本地结算，不联机
       netSend({ type:'hit', from:me.id, to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
     }
@@ -2584,11 +2620,8 @@
     function hitDummy(r, dmg) {
       if (!r.alive) return;
       r.hp = Math.max(0, r.hp - dmg); r.labelDirty = true; r.lastSeen = now();
-      if (r.hp <= 0) {
-        r.alive = false; deathSound(); showHitmarker(false);
-        var rid = r.id;
-        setTimeout(function () { var rr = remotes[rid]; if (rr) { rr.hp = rr.dummyMax; rr.alive = true; rr.labelDirty = true; } }, 2500);   // 2.5s 复活满血
-      } else hitSound();
+      if (r.hp <= 0) { r.alive = false; deathSound(); showHitmarker(false); }   // 假人死了不复活(倒地)
+      else hitSound();
     }
 
     // 约 18Hz 广播自身状态（99 = 持超级武器）
@@ -3002,8 +3035,8 @@
         if (charging > 0) {
           gunCharge.visible = true; gunCharge.material.color.setHex(chargeCol);
           var fl = 0.82 + 0.18 * Math.sin(now() * 0.05);
-          gunCharge.scale.setScalar((0.035 + charging * charging * 0.33) * fl);   // 适度，蓄满也不糊屏
-          gunCharge.material.opacity = Math.min(0.85, 0.35 + charging * 0.5);
+          gunCharge.scale.setScalar((0.03 + charging * charging * 0.18) * fl);    // 收小，避免糊持炮者的眼
+          gunCharge.material.opacity = Math.min(0.6, 0.28 + charging * 0.35);
         } else if (gunCharge.visible) { gunCharge.visible = false; }
       }
 
