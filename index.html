@@ -1134,6 +1134,18 @@
       t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
       return t;
     })();
+    // 炮线能量流动纹理：竖向亮条 + 噪点，沿炮线滚动 → 能量在洪流般奔涌
+    var beamFlowTex = (function () {
+      var cv = document.createElement('canvas'); cv.width = 64; cv.height = 256;
+      var g = cv.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0,0,64,256);
+      for (var i = 0; i < 30; i++) { var x = Math.random()*64, w = 1+Math.random()*5, a = 0.3+Math.random()*0.7;
+        var grd = g.createLinearGradient(x,0,x+w,0); grd.addColorStop(0,'rgba(255,255,255,0)'); grd.addColorStop(0.5,'rgba(255,255,255,'+a+')'); grd.addColorStop(1,'rgba(255,255,255,0)');
+        g.fillStyle = grd; g.fillRect(x,0,w,256); }
+      for (var n = 0; n < 1400; n++) { g.fillStyle = 'rgba(255,255,255,'+(Math.random()*0.5)+')'; g.fillRect(Math.random()*64, Math.random()*256, 1, 1+Math.random()*4); }
+      var t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 60);
+      t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+      return t;
+    })();
 
     function spawnTracer(from, to, colorHex) {
       var geo = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
@@ -1304,6 +1316,38 @@
       var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2200;
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.4, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.5);
       src.connect(bp); bp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.6);
+    }
+    // 崩星咆哮炮·专属：塌缩低鸣(频率/Q 渐紧→收束→留半拍死寂)
+    function roarChargeSound(durMs) {
+      if (!actx || muted) return; var t = actx.currentTime, d = Math.max(0.3, durMs/1000), tight = t + d*0.9;
+      var src = actx.createBufferSource(); src.buffer = noiseBuffer(d + 0.05);
+      var bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(120, t); bp.frequency.exponentialRampToValueAtTime(950, tight);
+      bp.Q.setValueAtTime(2, t); bp.Q.exponentialRampToValueAtTime(18, tight);
+      var g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, tight); g.gain.exponentialRampToValueAtTime(0.0001, tight + 0.05);
+      src.connect(bp); bp.connect(g); g.connect(masterGain); src.start(t); src.stop(t + d);
+      var o = actx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(40, t); o.frequency.exponentialRampToValueAtTime(190, tight);
+      var g2 = actx.createGain(); g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(0.5, tight); g2.gain.exponentialRampToValueAtTime(0.0001, tight + 0.04);
+      o.connect(g2); g2.connect(masterGain); o.start(t); o.stop(tight + 0.06);
+    }
+    // 崩星咆哮炮·专属：雷霆轰出 + 持续咆哮余韵
+    function roarBlastSound() {
+      if (!actx || muted) return; var t = actx.currentTime;
+      var sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(95, t); sub.frequency.exponentialRampToValueAtTime(28, t+0.7);
+      var sg = actx.createGain(); sg.gain.setValueAtTime(0.85, t); sg.gain.exponentialRampToValueAtTime(0.001, t+0.85);
+      sub.connect(sg); sg.connect(masterGain); sub.start(t); sub.stop(t+0.9);
+      var b1 = actx.createBufferSource(); b1.buffer = noiseBuffer(1.2);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.setValueAtTime(1900, t); lp.frequency.exponentialRampToValueAtTime(320, t+1.0);
+      var g1 = actx.createGain(); g1.gain.setValueAtTime(0.9, t); g1.gain.exponentialRampToValueAtTime(0.001, t+1.1);
+      b1.connect(lp); lp.connect(g1); g1.connect(masterGain); b1.start(t); b1.stop(t+1.2);
+      var b2 = actx.createBufferSource(); b2.buffer = noiseBuffer(1.2);
+      var bp2 = actx.createBiquadFilter(); bp2.type='bandpass'; bp2.frequency.value=460; bp2.Q.value=1.1;
+      var g3 = actx.createGain(); g3.gain.setValueAtTime(0.0001, t); g3.gain.exponentialRampToValueAtTime(0.5, t+0.08); g3.gain.exponentialRampToValueAtTime(0.001, t+1.1);
+      b2.connect(bp2); bp2.connect(g3); g3.connect(masterGain); b2.start(t); b2.stop(t+1.2);
+      var c = actx.createBufferSource(); c.buffer = noiseBuffer(0.05);
+      var hp = actx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=4200;
+      var gc = actx.createGain(); gc.gain.setValueAtTime(0.7, t); gc.gain.exponentialRampToValueAtTime(0.001, t+0.05);
+      c.connect(hp); hp.connect(gc); gc.connect(masterGain); c.start(t); c.stop(t+0.06);
     }
     // 蓄力音效：上升能量啸鸣(噪声经谐振带通由低扫到高) + 低频蓄力嗡鸣，随蓄力时长渐强 → 发射瞬间被爆轰盖过
     function chargeSound(durMs, big) {
@@ -1828,7 +1872,7 @@
       netSend(msg);       // 广播：所有人都看到这条轨迹
       var delay = beamParams(kind).delay;          // 视角武器充能动画 + 充能音效
       chargeStart = now(); chargeUntil = now() + delay; chargeCol = w.col;
-      chargeSound(delay, kind === 'roar');
+      if (kind === 'roar') roarChargeSound(delay); else chargeSound(delay, false);
     }
     function spawnBeam(msg) {
       var origin = new THREE.Vector3(msg.x, msg.y, msg.z);
@@ -1841,13 +1885,14 @@
       orientCyl(thin, origin, dir, len);
       scene.add(thin);
       // 崩星咆哮炮：炮口充能球（蓄力时由小变大）
-      if (msg.kind === 'roar') {   // 蓄力汇聚的"星核"：在前方 6 米成形(不在脸上)，由小变大
-        var orb = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:msg.col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-        orb.position.copy(origin).addScaledVector(dir, 6); orb.scale.setScalar(0.35);
-        scene.add(orb); fx.push({ obj:orb, ttl:P.delay/1000, life:0, fade:false, expandFrom:0.35, expandTo:2.7, spin:2 });
+      var roarOrb = null;
+      if (msg.kind === 'roar') {   // 蓄力汇聚的"星核"：在前方 6 米成形(不在脸上)，先长大后塌缩成点
+        roarOrb = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:msg.col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+        roarOrb.position.copy(origin).addScaledVector(dir, 6); roarOrb.scale.setScalar(0.35);
+        scene.add(roarOrb);
       }
       var beam = { bid:msg.bid, kind:msg.kind, owner:msg.owner, origin:origin, dir:dir, col:msg.col,
-        thin:thin, thick:null, field:null, dots:null, muzzleOrb:null, len:len, thinR:thinR, radius:P.radius, persist:P.persist, weaponId:P.weaponId, dmg:P.dmg,
+        thin:thin, thick:null, field:null, dots:null, muzzleOrb:null, starOrb:roarOrb, len:len, thinR:thinR, radius:P.radius, persist:P.persist, weaponId:P.weaponId, dmg:P.dmg,
         spawnAt:now(), fireAt:now() + P.delay, resolved:false, deadAt:0, isOwner:(msg.owner === me.id) };
       buildBeamGlows(beam);   // 沿枪线的发光球：广告牌永远朝向相机 → 正对枪线也看得见弹道
       beams.push(beam);
@@ -1905,7 +1950,10 @@
           if (b.kind === 'roar') {
             b.whitecore = addBeamCyl(0xffffff, 0.95, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
             b.corona = addBeamCyl(b.col, 4.6, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
-            plasmaBoom(); shake = Math.min(shake + 0.4, 0.45); spawnRoarBlast(b.origin, b.dir, b.col);
+            b.flow = addBeamCyl(b.col, 2.5, b.len, 0.55); b.flow.material.map = beamFlowTex; b.flow.material.needsUpdate = true; orientCyl(b.flow, b.origin, b.dir, b.len);   // 滚动能量流
+            roarBlastSound(); shake = Math.min(shake + 0.4, 0.45); spawnRoarBlast(b.origin, b.dir, b.col);
+            roarTerminal(b.origin, b.dir, b.col);   // 落点：爆团 + 灼痕
+            if (b.starOrb) { scene.remove(b.starOrb); b.starOrb.material.dispose(); b.starOrb = null; }   // 星核塌缩完→轰出
           } else deathSound();
           if (b.isOwner && me.alive) resolveBeam(b);   // 死亡后不再造成伤害（修 bug）
         }
@@ -1917,10 +1965,11 @@
           if (b.field) b.field.material.opacity = Math.max(0, 0.13 * k) * pulse;
           setBeamGlow(b, Math.max(0, 0.95 * k) * pulse, 1 + (1 - k) * 0.5);   // 发射：发光球最亮、随消散微微膨胀
           if (b.muzzleOrb) b.muzzleOrb.material.opacity = Math.max(0, 0.9 * k);
-          if (b.kind === 'roar' && !reduced) {   // 宇宙长枪：白核湍流明灭 + 沿线星屑飞溅 + 偶发电弧
+          if (b.kind === 'roar' && !reduced) {   // 宇宙长枪：白核湍流明灭 + 能量流动 + 沿线星屑飞溅 + 偶发电弧
             var turb = 0.65 + 0.35 * Math.abs(Math.sin(now()*0.05) + 0.5*Math.sin(now()*0.013));
             if (b.whitecore) { b.whitecore.material.opacity = Math.max(0, 0.95*k)*turb; var ws = 0.8 + 0.35*Math.abs(Math.sin(now()*0.04)); b.whitecore.scale.set(ws,1,ws); }
             if (b.corona) b.corona.material.opacity = Math.max(0, 0.2*k)*pulse;
+            if (b.flow) { beamFlowTex.offset.y -= dt * 3.2; b.flow.material.opacity = Math.max(0, 0.55*k)*turb; }   // 能量沿炮线奔涌
             for (var sp = 0; sp < 2; sp++) { var pp = b.origin.clone().addScaledVector(b.dir, 3 + Math.random()*(ROAR_RADIUS*4)); spawnStarSpark(pp, b.dir, b.col); }
             if (Math.random() < 0.4) { var p1 = b.origin.clone().addScaledVector(b.dir, 3 + Math.random()*55); spawnArc(p1, p1.clone().addScaledVector(b.dir, 2 + Math.random()*3), b.col); }
           }
@@ -1938,12 +1987,18 @@
           if (b.kind === 'roar') {     // 充能：轨迹由细变粗
             var sc = 1 + (b.radius / b.thinR - 1) * ch * 0.45;
             b.thin.scale.set(sc, 1, sc);
-            // 吸星塌缩：星尘汇聚成一颗"前方 6 米处"的星(不糊持枪者的脸)，越蓄越密；临界期爬电弧
+            // 吸星塌缩：星尘汇聚成前方 6 米的星；最后 0.12 段星核急速塌缩成点 + 屏幕压到近黑(死寂前奏)
             var gather = b.origin.clone().addScaledVector(b.dir, 6);
-            var n = 1 + Math.floor(ch * 2);
-            for (var ip = 0; ip < n; ip++) spawnIntakeParticle(gather, b.dir, b.col, ch);
+            var collapse = ch >= 0.88, cp = collapse ? (ch - 0.88) / 0.12 : 0;
+            if (b.starOrb) {
+              var os = collapse ? (2.75 * (1 - cp) + 0.12) : (0.35 + (ch / 0.88) * 2.4);   // 长大 → 塌缩成点
+              b.starOrb.scale.setScalar(os * (1 + 0.08 * Math.sin(now()*0.03)));
+              b.starOrb.material.opacity = collapse ? 1 : (0.7 + ch * 0.3);
+              b.starOrb.material.rotation += dt * (2 + cp * 12);
+            }
+            if (!collapse) { var n = 1 + Math.floor(ch * 2); for (var ip = 0; ip < n; ip++) spawnIntakeParticle(gather, b.dir, b.col, ch); }   // 塌缩期都吸完了，不再吸
             if (ch > 0.6 && Math.random() < (ch - 0.5)) { var aa = gather.clone().addScaledVector(b.dir, -0.8 - Math.random()*0.8); spawnArc(aa, gather.clone().addScaledVector(b.dir, (Math.random()-0.5)*1.4), b.col); }
-            if (b.isOwner) chargeVig = Math.max(chargeVig, ch * ch * 0.8);   // 力量汇聚的压暗角(给充能者，压边缘)
+            if (b.isOwner) chargeVig = Math.max(chargeVig, collapse ? (0.55 + cp * 0.4) : ch * ch * 0.55);   // 塌缩瞬间压到近黑
           }
           var flick = 0.5 + 0.5 * Math.abs(Math.sin(now() * 0.012));
           b.thin.material.opacity = (0.35 + 0.35 * ch) * flick;          // 蓄力闪烁
@@ -1955,9 +2010,26 @@
       var cv = document.getElementById('chargevig'); if (cv) cv.style.opacity = chargeVig.toFixed(2);
     }
     function disposeBeam(b) {
-      [b.thin, b.thick, b.field, b.whitecore, b.corona].forEach(function (m) { if (m) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
+      [b.thin, b.thick, b.field, b.whitecore, b.corona, b.flow].forEach(function (m) { if (m) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); } });
       if (b.dots) b.dots.forEach(function (s) { scene.remove(s); s.material.dispose(); });
       if (b.muzzleOrb) { scene.remove(b.muzzleOrb); b.muzzleOrb.material.dispose(); }
+      if (b.starOrb) { scene.remove(b.starOrb); b.starOrb.material.dispose(); }
+    }
+    // 崩星咆哮炮落点：射线打到墙/掩体处 → 爆团 + 扩张环 + 反向溅星 + 渐淡灼痕
+    function roarTerminal(origin, dir, col) {
+      _ray.set(origin, dir); _ray.far = 400;
+      var hits = _ray.intersectObjects(worldSolids, false);
+      if (!hits.length) return;
+      var pt = hits[0].point;
+      var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      flash.position.copy(pt); flash.scale.setScalar(6); scene.add(flash); fx.push({ obj:flash, ttl:0.4, life:0, fade:true, maxOp:1, expandFrom:6, expandTo:11 });
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(4, 0.5, 10, 48), addMat(col, 0.9));
+      ring.position.copy(pt).addScaledVector(dir, -0.2); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+      ring.scale.setScalar(0.1); scene.add(ring); fx.push({ obj:ring, ttl:0.55, life:0, fade:true, maxOp:0.9, expandFrom:0.1, expandTo:1, ease:true });
+      if (!reduced) for (var s = 0; s < 14; s++) spawnStarSpark(pt, dir.clone().negate(), col);
+      var scorch = new THREE.Mesh(new THREE.CircleGeometry(3, 24), new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.7, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
+      scorch.position.copy(pt).addScaledVector(dir, -0.06); scorch.lookAt(pt.clone().sub(dir));   // 贴在命中面、朝向来路
+      scene.add(scorch); fx.push({ obj:scorch, ttl:1.6, life:0, fade:true, maxOp:0.7 });
     }
     // 找出在无限激光圆柱内的远端玩家（按距离排序）
     function beamTargets(origin, dir, radius) {
@@ -3170,12 +3242,14 @@
       }
       // 崩星咆哮炮弹巢小星：自转轨道环 + 脉动；蓄力时转得越来越快、星越来越亮(白热)
       if (roarOrbit) {
-        var spin = 1 + charging * 9, tt = now();
+        var rcol = charging > 0.88, rcp = rcol ? (charging - 0.88) / 0.12 : 0;   // 塌缩段：环收紧、星缩亮
+        var spin = 1 + charging * 9 + rcp * 22, tt = now();
         roarOrbit.r1.rotation.z += dt * spin * 1.6; roarOrbit.r1.rotation.x = 1.2 + Math.sin(tt*0.002)*0.3;
         roarOrbit.r2.rotation.z -= dt * spin * 2.1; roarOrbit.r2.rotation.y = 1.0 + Math.cos(tt*0.0023)*0.3;
-        var puls = 1 + 0.18*Math.sin(tt*(0.01 + charging*0.05)) + charging*0.6;
-        roarOrbit.star.scale.setScalar(puls);
-        roarOrbit.star.material.emissiveIntensity = 1.6 + charging * 3.5;   // 蓄力白热
+        var rs = 1 - rcp * 0.75; roarOrbit.r1.scale.setScalar(rs); roarOrbit.r2.scale.setScalar(rs);
+        var puls = (1 + 0.18*Math.sin(tt*(0.01 + charging*0.05)) + charging*0.6) * (1 - rcp*0.55);
+        roarOrbit.star.scale.setScalar(Math.max(0.25, puls));
+        roarOrbit.star.material.emissiveIntensity = 1.6 + charging * 3.5 + rcp * 4;   // 蓄力白热、塌缩更亮
       }
 
       // 枪口闪光到时收起
