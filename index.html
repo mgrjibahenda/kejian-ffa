@@ -1383,36 +1383,29 @@
       var g2 = actx.createGain(); g2.gain.setValueAtTime(0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.4);
       src.connect(lp); lp.connect(g2); g2.connect(masterGain); src.start(t); src.stop(t+0.42);
     }
-    // 青龙偃月刀·落地龙吟：以"带共振峰的噪声怒吼"为主角(像张口兽吼)，锯齿只做被过滤的低吼底，
-    // 慢颤(5Hz)而非快抖(去掉之前那种放屁/突突声)，再加一记干净的落地沉雷。
+    // 青龙偃月刀·落地：干净有力的巨刃劈地声(低频轰 + 下沉冲击 + 金属铿鸣 + 起手脆裂)，不带任何"吼/抖"。
     var roarSfxN = 0;
-    function bladeRoarSound() {
+    function bladeSlamSound() {
       roarSfxN++;
       if (!actx || muted) return; var t = actx.currentTime;
-      // 1) 主角：怒吼气声 —— 噪声经两道共振峰带通，张口般先扬后落
-      var n = actx.createBufferSource(); n.buffer = noiseBuffer(1.3);
-      var fa = actx.createBiquadFilter(); fa.type = 'bandpass'; fa.Q.value = 2.5;
-      fa.frequency.setValueAtTime(550, t); fa.frequency.exponentialRampToValueAtTime(1400, t + 0.22); fa.frequency.exponentialRampToValueAtTime(420, t + 1.05);
-      var fb = actx.createBiquadFilter(); fb.type = 'bandpass'; fb.Q.value = 4;
-      fb.frequency.setValueAtTime(1600, t); fb.frequency.exponentialRampToValueAtTime(2600, t + 0.25); fb.frequency.exponentialRampToValueAtTime(900, t + 1.0);
-      var ng = actx.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(0.7, t + 0.1); ng.gain.setValueAtTime(0.7, t + 0.55); ng.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-      n.connect(fa); fa.connect(ng); n.connect(fb); fb.connect(ng); ng.connect(masterGain); n.start(t); n.stop(t + 1.3);
-      // 2) 低吼底：锯齿基音，慢颤(5Hz)有生命感，经共振峰过滤掉蜂鸣/突突
-      var o = actx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(105, t); o.frequency.linearRampToValueAtTime(140, t + 0.2); o.frequency.exponentialRampToValueAtTime(72, t + 1.05);
-      var vib = actx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.5;
-      var vg = actx.createGain(); vg.gain.value = 5; vib.connect(vg); vg.connect(o.frequency); vib.start(t); vib.stop(t + 1.2);
-      var of = actx.createBiquadFilter(); of.type = 'bandpass'; of.frequency.value = 700; of.Q.value = 3.5;
-      var og = actx.createGain(); og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.4, t + 0.08); og.gain.setValueAtTime(0.4, t + 0.6); og.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
-      o.connect(of); of.connect(og); og.connect(masterGain); o.start(t); o.stop(t + 1.2);
-      // 3) 落地沉雷：一记干净的低频冲击(不抖)
-      var sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(72, t); sub.frequency.exponentialRampToValueAtTime(34, t + 0.5);
-      var sg = actx.createGain(); sg.gain.setValueAtTime(0.85, t); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-      sub.connect(sg); sg.connect(masterGain); sub.start(t); sub.stop(t + 0.65);
-      // 4) 起始撕裂脆响
+      // 落地巨响(低通噪声爆)
+      var b = actx.createBufferSource(); b.buffer = noiseBuffer(0.7);
+      var lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(1500, t); lp.frequency.exponentialRampToValueAtTime(120, t + 0.5);
+      var bg = actx.createGain(); bg.gain.setValueAtTime(0.95, t); bg.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+      b.connect(lp); lp.connect(bg); bg.connect(masterGain); b.start(t); b.stop(t + 0.7);
+      // 低频下沉冲击
+      var sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(95, t); sub.frequency.exponentialRampToValueAtTime(34, t + 0.5);
+      var sg = actx.createGain(); sg.gain.setValueAtTime(0.85, t); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+      sub.connect(sg); sg.connect(masterGain); sub.start(t); sub.stop(t + 0.6);
+      // 金属铿鸣(高 Q 共振，刀刃入地)
+      var ring = actx.createBufferSource(); ring.buffer = noiseBuffer(0.45);
+      var rf = actx.createBiquadFilter(); rf.type = 'bandpass'; rf.frequency.value = 2400; rf.Q.value = 14;
+      var rg = actx.createGain(); rg.gain.setValueAtTime(0.4, t); rg.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      ring.connect(rf); rf.connect(rg); rg.connect(masterGain); ring.start(t); ring.stop(t + 0.45);
+      // 起手撕裂脆响
       var c = actx.createBufferSource(); c.buffer = noiseBuffer(0.06);
       var hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3600;
-      var cg = actx.createGain(); cg.gain.setValueAtTime(0.4, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      var cg = actx.createGain(); cg.gain.setValueAtTime(0.45, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
       c.connect(hp); hp.connect(cg); cg.connect(masterGain); c.start(t); c.stop(t + 0.07);
     }
     function mechaStompSound() {  // 穿上机甲/重踏：超低频砸地 + 金属铿锵
@@ -2284,7 +2277,7 @@
     function spawnSlam(msg) {          // 视觉 + 视角地震（命中由发动者用 hit 上报）
       spawnSlamFx(msg.x, msg.z, msg.col, msg.r || BLADE_KILL_R);
       shake = Math.min(shake + (reduced ? 0 : 0.34), 0.4);
-      if (msg.dragon) { spawnDragon(msg.x, msg.z, msg.col); bladeRoarSound(); } else bladeBoom();   // 青龙偃月刀召唤灵龙+龙吟；爆地用地裂声
+      if (msg.dragon) { spawnDragon(msg.x, msg.z, msg.col); bladeSlamSound(); } else bladeBoom();   // 青龙偃月刀召唤灵龙+巨刃劈地声；爆地用地裂声
     }
     function addMat(color, op) { return new THREE.MeshBasicMaterial({ color:color, transparent:true, opacity:op, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }); }
     // ---- 机甲榴弹：抛物线飞行 → 落地/超时爆炸 → AoE 伤害(中心满，边缘衰减) + 爆炸特效 ----
