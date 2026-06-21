@@ -28,7 +28,7 @@ const results=[]; const check=(l,p,e='')=>{ results.push(p); console.log(`[${p?'
 
   await page.goto(url, { waitUntil:'load' });
   await page.waitForFunction(()=>window.__booted===true,{timeout:5000});
-  await page.fill('#nameInput','我'); await page.fill('#roomInput','demo'); await page.click('#joinBtn');
+  await page.fill('#nameInput','我'); await page.evaluate(()=>window.__test.join('demo'));
   await page.waitForFunction(()=>window.__test&&window.__test.joined(),{timeout:5000});
   // 放两个小人 + 切步枪
   await page.evaluate(()=>{ window.__test.recv({type:'state',from:'a',name:'小红',color:0xf72585,x:8,y:1.6,z:-6,yaw:1,pitch:0,weapon:0,hp:70,alive:true,kills:2,deaths:1});

@@ -29,7 +29,7 @@ const results=[]; const check=(l,p,e='')=>{ results.push(p); console.log(`[${p?'
 
   await page.goto(`http://127.0.0.1:${port}/index.html?test=1`, { waitUntil:'load' });
   await page.waitForFunction(()=>window.__booted===true,{timeout:5000});
-  await page.fill('#nameInput','我'); await page.fill('#roomInput','demo'); await page.click('#joinBtn');
+  await page.fill('#nameInput','我'); await page.evaluate(()=>window.__test.join('demo'));
   await page.waitForFunction(()=>window.__test&&window.__test.joined(),{timeout:5000});
 
   // ---------- 1a) 普通武器开镜(步枪)：放大 + 保留准星 + 不显示狙击镜 + 枪不挡屏(仍可见但下沉) ----------

@@ -65,6 +65,24 @@
   #joinBtn:hover{ filter:brightness(1.06); }
   #joinBtn:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
   #joinBtn:disabled{ filter:grayscale(.6) brightness(.8); cursor:not-allowed; }
+  /* 创建/加入房间 UI */
+  .bigbtn{ flex:1; padding:12px 14px; font-size:16px; font-weight:600; color:#04222e;
+    background:linear-gradient(180deg,#5fd6ff,#22b6f0); border:0; border-radius:10px; cursor:pointer; }
+  .bigbtn:hover{ filter:brightness(1.07); }
+  .bigbtn.ghost{ color:var(--text); background:#162230; border:1px solid var(--line); }
+  .row2{ display:flex; gap:10px; margin-top:14px; }
+  #menu label{ display:block; margin-top:14px; margin-bottom:6px; font-size:13px; color:var(--muted); }
+  .seg{ display:flex; flex-wrap:wrap; gap:8px; }
+  .seg button{ flex:1 1 46%; padding:9px 10px; text-align:left; border-radius:9px; cursor:pointer;
+    border:1px solid var(--line); background:#0e151d; color:var(--text); font-size:13px; line-height:1.25; }
+  .seg button small{ display:block; color:var(--muted); font-size:11px; margin-top:2px; }
+  .seg button:hover{ border-color:var(--accent); }
+  .seg button.sel{ border-color:var(--accent2); background:rgba(255,210,74,.14); color:#ffe08a; }
+  .seg button.sel small{ color:#d9c277; }
+  .codebox{ margin-top:14px; padding:12px; border:1px dashed var(--accent2); border-radius:10px; text-align:center;
+    font-size:14px; color:var(--muted); }
+  .codebox span{ display:block; font-size:34px; font-weight:800; letter-spacing:6px; color:#ffe08a; font-family:ui-monospace,monospace; }
+  .codebox small{ display:block; margin-top:4px; font-size:11px; }
   .libstatus{ margin-top:16px; font-size:12px; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap; }
   .libstatus span{ display:inline-flex; align-items:center; gap:6px; }
   .dot{ width:9px; height:9px; border-radius:50%; background:var(--muted); }
@@ -292,13 +310,35 @@
   <div id="menu">
     <div class="card panel">
       <h1>课间枪战 · FFA</h1>
-      <div class="sub">填一样的房间号 = 进同一局 · 桌面键鼠</div>
+      <div class="sub">创建房间拿房间码，发给同学一起进 · 桌面键鼠</div>
 
-      <form id="joinForm">
-        <label for="nameInput">你的名字</label>
-        <input id="nameInput" maxlength="14" autocomplete="off" placeholder="例如：小明" />
-        <label for="roomInput">房间号</label>
-        <input id="roomInput" maxlength="20" autocomplete="off" placeholder="例如：3班-101" />
+      <label for="nameInput">你的名字</label>
+      <input id="nameInput" maxlength="14" autocomplete="off" placeholder="例如：小明" />
+
+      <!-- 入口：创建 / 加入 -->
+      <div id="menuHome" class="row2">
+        <button id="createBtn" type="button" class="bigbtn">创建房间</button>
+        <button id="joinModeBtn" type="button" class="bigbtn ghost">加入房间</button>
+      </div>
+
+      <!-- 加入面板 -->
+      <div id="joinPanel" hidden>
+        <label for="codeInput">房间码（3 位数字）</label>
+        <input id="codeInput" maxlength="3" inputmode="numeric" autocomplete="off" placeholder="例如：427" />
+        <div class="row2"><button id="doJoinBtn" type="button" class="bigbtn">加入</button><button type="button" class="bigbtn ghost backBtn">返回</button></div>
+      </div>
+
+      <!-- 创建面板（房主：房间码 + 模式 + 地图 + 开始） -->
+      <div id="createPanel" hidden>
+        <div class="codebox">房间码 <span id="roomCodeShow">—</span><small>发给同学一起进</small></div>
+        <label>模式</label><div id="modeSel" class="seg"></div>
+        <label>地图</label><div id="mapSel" class="seg"></div>
+        <div class="row2"><button id="startBtn" type="button" class="bigbtn">开始</button><button type="button" class="bigbtn ghost backBtn">返回</button></div>
+      </div>
+
+      <!-- 测试/快速加入后门（隐藏，自测脚本用） -->
+      <form id="joinForm" style="display:none">
+        <input id="roomInput" maxlength="20" autocomplete="off" />
         <button id="joinBtn" type="submit">进入战场</button>
       </form>
 
@@ -313,7 +353,7 @@
         <kbd>1</kbd>–<kbd>5</kbd>/<kbd>滚轮</kbd> 换枪 · <kbd>R</kbd> 换弹 ·
         <kbd>Shift</kbd> 冲刺 · <kbd>空格</kbd> 跳 · <kbd>Tab</kbd> 积分板 ·
         <kbd>Esc</kbd> 松开鼠标 · <kbd>M</kbd> 静音<br>
-        <span style="color:#8aa;">打头伤害翻倍 · 每 30 秒地图刷新一把 <b style="color:#66ffff;">超级武器</b>（射速极快、100 发，捡到即用）</span>
+        <span style="color:#8aa;">打头伤害翻倍 · 房主选模式决定 <b style="color:#66ffff;">超级武器</b> 刷新（捡到即用，死亡失去）· 5% 概率出 <b style="color:#ff8ae0;">仙器</b></span>
       </div>
     </div>
   </div>
@@ -2124,6 +2164,7 @@
         clientConns[conn.peer] = conn;
         // 主机向新成员通报自己，并把当前已知玩家快照发过去（让新人立刻看到所有人）
         conn.send({ type:'hello', from:me.id, name:me.name, color:me.colorHex });
+        conn.send({ type:'setup', mode:roomMode, map:roomMap });   // 同步房主选的模式+地图
         for (var id in remotes) {
           var r = remotes[id];
           conn.send({ type:'hello', from:id, name:r.name, color:r.color });
@@ -2219,6 +2260,13 @@
           ensureRemote(msg.from, msg.name, msg.color);
           if (!scores[msg.from]) scores[msg.from] = { name:msg.name||'???', kills:0, deaths:0, color:msg.color };
           updateScoreboard();
+          break;
+        case 'setup':   // 房主同步模式 + 地图（加入者切到同一张图并重新出生）
+          if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
+          if (msg.map && msg.map !== roomMap) {
+            roomMap = msg.map;
+            if (joined) { buildMap(roomMap); playerPos.copy(randomSpawn()); }
+          }
           break;
         case 'state': {
           var r = ensureRemote(msg.from, msg.name, msg.color);
@@ -2423,11 +2471,58 @@
       spawnTimer = setTimeout(hostSpawnLoop, iv || 5000);   // 基础模式 iv=0：5s 空转(不刷)；模式不变则恒定
     }
 
-    function doJoin() {
+    // 主菜单：创建/加入房间 + 房主选模式/地图
+    var selMode = 'normal', selMap = 'basic';
+    function _seg(containerId, list, get, set) {
+      var c = document.getElementById(containerId); if (!c) return; c.innerHTML = '';
+      list.forEach(function (it) {
+        var btn = document.createElement('button'); btn.type = 'button';
+        btn.innerHTML = esc(it.name) + (it.desc ? '<small>' + esc(it.desc) + '</small>' : '');
+        if (it.id === get()) btn.className = 'sel';
+        btn.addEventListener('click', function () {
+          set(it.id);
+          Array.prototype.forEach.call(c.children, function (b) { b.classList.remove('sel'); });
+          btn.classList.add('sel');
+        });
+        c.appendChild(btn);
+      });
+    }
+    function _show(id, on) { var e = document.getElementById(id); if (e) e.hidden = !on; }
+    function _home() { _show('menuHome', true); _show('createPanel', false); _show('joinPanel', false); }
+    function wireMenu() {
+      document.getElementById('createBtn').addEventListener('click', function () {
+        selMode = 'normal'; selMap = 'basic';
+        document.getElementById('roomCodeShow').textContent = String(Math.floor(Math.random()*900 + 100));
+        _seg('modeSel', MODE_LIST, function(){ return selMode; }, function(v){ selMode = v; });
+        _seg('mapSel', MAP_LIST, function(){ return selMap; }, function(v){ selMap = v; });
+        _show('menuHome', false); _show('createPanel', true); _show('joinPanel', false);
+      });
+      document.getElementById('joinModeBtn').addEventListener('click', function () {
+        _show('menuHome', false); _show('joinPanel', true); _show('createPanel', false);
+        document.getElementById('codeInput').focus();
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.backBtn'), function (b) { b.addEventListener('click', _home); });
+      document.getElementById('startBtn').addEventListener('click', function () {
+        if (joined) return; roomMode = selMode; roomMap = selMap;
+        doJoin(document.getElementById('roomCodeShow').textContent);
+      });
+      document.getElementById('doJoinBtn').addEventListener('click', function () {
+        if (joined) return;
+        var code = (document.getElementById('codeInput').value || '').replace(/\D/g, '').slice(0, 3);
+        if (!code) { document.getElementById('codeInput').focus(); return; }
+        doJoin(code);
+      });
+      document.getElementById('codeInput').addEventListener('keydown', function (e) { if (e.code === 'Enter') document.getElementById('doJoinBtn').click(); });
+      // 隐藏后门表单（自测/快速加入）
+      document.getElementById('joinForm').addEventListener('submit', function (e) { e.preventDefault(); if (!joined) doJoin(); });
+    }
+
+    function doJoin(room) {
       var name = (document.getElementById('nameInput').value || '').trim().slice(0, 14) || ('玩家' + Math.floor(Math.random()*900+100));
-      var room = (document.getElementById('roomInput').value || '').trim() || 'lobby';
+      room = (room || (document.getElementById('roomInput').value || '').trim() || 'lobby');
       me.name = name;
       joined = true;
+      buildMap(roomMap);          // 按所选地图构建(房主已设；加入者先 basic，收到 setup 再重建)
       playerPos.copy(randomSpawn());
       if (TEST) { playerPos.set(20, EYE, 0); yaw = 0; pitch = 0; }  // 固定出生点，便于自测移动方向
       ensureAudio();
@@ -2798,9 +2893,7 @@
       try {
         initThree();
         bindInput();
-        document.getElementById('joinForm').addEventListener('submit', function (e) {
-          e.preventDefault(); if (!joined) doJoin();
-        });
+        wireMenu();
         // 暴露少量调试信息
         window.__game = { THREE:THREE, get remotes() { return remotes; }, me:me, isHostNow:function(){return isHost;} };
         // 自测钩子（仅 ?test=1 时存在）：让 headless 脚本能驱动并断言"单机能跑动能开枪"
@@ -2852,6 +2945,7 @@
           setPos3:function(x,y,z){ playerPos.set(x,y,z); vy = 0; }, surfaceAt:function(x,z){ return highestSurfaceAt(x,z); },
           playerY:function(){ return playerPos.y; }, grounded:function(){ return grounded; },
           setMode:function(m){ roomMode = m; }, spawnCount:function(){ return spawnCountThisTick(); },
+          join:function(room){ if (!joined) doJoin(room || 'demo'); },
           superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; }
         };
         animate();

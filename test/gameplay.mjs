@@ -61,8 +61,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   // 进入战场
   await page.fill('#nameInput', '自测机器人');
-  await page.fill('#roomInput', 'smoke-room');
-  await page.click('#joinBtn');
+  await page.evaluate(()=>window.__test.join('smoke-room'));
   await page.waitForFunction(() => window.__test && window.__test.joined() === true, { timeout:5000 });
   check('进入战场 (joined)', true);
   const notPaused = await page.evaluate(() => window.__test.paused() === false);
