@@ -7877,16 +7877,33 @@
     }
     function makeTsunamiMesh() {
       var g = new THREE.Group();
-      var waterMat = new THREE.MeshLambertMaterial({ color:0x1f7fd6, emissive:0x0a3a66, emissiveIntensity:0.5,
-        transparent:true, opacity:0.72 });
-      var foamMat = new THREE.MeshLambertMaterial({ color:0xcdeeff, emissive:0x6fb8e6, emissiveIntensity:0.5 });
-      // 主浪墙（宽 X、高 Y、薄 Z），向前微微卷曲
-      g.add(new THREE.Mesh(new THREE.BoxGeometry(TSU_HALFW*2, TSU_H, 1.6), waterMat));   // 居中，y 在下面整体抬起
-      var crest = new THREE.Mesh(new THREE.BoxGeometry(TSU_HALFW*2, 0.7, 2.4), foamMat);
-      crest.position.set(0, TSU_H/2, -0.5); g.add(crest);
-      var lip = new THREE.Mesh(new THREE.BoxGeometry(TSU_HALFW*2, 1.4, 1.0), waterMat);
-      lip.position.set(0, TSU_H/2 - 0.2, -1.0); lip.rotation.x = -0.5; g.add(lip);
-      g.position.y = TSU_H/2;   // 浪底贴地
+      var waterMat = new THREE.MeshLambertMaterial({ color:0x1f7fd6, emissive:0x0a3a66, emissiveIntensity:0.55, transparent:true, opacity:0.8 });
+      var deepMat  = new THREE.MeshLambertMaterial({ color:0x14589e, emissive:0x06243f, emissiveIntensity:0.4, transparent:true, opacity:0.9 });
+      var foamMat  = new THREE.MeshLambertMaterial({ color:0xeaf8ff, emissive:0x9fd6f2, emissiveIntensity:0.7 });
+      var W = TSU_HALFW * 2, H = TSU_H;
+      // 主浪体：下厚(深蓝) + 上层(向前倾)
+      var base = new THREE.Mesh(new THREE.BoxGeometry(W, H, 2.4), deepMat); base.position.set(0, 0, 0.3); g.add(base);
+      var body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.92, 1.5), waterMat); body.position.set(0, H * 0.12, -0.35); body.rotation.x = -0.13; g.add(body);
+      // 卷曲浪头(半开圆筒，向前翻卷)
+      var curl = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, W, 18, 1, true, 0, Math.PI * 1.25), waterMat);
+      curl.rotation.z = Math.PI / 2; curl.position.set(0, H * 0.5, -1.0); g.add(curl);
+      // 浪面竖向水纹(深色细条)
+      for (var i = 0; i < 11; i++) {
+        var streak = new THREE.Mesh(new THREE.BoxGeometry(0.18, H * 0.8, 0.1), deepMat);
+        streak.position.set(-W / 2 + 0.6 + i * (W - 1.2) / 10 + Math.sin(i) * 0.2, 0, -0.55); g.add(streak);
+      }
+      // 浪顶白沫(一排起伏的球)
+      for (var c = 0; c < 17; c++) {
+        var fs = 0.45 + (c % 3) * 0.18;
+        var foam = new THREE.Mesh(new THREE.SphereGeometry(fs, 8, 6), foamMat);
+        foam.position.set(-W / 2 + 0.5 + c * (W - 1) / 16, H * 0.5 + Math.sin(c * 0.9) * 0.28, -1.0); g.add(foam);
+      }
+      // 飞溅水沫(浪头上方零散小球)
+      for (var s = 0; s < 24; s++) {
+        var sp = new THREE.Mesh(new THREE.SphereGeometry(0.12 + Math.random() * 0.22, 6, 5), foamMat);
+        sp.position.set(-W / 2 + Math.random() * W, H * 0.5 + 0.3 + Math.random() * 1.1, -1.3 + Math.random() * 0.9); g.add(sp);
+      }
+      g.position.y = H / 2;   // 浪底贴地
       return g;
     }
     function spawnTsunami(msg) {
