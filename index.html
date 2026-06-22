@@ -1484,6 +1484,2602 @@
     if (!MAP_LIST.some(function (m) { return m.id === 'cybercity'; })) MAP_LIST.push({ id:'cybercity', name:'赛博废城·雨夜霓虹' });
 
 
+
+        // ===== town prop set 0 =====
+    // ============================================================================
+    //  垃圾与杂物 builder 函数集 (小城镇脏乱街道核心)
+    //  约定: 每个 makeXxx(mats, opts) 返回一个 THREE.Group, 底部坐 y=0, 居中 x=z=0,
+    //        正面朝 +Z; 只引用传入的 mats.* 调色板键; ES5; 不 scene.add / 不 mAdd.
+    //  小工具: 内部用 _tcMesh 拼几何 (castShadow/receiveShadow 默认开).
+    // ============================================================================
+
+    // 内部图元工具: 建一个 mesh 并设阴影 (不入场景)
+    function _tcMesh(geo, mat, x, y, z) {
+      var m = new THREE.Mesh(geo, mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      m.castShadow = true; m.receiveShadow = true;
+      return m;
+    }
+    // 伪随机 (基于种子, 让同物体每次形态一致但物体间各异)
+    function _tcRand(s) { var x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+    // ----------------------------------------------------------------------------
+    // 金属垃圾桶: 微锥桶身 + 几道竖棱 + 顶圈 + 半开盖 + 提手 + 露出的垃圾/袋子 + 凹痕片
+    // opts: { color: 漆色键(默认 metalGray), dented: true, lit:false }
+    // ----------------------------------------------------------------------------
+    function makeTrashCanMetal(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = opts.color ? mats[opts.color] : mats.metalGray;
+      if (!body) body = mats.metalGray;
+      var R = 0.34, H = 1.05;
+      // 桶身 (上宽下窄微锥)
+      var bodyMesh = _tcMesh(new THREE.CylinderGeometry(R, R * 0.86, H, 20), body, 0, H * 0.5, 0);
+      g.add(bodyMesh);
+      // 底
+      g.add(_tcMesh(new THREE.CylinderGeometry(R * 0.86, R * 0.84, 0.04, 18), mats.metalDark, 0, 0.02, 0));
+      // 顶圈 (加厚环)
+      g.add(_tcMesh(new THREE.TorusGeometry(R + 0.005, 0.035, 8, 22), mats.metalDark, 0, H, 0));
+      // 几道竖棱 (加强筋)
+      var ribN = 6, i;
+      for (i = 0; i < ribN; i++) {
+        var a = (i / ribN) * Math.PI * 2;
+        var rib = _tcMesh(new THREE.BoxGeometry(0.025, H * 0.82, 0.02), mats.metalDark,
+          Math.cos(a) * (R + 0.01), H * 0.5, Math.sin(a) * (R + 0.01));
+        rib.rotation.y = -a;
+        g.add(rib);
+      }
+      // 中部三道横纹环
+      for (i = 0; i < 3; i++) {
+        g.add(_tcMesh(new THREE.TorusGeometry(R + 0.002, 0.012, 6, 20), mats.rust, 0, H * (0.28 + i * 0.22), 0));
+      }
+      // 半开盖 (斜搭在顶, 露出口子)
+      var lid = _tcMesh(new THREE.CylinderGeometry(R + 0.04, R + 0.04, 0.06, 20), body, 0.05, H + 0.16, -0.03);
+      lid.rotation.z = 0.32;
+      g.add(lid);
+      // 盖钮
+      g.add(_tcMesh(new THREE.SphereGeometry(0.05, 10, 8), mats.metalGray, 0.18, H + 0.24, -0.03));
+      // 露出的垃圾袋 (鼓胀, 从口探出)
+      var bag = _tcMesh(new THREE.SphereGeometry(0.22, 10, 8), mats.plasticBlack, -0.08, H + 0.06, 0.05);
+      bag.scale.set(1, 0.7, 1);
+      g.add(bag);
+      // 露出的杂垃圾 (几块)
+      g.add(_tcMesh(new THREE.BoxGeometry(0.16, 0.1, 0.12), mats.cardboard, 0.1, H + 0.04, 0.08));
+      var pap = _tcMesh(new THREE.PlaneGeometry(0.18, 0.14), mats.paper, -0.02, H + 0.12, 0.14);
+      pap.rotation.set(-0.5, 0.4, 0.2); pap.material.side = THREE.DoubleSide;
+      g.add(pap);
+      // 提手 (两侧)
+      g.add(_tcMesh(new THREE.TorusGeometry(0.06, 0.014, 6, 12, Math.PI), mats.metalGray, R + 0.02, H * 0.6, 0));
+      var h2 = _tcMesh(new THREE.TorusGeometry(0.06, 0.014, 6, 12, Math.PI), mats.metalGray, -(R + 0.02), H * 0.6, 0);
+      h2.rotation.y = Math.PI;
+      g.add(h2);
+      // 凹痕暗片 (rust 贴片表现锈/凹)
+      if (opts.dented !== false) {
+        var d1 = _tcMesh(new THREE.CircleGeometry(0.09, 8), mats.rust, R * 0.93, H * 0.4, 0.0);
+        d1.rotation.y = -Math.PI / 2; d1.material.side = THREE.DoubleSide;
+        g.add(d1);
+        var d2 = _tcMesh(new THREE.CircleGeometry(0.07, 7), mats.rust, -R * 0.6, H * 0.65, R * 0.6);
+        d2.lookAt(-1, H * 0.65, 1); d2.material.side = THREE.DoubleSide;
+        g.add(d2);
+      }
+      return g;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 塑料带轮垃圾桶 (市政款): 桶身 + 铰接顶盖 + 后侧两轮 + 顶部把手 + 侧标贴
+    // opts: { color: plasticGreen/plasticBlue/plasticBlack (默认 plasticGreen) }
+    // ----------------------------------------------------------------------------
+    function makeTrashCanPlastic(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = opts.color ? mats[opts.color] : mats.plasticGreen;
+      if (!body) body = mats.plasticGreen;
+      var W = 0.58, D = 0.5, H = 1.12;
+      // 桶身 (上略宽的方桶, 用微缩底)
+      var bodyMesh = _tcMesh(new THREE.BoxGeometry(W, H, D), body, 0, H * 0.5, 0);
+      g.add(bodyMesh);
+      // 底缘加厚
+      g.add(_tcMesh(new THREE.BoxGeometry(W * 0.92, 0.06, D * 0.9), mats.plasticBlack, 0, 0.03, 0));
+      // 竖向加强凹槽 (前面三道)
+      var i;
+      for (i = 0; i < 3; i++) {
+        g.add(_tcMesh(new THREE.BoxGeometry(0.05, H * 0.78, 0.02), mats.plasticBlack,
+          (i - 1) * 0.18, H * 0.5, D * 0.5 + 0.005));
+      }
+      // 铰接顶盖 (微掀)
+      var lid = _tcMesh(new THREE.BoxGeometry(W + 0.04, 0.07, D + 0.04), body, 0, H + 0.04, -0.02);
+      lid.rotation.x = -0.18;
+      g.add(lid);
+      // 盖前缘把手凸
+      g.add(_tcMesh(new THREE.BoxGeometry(W * 0.5, 0.05, 0.05), mats.plasticBlack, 0, H + 0.07, D * 0.5));
+      // 顶部推拉横把手
+      g.add(_tcMesh(new THREE.CylinderGeometry(0.025, 0.025, W * 0.86, 10), mats.plasticBlack, 0, H + 0.02, -D * 0.5 - 0.02).rotateZ ? _tcMesh(new THREE.CylinderGeometry(0.025, 0.025, W * 0.86, 10), mats.plasticBlack, 0, H + 0.02, -D * 0.5 - 0.02) : _tcMesh(new THREE.CylinderGeometry(0.025, 0.025, W * 0.86, 10), mats.plasticBlack, 0, H + 0.02, -D * 0.5 - 0.02));
+      var bar = g.children[g.children.length - 1]; bar.rotation.z = Math.PI / 2;
+      // 后侧两轮
+      var wy = 0.16, wz = -D * 0.5 - 0.02;
+      var wL = _tcMesh(new THREE.CylinderGeometry(0.16, 0.16, 0.07, 14), mats.tire, -W * 0.4, wy, wz);
+      wL.rotation.z = Math.PI / 2; g.add(wL);
+      var wR = _tcMesh(new THREE.CylinderGeometry(0.16, 0.16, 0.07, 14), mats.tire, W * 0.4, wy, wz);
+      wR.rotation.z = Math.PI / 2; g.add(wR);
+      // 轮轴
+      g.add(_tcMesh(new THREE.CylinderGeometry(0.02, 0.02, W * 0.86, 8), mats.metalDark, 0, wy, wz).rotateZ ? (function () { var ax = _tcMesh(new THREE.CylinderGeometry(0.02, 0.02, W * 0.86, 8), mats.metalDark, 0, wy, wz); ax.rotation.z = Math.PI / 2; return ax; })() : g.children[0]);
+      // 侧标贴 (paintWhite 方块 + 脏)
+      var label = _tcMesh(new THREE.PlaneGeometry(0.26, 0.16), mats.paintWhite, 0, H * 0.62, D * 0.5 + 0.01);
+      label.material.side = THREE.DoubleSide; g.add(label);
+      g.add(_tcMesh(new THREE.PlaneGeometry(0.2, 0.04), mats.plasticBlack, 0, H * 0.62, D * 0.5 + 0.015));
+      return g;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 大铁皮垃圾箱 Dumpster: 斜顶大铁箱 + 双开盖 + 四角轮 + 侧面锈斑 + 溢出垃圾袋 + 侧标
+    // opts: { color: paintGreen/paintBlue/rust (默认 paintGreen), open: true }
+    // ----------------------------------------------------------------------------
+    function makeDumpster(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = opts.color ? mats[opts.color] : mats.paintGreen;
+      if (!body) body = mats.paintGreen;
+      var W = 1.9, D = 1.25, H = 1.25;
+      // 箱体 (前低后高的斜顶: 用上窄盒 + 斜补)
+      g.add(_tcMesh(new THREE.BoxGeometry(W, H, D), body, 0, H * 0.5, 0));
+      // 斜顶补块 (后高)
+      var slope = _tcMesh(new THREE.BoxGeometry(W, 0.06, D + 0.1), mats.metalDark, 0, H + 0.04, -0.04);
+      slope.rotation.x = -0.12; g.add(slope);
+      // 顶缘前后框
+      g.add(_tcMesh(new THREE.BoxGeometry(W + 0.06, 0.08, 0.08), mats.metalDark, 0, H, D * 0.5));
+      g.add(_tcMesh(new THREE.BoxGeometry(W + 0.06, 0.08, 0.08), mats.metalDark, 0, H + 0.13, -D * 0.5));
+      // 侧面竖楞 (波纹铁皮感, 多道)
+      var i, n = 9;
+      for (i = 0; i < n; i++) {
+        var px = -W * 0.5 + 0.12 + (i / (n - 1)) * (W - 0.24);
+        g.add(_tcMesh(new THREE.BoxGeometry(0.04, H * 0.8, 0.03), mats.metalDark, px, H * 0.5, D * 0.5 + 0.005));
+        g.add(_tcMesh(new THREE.BoxGeometry(0.04, H * 0.8, 0.03), mats.metalDark, px, H * 0.5, -D * 0.5 - 0.005));
+      }
+      // 双开顶盖 (塑料盖, 微开掀)
+      var lidMat = mats.plasticBlack;
+      var lidL = _tcMesh(new THREE.BoxGeometry(W * 0.48, 0.05, D * 0.92), lidMat, -W * 0.25, H + 0.18, 0.02);
+      var lidR = _tcMesh(new THREE.BoxGeometry(W * 0.48, 0.05, D * 0.92), lidMat, W * 0.25, H + 0.16, 0.02);
+      if (opts.open !== false) { lidL.rotation.x = -0.55; lidL.position.y += 0.18; lidL.position.z -= 0.18; }
+      g.add(lidL); g.add(lidR);
+      // 溢出的垃圾袋 (从开口探出几个鼓包)
+      var bag1 = _tcMesh(new THREE.SphereGeometry(0.3, 10, 8), mats.plasticBlack, -W * 0.18, H + 0.28, 0.12);
+      bag1.scale.set(1, 0.75, 1); g.add(bag1);
+      var bag2 = _tcMesh(new THREE.SphereGeometry(0.24, 9, 7), mats.plasticBlack, -W * 0.42, H + 0.2, 0.0);
+      bag2.scale.set(1, 0.8, 1); g.add(bag2);
+      g.add(_tcMesh(new THREE.BoxGeometry(0.3, 0.22, 0.26), mats.cardboard, W * 0.0, H + 0.22, -0.1));
+      var pap = _tcMesh(new THREE.PlaneGeometry(0.4, 0.3), mats.paper, W * 0.2, H + 0.2, 0.15);
+      pap.rotation.set(-0.6, 0.3, 0.1); pap.material.side = THREE.DoubleSide; g.add(pap);
+      // 四角小轮
+      var wy = 0.12, k;
+      var corners = [[-W * 0.4, D * 0.4], [W * 0.4, D * 0.4], [-W * 0.4, -D * 0.4], [W * 0.4, -D * 0.4]];
+      for (k = 0; k < 4; k++) {
+        var w = _tcMesh(new THREE.CylinderGeometry(0.12, 0.12, 0.08, 12), mats.tire, corners[k][0], wy, corners[k][1]);
+        w.rotation.x = Math.PI / 2; g.add(w);
+      }
+      // 侧面大锈斑 (rust 贴片)
+      var r1 = _tcMesh(new THREE.PlaneGeometry(0.5, 0.7), mats.rust, -W * 0.28, H * 0.45, D * 0.5 + 0.012);
+      r1.material.side = THREE.DoubleSide; g.add(r1);
+      var r2 = _tcMesh(new THREE.PlaneGeometry(0.35, 0.5), mats.rust, W * 0.35, H * 0.35, D * 0.5 + 0.012);
+      r2.material.side = THREE.DoubleSide; g.add(r2);
+      // 侧面编号标牌
+      var plate = _tcMesh(new THREE.PlaneGeometry(0.4, 0.22), mats.paintYellow, 0, H * 0.68, D * 0.5 + 0.013);
+      plate.material.side = THREE.DoubleSide; g.add(plate);
+      return g;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 鼓胀黑垃圾袋: 不规则球体扭一下, 顶部扎口, 底部坐地; 可成堆 (opts.pile)
+    // opts: { mat: plasticBlack(默认)/trashMix, seed:n, pile:false }
+    // ----------------------------------------------------------------------------
+    function makeGarbageBag(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var bm = opts.mat ? mats[opts.mat] : mats.plasticBlack;
+      if (!bm) bm = mats.plasticBlack;
+      var seed = opts.seed || 1;
+
+      function oneBag(cx, cz, s, sd) {
+        var bag = _tcMesh(new THREE.SphereGeometry(0.32 * s, 12, 10), bm, cx, 0.27 * s, cz);
+        // 鼓胀微变形
+        bag.scale.set(1.0 + (_tcRand(sd) - 0.5) * 0.3, 0.85 + _tcRand(sd + 1) * 0.2, 1.0 + (_tcRand(sd + 2) - 0.5) * 0.3);
+        bag.rotation.y = _tcRand(sd + 3) * Math.PI;
+        g.add(bag);
+        // 几个鼓包 (内容物顶起)
+        var b, bn = 3;
+        for (b = 0; b < bn; b++) {
+          var ba = (b / bn) * Math.PI * 2 + sd;
+          var lump = _tcMesh(new THREE.SphereGeometry(0.1 * s, 8, 6), bm,
+            cx + Math.cos(ba) * 0.18 * s, (0.32 + _tcRand(sd + b) * 0.12) * s, cz + Math.sin(ba) * 0.18 * s);
+          g.add(lump);
+        }
+        // 顶部扎口 (锥)
+        g.add(_tcMesh(new THREE.ConeGeometry(0.06 * s, 0.14 * s, 8), bm, cx, (0.5 + 0.06) * s, cz));
+      }
+
+      if (opts.pile) {
+        oneBag(0, 0, 1.0, seed);
+        oneBag(0.34, 0.1, 0.85, seed + 7);
+        oneBag(-0.28, 0.22, 0.9, seed + 13);
+        oneBag(0.1, -0.3, 0.78, seed + 19);
+        // 顶上压一个
+        var top = _tcMesh(new THREE.SphereGeometry(0.26, 10, 8), bm, 0.04, 0.62, 0.0);
+        top.scale.set(1.1, 0.8, 1); g.add(top);
+      } else {
+        oneBag(0, 0, 1.0, seed);
+      }
+      return g;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 垃圾堆: 纸箱 + 黑袋 + 瓶罐 + 木板 随意堆叠的一小堆 (脏乱视觉锚点)
+    // opts: { seed:n }
+    // ----------------------------------------------------------------------------
+    function makeTrashPile(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var sd = opts.seed || 1;
+      // 底层: 两个塌瘪纸箱
+      var box1 = _tcMesh(new THREE.BoxGeometry(0.5, 0.34, 0.42), mats.cardboard, -0.15, 0.17, 0.05);
+      box1.rotation.y = 0.2; g.add(box1);
+      var box2 = _tcMesh(new THREE.BoxGeometry(0.44, 0.28, 0.4), mats.cardboard, 0.25, 0.14, -0.12);
+      box2.rotation.y = -0.35; g.add(box2);
+      // 纸箱开盖翻片
+      var flap = _tcMesh(new THREE.PlaneGeometry(0.24, 0.22), mats.cardboard, -0.15, 0.36, 0.26);
+      flap.rotation.x = -1.1; flap.material.side = THREE.DoubleSide; g.add(flap);
+      // 中层黑袋
+      var bag = _tcMesh(new THREE.SphereGeometry(0.26, 10, 8), mats.plasticBlack, 0.05, 0.5, 0.0);
+      bag.scale.set(1.1, 0.85, 1); g.add(bag);
+      var bag2 = _tcMesh(new THREE.SphereGeometry(0.2, 9, 7), mats.plasticBlack, -0.3, 0.42, 0.18);
+      bag2.scale.set(1, 0.8, 1); g.add(bag2);
+      // 散落瓶子 (立/倒)
+      var bottle = _tcMesh(new THREE.CylinderGeometry(0.04, 0.05, 0.24, 10), mats.glass, 0.34, 0.46, 0.22);
+      bottle.rotation.z = 1.3; g.add(bottle);
+      g.add(_tcMesh(new THREE.CylinderGeometry(0.035, 0.045, 0.2, 10), mats.plasticGreen, -0.05, 0.74, 0.05));
+      // 易拉罐
+      var can = _tcMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.12, 12), mats.chrome, 0.42, 0.3, -0.18);
+      can.rotation.x = 1.4; g.add(can);
+      g.add(_tcMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.12, 12), mats.paintRed, -0.38, 0.3, -0.1));
+      // 斜插木板
+      var plank = _tcMesh(new THREE.BoxGeometry(0.06, 0.7, 0.12), mats.woodBrown, 0.18, 0.5, 0.25);
+      plank.rotation.set(0.4, 0.3, 0.5); g.add(plank);
+      // 顶上几张脏纸
+      var p, pn = 3;
+      for (p = 0; p < pn; p++) {
+        var pp = _tcMesh(new THREE.PlaneGeometry(0.2, 0.16), mats.paper,
+          (_tcRand(sd + p) - 0.5) * 0.5, 0.6 + p * 0.05, (_tcRand(sd + p + 9) - 0.5) * 0.4);
+        pp.rotation.set(-1.3 + _tcRand(sd + p) * 0.4, _tcRand(sd + p) * Math.PI, 0.2);
+        pp.material.side = THREE.DoubleSide; g.add(pp);
+      }
+      return g;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 地上散落垃圾场 (InstancedMesh): 在矩形区随机平铺纸片/易拉罐/瓶子/烟头
+    // 一次 draw call 出几百片; 返回含 4 个 InstancedMesh 的 Group.
+    // makeLitterField(mats, count, x0,z0, x1,z1)  count=总片数(默认 300)
+    // 注意: 返回 Group 的局部坐标即世界坐标区间 [x0..x1]x[z0..z1], 装配时直接 add 不再平移.
+    // ----------------------------------------------------------------------------
+    function makeLitterField(mats, count, x0, z0, x1, z1) {
+      count = count || 300;
+      if (x0 == null) { x0 = -1; z0 = -1; x1 = 1; z1 = 1; }
+      var g = new THREE.Group();
+      var dummy = new THREE.Object3D();
+      // 分配各类型数量
+      var nPaper = Math.floor(count * 0.4);
+      var nCan = Math.floor(count * 0.25);
+      var nBottle = Math.floor(count * 0.15);
+      var nButt = count - nPaper - nCan - nBottle; // 烟头补足
+
+      function rx() { return x0 + Math.random() * (x1 - x0); }
+      function rz() { return z0 + Math.random() * (z1 - z0); }
+
+      // 纸片 (薄平面, 贴地微旋)
+      var paperGeo = new THREE.PlaneGeometry(0.18, 0.14);
+      var paperIM = new THREE.InstancedMesh(paperGeo, mats.paper, nPaper);
+      paperIM.receiveShadow = true;
+      var i;
+      for (i = 0; i < nPaper; i++) {
+        dummy.position.set(rx(), 0.012 + Math.random() * 0.01, rz());
+        dummy.rotation.set(-Math.PI / 2 + (Math.random() - 0.5) * 0.3, 0, Math.random() * Math.PI * 2);
+        var ps = 0.6 + Math.random() * 0.9; dummy.scale.set(ps, ps, ps);
+        dummy.updateMatrix(); paperIM.setMatrixAt(i, dummy.matrix);
+      }
+      paperIM.instanceMatrix.needsUpdate = true;
+      if (paperIM.material) paperIM.material.side = THREE.DoubleSide;
+      g.add(paperIM);
+
+      // 易拉罐 (倒地小圆柱)
+      var canGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.11, 10);
+      var canIM = new THREE.InstancedMesh(canGeo, mats.chrome, nCan);
+      canIM.castShadow = true; canIM.receiveShadow = true;
+      for (i = 0; i < nCan; i++) {
+        dummy.position.set(rx(), 0.035, rz());
+        dummy.rotation.set(Math.PI / 2, Math.random() * Math.PI * 2, 0);
+        var cs = 0.85 + Math.random() * 0.4; dummy.scale.set(cs, cs, cs);
+        dummy.updateMatrix(); canIM.setMatrixAt(i, dummy.matrix);
+      }
+      canIM.instanceMatrix.needsUpdate = true;
+      g.add(canIM);
+
+      // 瓶子 (倒地细长圆柱)
+      var botGeo = new THREE.CylinderGeometry(0.035, 0.045, 0.22, 10);
+      var botIM = new THREE.InstancedMesh(botGeo, mats.glass, nBottle);
+      botIM.castShadow = true; botIM.receiveShadow = true;
+      for (i = 0; i < nBottle; i++) {
+        dummy.position.set(rx(), 0.04, rz());
+        dummy.rotation.set(Math.PI / 2, Math.random() * Math.PI * 2, 0);
+        var bs = 0.8 + Math.random() * 0.5; dummy.scale.set(bs, bs, bs);
+        dummy.updateMatrix(); botIM.setMatrixAt(i, dummy.matrix);
+      }
+      botIM.instanceMatrix.needsUpdate = true;
+      g.add(botIM);
+
+      // 烟头 / 小碎屑 (极小圆柱)
+      var buttGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.05, 6);
+      var buttIM = new THREE.InstancedMesh(buttGeo, mats.trashMix, nButt);
+      for (i = 0; i < nButt; i++) {
+        dummy.position.set(rx(), 0.012, rz());
+        dummy.rotation.set(Math.PI / 2, Math.random() * Math.PI * 2, Math.random());
+        var us = 0.8 + Math.random() * 0.6; dummy.scale.set(us, us, us);
+        dummy.updateMatrix(); buttIM.setMatrixAt(i, dummy.matrix);
+      }
+      buttIM.instanceMatrix.needsUpdate = true;
+      g.add(buttIM);
+
+      return g;
+    }
+
+    // ===== town prop set 1 =====
+    // ============================================================ 街道物件 · 路灯/交通/标牌
+    // 约定: 每个 builder 返回一个 THREE.Group(局部坐标, 底部坐 y=0, 大致居中 x=z=0, 正面朝 +Z)。
+    // 只引用 mats 调色板键。发光部件用 emissive 键让 bloom 点亮。ES5 风格(var/function)。
+    // 小工具: 把 mesh 放进 group 并设阴影(避免每处重复)。
+    function _propPart(g, geo, mat, x, y, z, rx, ry, rz) {
+      var m = new THREE.Mesh(geo, mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      m.castShadow = true; m.receiveShadow = true;
+      g.add(m); return m;
+    }
+
+    // 路灯: 八角底座 + 锈渍法兰 + 微锥灯杆 + 维修盖 + 弯悬臂 + 灯罩 + 发光灯泡 + 灯臂吊环
+    // opts.lit(默认 true 开灯), opts.height(默认 5), opts.double(双臂, 默认 false)
+    function makeLampPost(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var lit = opts.lit !== false;
+      var H = opts.height || 5;
+      var glow = lit ? mats.lampGlow : mats.metalGray;
+      // 八角混凝土底座
+      _propPart(g, new THREE.CylinderGeometry(0.34, 0.42, 0.34, 8), mats.concrete, 0, 0.17, 0);
+      // 锈蚀地脚法兰 + 四颗螺栓盘
+      _propPart(g, new THREE.CylinderGeometry(0.3, 0.3, 0.08, 12), mats.rust, 0, 0.38, 0);
+      // 灯杆(微锥, 上细下粗)
+      _propPart(g, new THREE.CylinderGeometry(0.075, 0.13, H, 12), mats.metalGray, 0, 0.42 + H / 2, 0);
+      // 维修检修盖(杆下部矩形板)
+      _propPart(g, new THREE.BoxGeometry(0.16, 0.42, 0.04), mats.metalDark, 0, 1.0, 0.12);
+      // 杆上一圈锈渍环(磨损细节)
+      _propPart(g, new THREE.CylinderGeometry(0.105, 0.115, 0.12, 12), mats.rust, 0, 2.1, 0);
+      var topY = 0.42 + H;
+      // 单/双悬臂
+      var arms = opts.double ? [1, -1] : [1];
+      for (var a = 0; a < arms.length; a++) {
+        var dir = arms[a];
+        // 弯曲悬臂(斜杆)
+        var arm = _propPart(g, new THREE.CylinderGeometry(0.05, 0.06, 1.15, 8), mats.metalGray, dir * 0.42, topY - 0.18, 0, 0, 0, dir * (Math.PI / 2 - 0.55));
+        // 灯罩(倒锥, 喇叭口朝下)
+        var headX = dir * 0.86;
+        _propPart(g, new THREE.ConeGeometry(0.26, 0.26, 12, 1, true), mats.metalDark, headX, topY - 0.02, 0, Math.PI, 0, 0);
+        // 罩顶小帽
+        _propPart(g, new THREE.CylinderGeometry(0.08, 0.16, 0.1, 12), mats.metalGray, headX, topY + 0.1, 0);
+        // 发光灯泡(球, emissive)
+        var bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), glow);
+        bulb.position.set(headX, topY - 0.16, 0); bulb.castShadow = false; g.add(bulb);
+        // 灯罩与杆之间的吊环细节
+        _propPart(g, new THREE.TorusGeometry(0.05, 0.018, 6, 10), mats.metalDark, dir * 0.2, topY - 0.05, 0, Math.PI / 2);
+      }
+      return g;
+    }
+
+    // 交通灯: 锈底座 + 立杆 + 横臂 + 三灯黑箱(红/黄/绿发光) + 每灯遮檐 + 行人小箱
+    // opts.state(0=红/1=黄/2=绿, 默认 0 红), opts.arm(横臂悬挂灯箱, 默认 true)
+    function makeTrafficLight(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var state = (opts.state == null) ? 0 : opts.state;
+      // 地脚锈法兰
+      _propPart(g, new THREE.CylinderGeometry(0.28, 0.34, 0.18, 12), mats.rust, 0, 0.09, 0);
+      // 立杆
+      var poleH = 5.2;
+      _propPart(g, new THREE.CylinderGeometry(0.1, 0.13, poleH, 12), mats.metalDark, 0, 0.18 + poleH / 2, 0);
+      // 横臂(悬出灯箱)
+      var armLen = opts.arm === false ? 0 : 2.6;
+      if (armLen) _propPart(g, new THREE.CylinderGeometry(0.07, 0.07, armLen, 10), mats.metalDark, armLen / 2 - 0.05, poleH + 0.05, 0, 0, 0, Math.PI / 2);
+      // 灯箱(黑塑料壳)位于杆顶或横臂端
+      var bx = armLen ? armLen - 0.1 : 0, by = armLen ? poleH - 0.45 : poleH - 0.4;
+      _propPart(g, new THREE.BoxGeometry(0.34, 1.06, 0.3), mats.plasticBlack, bx, by, 0.05);
+      // 三灯: 红(上)黄(中)绿(下), 点亮的用对应 emissive, 灭的用 metalDark
+      var lampKeys = [mats.trafficRed, mats.trafficYellow, mats.trafficGreen];
+      var lampOff = mats.plasticBlack;
+      for (var i = 0; i < 3; i++) {
+        var ly = by + 0.34 - i * 0.34;
+        var on = (i === state);
+        var lens = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 12), on ? lampKeys[i] : lampOff);
+        lens.position.set(bx, ly, 0.22); lens.rotation.x = Math.PI / 2; lens.castShadow = false; g.add(lens);
+        // 遮檐(每灯上方小弧檐)
+        _propPart(g, new THREE.CylinderGeometry(0.14, 0.14, 0.16, 12, 1, true, 0, Math.PI), mats.metalDark, bx, ly + 0.05, 0.2, Math.PI / 2);
+      }
+      // 杆侧行人信号小箱
+      _propPart(g, new THREE.BoxGeometry(0.26, 0.4, 0.22), mats.plasticBlack, 0, 2.4, 0.18);
+      _propPart(g, new THREE.PlaneGeometry(0.18, 0.18), state === 2 ? mats.trafficGreen : mats.trafficRed, 0, 2.42, 0.3);
+      return g;
+    }
+
+    // 路牌: 杆 + 路名牌(横) + 方向指示牌(可选第二块) + 杆顶帽 + 螺栓抱箍
+    // opts.signColor(主牌底色键, 默认 paintGreen), opts.second(加第二块牌, 默认 true)
+    function makeStreetSign(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var col = opts.signColor || mats.paintGreen;
+      // 圆盘底座
+      _propPart(g, new THREE.CylinderGeometry(0.16, 0.2, 0.1, 10), mats.concrete, 0, 0.05, 0);
+      // 杆
+      var H = 2.8;
+      _propPart(g, new THREE.CylinderGeometry(0.05, 0.06, H, 10), mats.metalGray, 0, 0.1 + H / 2, 0);
+      // 杆顶帽
+      _propPart(g, new THREE.SphereGeometry(0.06, 8, 6), mats.metalGray, 0, 0.1 + H, 0);
+      // 主路名牌(绿/蓝长牌, 略带白边用第二薄板表现)
+      _propPart(g, new THREE.BoxGeometry(1.5, 0.32, 0.04), col, 0, H - 0.2, 0);
+      _propPart(g, new THREE.BoxGeometry(1.42, 0.24, 0.045), mats.paintWhite, 0, H - 0.2, 0.005);
+      // 抱箍螺栓(牌与杆连接处)
+      _propPart(g, new THREE.CylinderGeometry(0.07, 0.07, 0.1, 8), mats.metalDark, 0, H - 0.2, -0.02);
+      // 第二块方向指示牌(垂直交错, 蓝底)
+      if (opts.second !== false) {
+        _propPart(g, new THREE.BoxGeometry(0.9, 0.28, 0.04), mats.paintBlue, 0.05, H - 0.58, 0, 0, Math.PI / 2.6, 0);
+        _propPart(g, new THREE.CylinderGeometry(0.06, 0.06, 0.09, 8), mats.metalDark, 0, H - 0.58, 0);
+      }
+      return g;
+    }
+
+    // 停车计时器: 锈杆 + 鼓形表头 + 暗显示屏(微亮) + 投币口 + 顶帽
+    // opts.lit(屏幕微亮, 默认 true)
+    function makeParkingMeter(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var lit = opts.lit !== false;
+      // 底座
+      _propPart(g, new THREE.CylinderGeometry(0.1, 0.14, 0.12, 10), mats.metalDark, 0, 0.06, 0);
+      // 杆
+      var H = 1.2;
+      _propPart(g, new THREE.CylinderGeometry(0.05, 0.06, H, 10), mats.metalGray, 0, 0.12 + H / 2, 0);
+      // 杆上锈渍环
+      _propPart(g, new THREE.CylinderGeometry(0.055, 0.06, 0.14, 10), mats.rust, 0, 0.6, 0);
+      // 表头主体(扁鼓形, 漆色机壳)
+      var headY = 0.12 + H + 0.18;
+      _propPart(g, new THREE.BoxGeometry(0.26, 0.42, 0.18), mats.paintGreen, 0, headY, 0);
+      // 表头圆顶
+      _propPart(g, new THREE.CylinderGeometry(0.13, 0.13, 0.26, 12, 1, false), mats.paintGreen, 0, headY + 0.21, 0, Math.PI / 2);
+      // 显示屏(微亮窗或暗玻璃)
+      _propPart(g, new THREE.BoxGeometry(0.16, 0.12, 0.02), lit ? mats.glassLit : mats.glass, 0, headY + 0.05, 0.1);
+      // 投币口
+      _propPart(g, new THREE.BoxGeometry(0.06, 0.02, 0.02), mats.metalDark, 0.06, headY - 0.12, 0.1);
+      // 顶帽
+      _propPart(g, new THREE.CylinderGeometry(0.05, 0.07, 0.06, 8), mats.metalDark, 0, headY + 0.36, 0);
+      return g;
+    }
+
+    // 矮桩(可成排): 桩身 + 顶帽 + 一道反光环(亮) + 底盘
+    // opts.color(漆色键, 默认 paintYellow), opts.reflect(反光环, 默认 true)
+    function makeBollard(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var col = opts.color || mats.paintYellow;
+      // 底盘
+      _propPart(g, new THREE.CylinderGeometry(0.16, 0.18, 0.06, 12), mats.concrete, 0, 0.03, 0);
+      // 桩身(微锥)
+      var H = 0.9;
+      _propPart(g, new THREE.CylinderGeometry(0.11, 0.13, H, 14), col, 0, 0.06 + H / 2, 0);
+      // 反光环(白漆带, 略亮)
+      _propPart(g, new THREE.CylinderGeometry(0.122, 0.122, 0.1, 14), mats.paintWhite, 0, 0.66, 0);
+      // 顶圆帽
+      _propPart(g, new THREE.SphereGeometry(0.11, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), col, 0, 0.06 + H, 0);
+      // 磨损划痕(暗色细环)
+      _propPart(g, new THREE.CylinderGeometry(0.115, 0.12, 0.04, 14), mats.metalDark, 0, 0.3, 0);
+      return g;
+    }
+
+    // 交通圆牌杆(禁停/限速): 杆 + 圆牌(红边白底) + 中心点 + 抱箍, 可选下方第二小牌
+    // opts.signType('stop'红牌 / 'limit'白牌, 默认 'limit'), opts.sub(下方附牌, 默认 false)
+    function makeTrafficSignPole(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var isStop = opts.signType === 'stop';
+      // 底座
+      _propPart(g, new THREE.CylinderGeometry(0.13, 0.16, 0.1, 10), mats.concrete, 0, 0.05, 0);
+      // 杆
+      var H = 2.6;
+      _propPart(g, new THREE.CylinderGeometry(0.045, 0.055, H, 10), mats.metalGray, 0, 0.1 + H / 2, 0);
+      // 锈渍段
+      _propPart(g, new THREE.CylinderGeometry(0.05, 0.055, 0.2, 10), mats.rust, 0, 0.5, 0);
+      var signY = 0.1 + H - 0.05;
+      // 圆牌: 红边大盘 + 内白盘
+      _propPart(g, new THREE.CylinderGeometry(0.34, 0.34, 0.04, 18), isStop ? mats.paintRed : mats.paintWhite, 0, signY, 0.02, Math.PI / 2);
+      _propPart(g, new THREE.CylinderGeometry(0.27, 0.27, 0.045, 18), mats.paintWhite, 0, signY, 0.025, Math.PI / 2);
+      // 限速牌中心红圈环(用环表现)/禁停斜杠(用细盒)
+      if (isStop) {
+        _propPart(g, new THREE.BoxGeometry(0.5, 0.06, 0.01), mats.paintRed, 0, signY, 0.05, 0, 0, Math.PI / 4);
+      } else {
+        _propPart(g, new THREE.TorusGeometry(0.27, 0.04, 8, 22), mats.paintRed, 0, signY, 0.03);
+      }
+      // 抱箍
+      _propPart(g, new THREE.CylinderGeometry(0.06, 0.06, 0.1, 8), mats.metalDark, 0, signY, -0.02);
+      // 下方附牌(蓝色小补充牌)
+      if (opts.sub) {
+        _propPart(g, new THREE.BoxGeometry(0.4, 0.2, 0.04), mats.paintBlue, 0, signY - 0.5, 0.01);
+        _propPart(g, new THREE.BoxGeometry(0.34, 0.14, 0.045), mats.paintWhite, 0, signY - 0.5, 0.015);
+      }
+      return g;
+    }
+
+    // ===== town prop set 2 =====
+    // ============================================================
+    // 街道物件 · 座椅/站点/箱体 builders (Three.js r137, ES5)
+    // 约定: 每个 make* 返回 THREE.Group, 底部坐落 y=0, 居中 x=z=0, 正面朝 +Z
+    // 材质只引用传入的 mats 调色板键。装配阶段负责 add/碰撞/回收。
+    // ------------------------------------------------------------
+    // 小工具: 在组里加一个 box / cyl 子 mesh (局部坐标, 带阴影)
+    function _siBox(g, sx, sy, sz, mat, x, y, z) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    function _siCyl(g, rt, rb, h, mat, x, y, z, seg) {
+      var m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg || 16), mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+
+    // 长椅: 木板条座+木靠背+两端铸铁支架+横撑+磨损 (≈长1.8 高0.9)
+    // opts.wood 选木色键(默认 woodBrown), opts.frame 选支架(默认 metalDark)
+    function makeBench(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var wood = mats[opts.wood] || mats.woodBrown || mats.cardboard;
+      var frame = mats[opts.frame] || mats.metalDark || mats.metalGray;
+      var rust = mats.rust || frame;
+      var len = 1.8, slatW = 0.09, slatT = 0.04, gap = 0.025;
+      // 两端铸铁端架(梯形腿+扶手柱)
+      var ex;
+      for (ex = -1; ex <= 1; ex += 2) {
+        var fx = ex * (len / 2 - 0.12);
+        _siBox(g, 0.06, 0.45, 0.5, frame, fx, 0.225, 0);          // 立腿板
+        _siBox(g, 0.06, 0.06, 0.62, frame, fx, 0.02, 0);          // 着地横脚(微沉)
+        _siBox(g, 0.05, 0.42, 0.05, frame, fx, 0.66, -0.18);      // 靠背支柱
+        _siCyl(g, 0.018, 0.018, 0.06, rust, fx, 0.46, 0.26, 8);   // 锈蚀铆点
+      }
+      // 横撑(座下连接两端架)
+      _siBox(g, len - 0.1, 0.04, 0.04, frame, 0, 0.30, 0.16);
+      _siBox(g, len - 0.1, 0.04, 0.04, frame, 0, 0.30, -0.16);
+      // 座面木板条(4条, 沿 z 排开)
+      var i, sz0;
+      for (i = 0; i < 4; i++) {
+        sz0 = -0.18 + i * (slatW + gap);
+        var sm = _siBox(g, len - 0.12, slatT, slatW, wood, 0, 0.45, sz0);
+        sm.rotation.x = (i - 1.5) * 0.005;                        // 轻微不平整
+      }
+      // 靠背木板条(3条, 略后仰)
+      for (i = 0; i < 3; i++) {
+        var bm = _siBox(g, len - 0.12, slatT, slatW + 0.01, wood, 0, 0.62 + i * 0.14, -0.215);
+        bm.rotation.x = 0.12;
+      }
+      return g;
+    }
+
+    // 公交站: 顶棚+后玻璃墙+两/三根立柱+下置长椅+侧广告灯箱(glassLit发光)+站牌
+    // opts.lit 默认 true(灯箱亮), opts.color 顶棚漆色键(默认 paintBlue)
+    function makeBusStop(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var lit = opts.lit !== false;
+      var roof = mats[opts.color] || mats.paintBlue || mats.metalGray;
+      var post = mats.metalDark || mats.metalGray;
+      var glass = mats.glass || mats.glassLit;
+      var adBox = (lit && mats.glassLit) ? mats.glassLit : (mats.glass || mats.plasticBlack);
+      var W = 3.4, D = 1.3, H = 2.5;
+      // 立柱(后侧3根)
+      var px;
+      for (px = -1; px <= 1; px++) {
+        _siBox(g, 0.08, H, 0.08, post, px * (W / 2 - 0.1), H / 2, -D / 2 + 0.05);
+      }
+      // 前侧2根
+      _siBox(g, 0.08, H, 0.08, post, -(W / 2 - 0.1), H / 2, D / 2 - 0.05);
+      _siBox(g, 0.08, H, 0.08, post, (W / 2 - 0.1), H / 2, D / 2 - 0.05);
+      // 弧形顶棚(主板 + 前檐略翘)
+      var rf = _siBox(g, W + 0.2, 0.07, D + 0.25, roof, 0, H + 0.04, 0);
+      _siBox(g, W + 0.2, 0.05, 0.18, roof, 0, H + 0.02, D / 2 + 0.12).rotation.x = -0.18;
+      // 后玻璃墙(两块, 中间立柱分隔)
+      _siBox(g, W / 2 - 0.16, H - 0.5, 0.03, glass, -W / 4, H / 2 + 0.1, -D / 2 + 0.04);
+      _siBox(g, W / 2 - 0.16, H - 0.5, 0.03, glass, W / 4, H / 2 + 0.1, -D / 2 + 0.04);
+      // 侧广告灯箱(站台右端, 朝 +Z)
+      _siBox(g, 0.08, 1.6, 0.9, post, W / 2 - 0.04, 0.95, 0);            // 灯箱框
+      _siBox(g, 0.04, 1.4, 0.74, adBox, W / 2 + 0.02, 0.95, 0);         // 发光广告面
+      // 下置长椅(贴后墙)
+      var benchY = 0.42;
+      _siBox(g, W - 0.6, 0.06, 0.34, mats.metalGray || post, 0, benchY, -D / 2 + 0.28);
+      _siBox(g, 0.08, benchY, 0.08, post, -(W / 2 - 0.5), benchY / 2, -D / 2 + 0.28);
+      _siBox(g, 0.08, benchY, 0.08, post, (W / 2 - 0.5), benchY / 2, -D / 2 + 0.28);
+      // 顶部站牌(挂顶棚前缘)
+      _siBox(g, 0.5, 0.28, 0.03, lit && mats.glassLit ? mats.glassLit : (mats.paintWhite || roof), -W / 2 + 0.4, H - 0.25, D / 2 - 0.02);
+      return g;
+    }
+
+    // 电话亭: 铝框玻璃亭(4面)+顶冠+底座+内置话机+话筒挂架+顶灯牌(glassLit)
+    // opts.color 框架漆色(默认 paintRed 经典红亭), opts.lit 顶灯默认 true
+    function makePhoneBooth(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var lit = opts.lit !== false;
+      var frame = mats[opts.color] || mats.paintRed || mats.metalGray;
+      var glass = mats.glass || mats.glassLit;
+      var W = 0.95, D = 0.95, H = 2.3;
+      // 底座
+      _siBox(g, W + 0.1, 0.12, D + 0.1, mats.concrete || mats.metalDark, 0, 0.06, 0);
+      // 四角立框
+      var cx, cz;
+      for (cx = -1; cx <= 1; cx += 2) for (cz = -1; cz <= 1; cz += 2) {
+        _siBox(g, 0.08, H, 0.08, frame, cx * (W / 2 - 0.04), H / 2 + 0.12, cz * (D / 2 - 0.04));
+      }
+      // 三面玻璃(背+左+右), 正面留门
+      _siBox(g, W - 0.1, H - 0.4, 0.03, glass, 0, H / 2 + 0.2, -(D / 2 - 0.03));         // 背
+      _siBox(g, 0.03, H - 0.4, D - 0.1, glass, -(W / 2 - 0.03), H / 2 + 0.2, 0);          // 左
+      _siBox(g, 0.03, H - 0.4, D - 0.1, glass, (W / 2 - 0.03), H / 2 + 0.2, 0);           // 右
+      // 门(半开, 朝 +Z, 玻璃带门把)
+      var door = new THREE.Group();
+      _siBox(door, W - 0.18, H - 0.5, 0.025, glass, (W - 0.18) / 2, 0, 0);
+      _siBox(door, W - 0.18, 0.08, 0.05, frame, (W - 0.18) / 2, (H - 0.5) / 2 - 0.04, 0);
+      _siCyl(door, 0.015, 0.015, 0.1, mats.chrome || frame, W - 0.22, 0, 0.04, 8).rotation.x = Math.PI / 2;
+      door.position.set(-(W / 2 - 0.04), H / 2 + 0.2, D / 2 - 0.02);
+      door.rotation.y = -0.5;                                  // 半开
+      g.add(door);
+      // 顶冠 + 灯牌(PHONE, glassLit)
+      _siBox(g, W + 0.06, 0.18, D + 0.06, frame, 0, H + 0.21, 0);
+      _siBox(g, W - 0.1, 0.12, 0.02, lit && mats.glassLit ? mats.glassLit : mats.paintWhite || frame, 0, H + 0.21, D / 2 + 0.02);
+      // 内置话机(背墙上, 银灰盒+黑话筒)
+      _siBox(g, 0.22, 0.34, 0.12, mats.metalGray || frame, 0, 1.35, -(D / 2 - 0.12));
+      _siBox(g, 0.05, 0.22, 0.05, mats.plasticBlack || mats.metalDark, -0.12, 1.32, -(D / 2 - 0.18)); // 挂式话筒
+      _siBox(g, 0.16, 0.08, 0.02, mats.plasticBlack || mats.metalDark, 0, 1.52, -(D / 2 - 0.14));     // 拨号面板
+      return g;
+    }
+
+    // 邮筒: 圆顶投信箱(经典美式)+矩形箱体+投信口+下置两腿支柱+把手 (≈高1.1)
+    // opts.color 默认 paintBlue(USPS蓝); 可设 paintRed
+    function makeMailbox(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = mats[opts.color] || mats.paintBlue || mats.metalGray;
+      var dark = mats.metalDark || mats.plasticBlack;
+      var W = 0.5, D = 0.42, bodyH = 0.62, legH = 0.42;
+      // 两腿支柱
+      _siBox(g, 0.06, legH, 0.06, dark, -W / 2 + 0.1, legH / 2, 0);
+      _siBox(g, 0.06, legH, 0.06, dark, W / 2 - 0.1, legH / 2, 0);
+      _siBox(g, W - 0.1, 0.05, 0.05, dark, 0, 0.05, 0);                 // 脚底横撑
+      // 箱体(直壁)
+      _siBox(g, W, bodyH, D, body, 0, legH + bodyH / 2, 0);
+      // 圆顶(半圆柱, 横躺沿 x)
+      var dome = _siCyl(g, D / 2, D / 2, W, body, 0, legH + bodyH, 0, 18);
+      dome.rotation.z = Math.PI / 2;
+      // 投信口(拉门式, 略凸于正面上部)
+      _siBox(g, W - 0.12, 0.1, 0.04, dark, 0, legH + bodyH - 0.02, D / 2 + 0.01);
+      _siBox(g, W - 0.16, 0.06, 0.05, dark, 0, legH + bodyH + 0.02, D / 2 + 0.02);  // 拉门盖斜面
+      // 把手
+      _siCyl(g, 0.012, 0.012, 0.14, mats.chrome || dark, 0, legH + bodyH - 0.02, D / 2 + 0.04, 8).rotation.z = Math.PI / 2;
+      // 锈斑/磨损(底部贴边)
+      _siBox(g, W + 0.005, 0.1, D + 0.005, mats.rust || dark, 0, legH + 0.06, 0);
+      return g;
+    }
+
+    // 报箱: 投币报纸箱(底座腿+主箱+前玻璃窗看报头+投币口+取报拉手+顶斜面)
+    // opts.color 漆色(默认 paintOrange); 常成排摆
+    function makeNewspaperBox(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = mats[opts.color] || mats.paintOrange || mats.paintRed;
+      var dark = mats.metalDark || mats.plasticBlack;
+      var glass = mats.glass || mats.glassLit;
+      var W = 0.46, D = 0.5, boxH = 0.72, legH = 0.34;
+      // 单中柱底座(报箱典型)
+      _siBox(g, 0.12, legH, 0.12, dark, 0, legH / 2, 0);
+      _siBox(g, W - 0.04, 0.05, D - 0.04, dark, 0, 0.025, 0);          // 着地底板(微沉)
+      // 主箱体
+      _siBox(g, W, boxH, D, body, 0, legH + boxH / 2, 0);
+      // 顶斜面(防坐)
+      _siBox(g, W, 0.06, D, body, 0, legH + boxH + 0.02, 0).rotation.x = 0.15;
+      // 前玻璃看报窗(凹陷在正面上半)
+      _siBox(g, W - 0.1, 0.34, 0.02, glass, 0, legH + boxH - 0.18, D / 2 + 0.01);
+      _siBox(g, W - 0.06, 0.4, 0.03, dark, 0, legH + boxH - 0.16, D / 2 - 0.01);   // 窗后报头(暗底)
+      // 取报拉手门(下半, 带把手)
+      _siBox(g, W - 0.12, 0.22, 0.03, dark, 0, legH + 0.18, D / 2 + 0.005);
+      _siCyl(g, 0.014, 0.014, 0.12, mats.chrome || dark, 0, legH + 0.18, D / 2 + 0.04, 8).rotation.z = Math.PI / 2;
+      // 投币口(顶前小盒)
+      _siBox(g, 0.1, 0.1, 0.08, dark, W / 2 - 0.12, legH + boxH + 0.02, D / 2 - 0.06);
+      return g;
+    }
+
+    // 自行车架: 弯管波浪架(U形重复)+底座板+可选停一辆车(车架/两轮/把手)
+    // opts.bays 弯管数(默认4), opts.bike 是否停车(默认 true)
+    function makeBikeRack(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var bays = opts.bays || 4;
+      var metal = mats.metalGray || mats.chrome;
+      var rust = mats.rust || mats.metalDark || metal;
+      var pitch = 0.45, r = 0.04, archH = 0.75;
+      var totalW = bays * pitch;
+      // 底座长板(着地, 略沉)
+      _siBox(g, totalW + 0.3, 0.05, 0.18, rust, 0, 0.02, 0);
+      // 波浪弯管(每个 bay 一个倒U, 用两立管+一横管近似圆角)
+      var i, bx;
+      for (i = 0; i <= bays; i++) {
+        bx = -totalW / 2 + i * pitch;
+        _siCyl(g, r, r, archH, metal, bx, archH / 2 + 0.03, 0.18, 10);   // 后排立管
+        _siCyl(g, r, r, archH, metal, bx, archH / 2 + 0.03, -0.18, 10);  // 前排立管
+      }
+      for (i = 0; i < bays; i++) {
+        bx = -totalW / 2 + i * pitch + pitch / 2;
+        // 顶横管(连两侧, 沿 z)
+        var top = _siCyl(g, r, r, 0.4, metal, bx, archH + 0.02, 0, 10);
+        top.rotation.x = Math.PI / 2;
+        // 圆角连接段
+        _siCyl(g, r, r, pitch + 0.02, metal, bx, archH + 0.02, 0.18, 10).rotation.z = Math.PI / 2;
+      }
+      // 可选: 停一辆自行车(简化: 双三角车架+两轮+把手, 侧倚架上)
+      if (opts.bike !== false) {
+        var bk = new THREE.Group();
+        var tire = mats.tire || mats.plasticBlack || rust;
+        var fr = mats.paintGreen || mats.paintRed || metal;
+        // 两轮(竖立, 沿 x 滚动方向 = +x, 轮平面在 xz? 自行车朝 +x 行进, 轮在 xy 平面)
+        var wheelR = 0.33;
+        var w1 = _siCyl(bk, wheelR, wheelR, 0.04, tire, -0.55, wheelR, 0, 18);
+        w1.rotation.x = Math.PI / 2;                                  // 轮立起, 面朝 z
+        var w2 = _siCyl(bk, wheelR, wheelR, 0.04, tire, 0.55, wheelR, 0, 18);
+        w2.rotation.x = Math.PI / 2;
+        // 车架管(下管+座管+上管, 朝 +x)
+        _siCyl(bk, 0.025, 0.025, 0.8, fr, 0, wheelR + 0.1, 0, 8).rotation.z = Math.PI / 2 - 0.15;
+        _siCyl(bk, 0.025, 0.025, 0.5, fr, 0.05, wheelR + 0.28, 0, 8).rotation.z = 0.3;
+        _siCyl(bk, 0.025, 0.025, 0.55, fr, -0.3, wheelR + 0.35, 0, 8).rotation.z = -0.5; // 前叉/头管
+        // 座
+        _siBox(bk, 0.18, 0.05, 0.1, mats.plasticBlack || tire, 0.25, wheelR + 0.5, 0);
+        // 把手
+        _siBox(bk, 0.04, 0.04, 0.4, mats.metalDark || metal, -0.42, wheelR + 0.55, 0);
+        // 倚靠在车架上(略倾)
+        bk.position.set(-totalW / 2 + pitch * 0.5, 0, 0.05);
+        bk.rotation.z = 0.06;
+        g.add(bk);
+      }
+      return g;
+    }
+
+    // ===== town prop set 3 =====
+    // ===================== 市政设施 / 墙面附件 构建器 =====================
+    // 约定: 每个 makeXxx(mats, opts) 仅返回一个 THREE.Group, 底坐 y=0, 居中 x=z=0, 正面朝 +Z。
+    // 只引用传入 mats 调色板键, 不 new Material, 不 scene.add。ES5 风格。
+
+    // 消防栓: 圆顶帽 + 主体(微锥) + 两侧+正面出水口盖 + 颈圈 + 底座法兰 + 垂挂铁链
+    function makeHydrant(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = opts.rust ? mats.rust : (opts.color || mats.paintRed);
+      var cap = opts.rust ? mats.metalDark : mats.paintYellow;
+      var m;
+      // 底座法兰(八角近似用矮圆柱) + 地脚螺栓
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.30, 0.10, 8), mats.metalDark);
+      m.position.y = 0.05; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 主体: 上细下粗的微锥, 高约0.6
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.19, 0.60, 16), body);
+      m.position.y = 0.40; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 颈圈(束腰处的圆环)
+      m = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 8, 16), cap);
+      m.position.y = 0.70; m.rotation.x = Math.PI / 2; m.castShadow = true; g.add(m);
+      // 圆顶帽(球冠)
+      m = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), cap);
+      m.position.y = 0.74; m.castShadow = true; g.add(m);
+      // 顶部五角螺帽
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.08, 5), cap);
+      m.position.y = 0.86; m.castShadow = true; g.add(m);
+      // 正面大出水口(朝 +Z) + 链
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.08, 0.12, 12), mats.chrome);
+      m.position.set(0, 0.50, 0.17); m.rotation.x = Math.PI / 2; m.castShadow = true; g.add(m);
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.04, 12), cap); // 口盖
+      m.position.set(0, 0.50, 0.24); m.rotation.x = Math.PI / 2; g.add(m);
+      // 两侧小出水口(±X)
+      var sx, k;
+      for (k = 0; k < 2; k++) {
+        sx = k === 0 ? 1 : -1;
+        m = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.11, 10), mats.chrome);
+        m.position.set(sx * 0.16, 0.56, 0); m.rotation.z = Math.PI / 2; m.castShadow = true; g.add(m);
+        m = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.035, 10), cap);
+        m.position.set(sx * 0.22, 0.56, 0); m.rotation.z = Math.PI / 2; g.add(m);
+      }
+      // 垂挂松垮铁链(几节小环)
+      var ch, cy;
+      for (k = 0; k < 4; k++) {
+        cy = 0.46 - k * 0.07;
+        ch = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.008, 6, 8), mats.metalDark);
+        ch.position.set(0.20 + k * 0.005, cy, 0.10); ch.rotation.x = (k % 2) * Math.PI / 2; g.add(ch);
+      }
+      return g;
+    }
+
+    // 井盖: 平贴地圆盘 + 内嵌花纹(同心环+辐射格) + 边缘卡口 + 两个起盖孔, 略低于地面一丝
+    function makeManhole(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var R = opts.r || 0.35;
+      var mat = opts.color || mats.metalDark;
+      var m, i, a;
+      // 外嵌环(混凝土框)
+      m = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.06, R + 0.06, 0.06, 28), mats.concrete);
+      m.position.y = 0.03; m.receiveShadow = true; g.add(m);
+      // 盖主体(极扁)
+      m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.05, 28), mat);
+      m.position.y = 0.045; m.receiveShadow = true; m.castShadow = true; g.add(m);
+      // 同心凸环
+      m = new THREE.Mesh(new THREE.TorusGeometry(R * 0.62, 0.018, 6, 24), mat);
+      m.position.y = 0.072; m.rotation.x = Math.PI / 2; g.add(m);
+      m = new THREE.Mesh(new THREE.TorusGeometry(R * 0.30, 0.018, 6, 20), mat);
+      m.position.y = 0.072; m.rotation.x = Math.PI / 2; g.add(m);
+      // 辐射防滑棱(8 道短条)
+      for (i = 0; i < 8; i++) {
+        a = i / 8 * Math.PI * 2;
+        var bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, R * 0.5), mat);
+        bar.position.set(Math.cos(a) * R * 0.46, 0.07, Math.sin(a) * R * 0.46);
+        bar.rotation.y = -a; g.add(bar);
+      }
+      // 中央小铸字凸块
+      m = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.12, R * 0.12, 0.025, 6), mat);
+      m.position.y = 0.075; g.add(m);
+      // 两个起盖孔(深色凹)
+      for (i = 0; i < 2; i++) {
+        a = i ? 0 : Math.PI;
+        m = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.04, 8), mats.metalDark);
+        m.position.set(Math.cos(a) * R * 0.8, 0.05, Math.sin(a) * R * 0.8); g.add(m);
+      }
+      return g;
+    }
+
+    // 路缘排水口: 一段路缘石 + 开口暗格栅(朝 +Z 面) + 上沿铸铁条 + 露出的落叶/纸屑
+    function makeStormDrain(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var m, i;
+      // 路缘石块(灰)
+      m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.30, 0.40), mats.curb);
+      m.position.y = 0.15; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 顶面铸铁压条
+      m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 0.42), mats.metalDark);
+      m.position.set(0, 0.32, 0); g.add(m);
+      // 正面开口(凹下去的黑洞)
+      m = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.12, 0.10), mats.metalDark);
+      m.position.set(0, 0.10, 0.18); g.add(m);
+      // 开口竖向格栅条(5 根)
+      for (i = 0; i < 5; i++) {
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.12, 0.06), mats.metalGray);
+        m.position.set(-0.32 + i * 0.16, 0.10, 0.205); g.add(m);
+      }
+      // 上方水平格栅(地面收水, 3 条)
+      for (i = 0; i < 3; i++) {
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.025, 0.05), mats.rust);
+        m.position.set(0, 0.305, 0.06 + i * 0.10); g.add(m);
+      }
+      // 露出的脏纸/落叶
+      m = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.12), mats.paper);
+      m.position.set(0.15, 0.06, 0.21); m.rotation.set(-1.2, 0.3, 0.2); g.add(m);
+      m = new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.08), mats.leafGreen);
+      m.position.set(-0.20, 0.05, 0.22); m.rotation.set(-1.0, -0.4, 0); g.add(m);
+      return g;
+    }
+
+    // 空调外机: 箱体 + 正面圆形风扇格栅(辐射叶) + 侧散热翅片 + 顶盖 + 落地支架(可选) + 锈渍底脚
+    function makeACUnit(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var W = 0.84, H = 0.58, D = 0.32;
+      var legH = opts.wall ? 0 : 0.18;       // 落地款带支架抬起
+      var base = legH;
+      var m, i, a;
+      // 落地支架(L 形锈铁)
+      if (!opts.wall) {
+        var sx;
+        for (i = 0; i < 2; i++) {
+          sx = i ? 1 : -1;
+          m = new THREE.Mesh(new THREE.BoxGeometry(0.05, legH, D + 0.04), mats.rust);
+          m.position.set(sx * 0.36, legH / 2, 0); m.castShadow = true; g.add(m);
+        }
+        m = new THREE.Mesh(new THREE.BoxGeometry(W, 0.05, D + 0.06), mats.rust);
+        m.position.set(0, legH - 0.02, 0); g.add(m);
+      } else {
+        // 墙挂角架
+        for (i = 0; i < 2; i++) {
+          m = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, D + 0.12), mats.metalDark);
+          m.position.set((i ? 1 : -1) * 0.34, -0.02, -0.04); g.add(m);
+        }
+      }
+      // 箱体(微磨损金属灰)
+      m = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), mats.metalGray);
+      m.position.set(0, base + H / 2, 0); m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 顶盖(深一档)
+      m = new THREE.Mesh(new THREE.BoxGeometry(W + 0.02, 0.04, D + 0.02), mats.metalDark);
+      m.position.set(0, base + H + 0.01, 0); g.add(m);
+      // 正面风扇外圈(朝 +Z)
+      m = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.025, 8, 24), mats.metalDark);
+      m.position.set(0, base + H * 0.5, D / 2 + 0.005); g.add(m);
+      // 风扇格栅(同心环 + 5 叶辐射)
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.02, 20), mats.plasticBlack);
+      m.position.set(0, base + H * 0.5, D / 2 - 0.01); m.rotation.x = Math.PI / 2; g.add(m);
+      for (i = 0; i < 5; i++) {
+        a = i / 5 * Math.PI * 2;
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.01, 0.18), mats.metalGray);
+        m.position.set(Math.cos(a) * 0.08, base + H * 0.5, D / 2 + 0.01);
+        m.rotation.set(Math.PI / 2, 0, a); g.add(m);
+      }
+      // 风扇中心毂
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.03, 10), mats.metalDark);
+      m.position.set(0, base + H * 0.5, D / 2 + 0.01); m.rotation.x = Math.PI / 2; g.add(m);
+      // 侧面散热翅片(条纹, 在 -X 侧)
+      for (i = 0; i < 8; i++) {
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.01, H * 0.7, D * 0.8), mats.chrome);
+        m.position.set(-W / 2 - 0.005, base + H * 0.5, -D * 0.3 + i * 0.07); g.add(m);
+      }
+      // 顶部铭牌 + 锈渍片
+      m = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.05), mats.paintWhite);
+      m.position.set(0.2, base + H * 0.82, D / 2 + 0.006); g.add(m);
+      m = new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.16), mats.rust);
+      m.position.set(-0.28, base + H * 0.3, D / 2 + 0.006); m.rotation.z = 0.2; g.add(m);
+      return g;
+    }
+
+    // 落水管: 竖直主管 + 顶部入口斗 + 底部 90°弯头(出 +Z) + 数道卡箍 + 一处凹瘪/锈段
+    function makeDrainpipe(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var H = opts.h || 4.5;
+      var r = 0.06;
+      var mat = opts.color || mats.metalGray;
+      var m, i, n;
+      // 主管
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, H, 12), mat);
+      m.position.y = H / 2; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 顶部集水斗(倒锥)
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.14, r, 0.18, 12), mat);
+      m.position.y = H + 0.09; m.castShadow = true; g.add(m);
+      // 中段锈渍/凹瘪段(略粗深色)
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.012, r + 0.012, 0.4, 12), mats.rust);
+      m.position.y = H * 0.55; g.add(m);
+      // 底部弯头: 短斜接 + 朝 +Z 出水口
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.35, 12), mat);
+      m.position.set(0, 0.30, 0.10); m.rotation.x = 0.6; g.add(m);
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.005, r + 0.005, 0.18, 12), mat);
+      m.position.set(0, 0.12, 0.26); m.rotation.x = Math.PI / 2; g.add(m);
+      // 卡箍(每 ~1.4m 一道, 贴墙在 -Z 侧)
+      n = Math.max(2, Math.floor(H / 1.4));
+      for (i = 1; i <= n; i++) {
+        m = new THREE.Mesh(new THREE.TorusGeometry(r + 0.02, 0.018, 6, 12), mats.metalDark);
+        m.position.set(0, H * i / (n + 1), 0); m.rotation.x = Math.PI / 2; g.add(m);
+        // 卡箍贴墙螺脚
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.05), mats.metalDark);
+        m.position.set(0, H * i / (n + 1), -r - 0.04); g.add(m);
+      }
+      return g;
+    }
+
+    // 排气管: 立管 + 顶部蘑菇风帽(锥盖) + 防雨裙 + 底部法兰 + 锈斑, opts.h 控制管高
+    function makeVentPipe(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var H = opts.h || 0.9;
+      var r = 0.10;
+      var mat = opts.color || mats.metalGray;
+      var m;
+      // 底法兰
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.20, 0.05, 14), mats.metalDark);
+      m.position.y = 0.025; m.receiveShadow = true; g.add(m);
+      // 立管
+      m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, H, 14), mat);
+      m.position.y = 0.05 + H / 2; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 中段加强箍
+      m = new THREE.Mesh(new THREE.TorusGeometry(r + 0.015, 0.02, 6, 14), mats.metalDark);
+      m.position.y = 0.05 + H * 0.5; m.rotation.x = Math.PI / 2; g.add(m);
+      // 顶部防雨裙(倒碟)
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.18, r, 0.06, 14), mat);
+      m.position.y = 0.05 + H + 0.03; g.add(m);
+      // 蘑菇风帽(锥盖)
+      m = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.14, 16), mat);
+      m.position.y = 0.05 + H + 0.16; m.castShadow = true; g.add(m);
+      // 帽与裙之间支柱(3 根)
+      var i, a;
+      for (i = 0; i < 3; i++) {
+        a = i / 3 * Math.PI * 2;
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.10, 0.015), mats.metalDark);
+        m.position.set(Math.cos(a) * 0.14, 0.05 + H + 0.10, Math.sin(a) * 0.14); g.add(m);
+      }
+      // 锈斑
+      m = new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.20), mats.rust);
+      m.position.set(0, 0.05 + H * 0.45, r + 0.002); m.rotation.z = 0.3; g.add(m);
+      return g;
+    }
+
+    // 配电箱: 灰箱体 + 双开门缝 + 侧铰链 + 门把手 + 黄底警示三角牌 + 顶遮雨檐 + 散热百叶 + 锁
+    function makeElectricBox(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var W = 0.7, H = 1.2, D = 0.35;
+      var mat = opts.color || mats.metalGray;
+      var m, i;
+      // 混凝土底座
+      m = new THREE.Mesh(new THREE.BoxGeometry(W + 0.1, 0.1, D + 0.1), mats.concrete);
+      m.position.y = 0.05; m.receiveShadow = true; g.add(m);
+      // 箱体
+      m = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), mat);
+      m.position.y = 0.1 + H / 2; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      // 门缝(中央竖深线)
+      m = new THREE.Mesh(new THREE.BoxGeometry(0.012, H - 0.1, 0.01), mats.metalDark);
+      m.position.set(0, 0.1 + H / 2, D / 2 + 0.005); g.add(m);
+      // 铰链(左右各 2)
+      for (i = 0; i < 2; i++) {
+        m = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.08, 8), mats.metalDark);
+        m.position.set(-W / 2 + 0.01, 0.1 + H * (0.25 + i * 0.5), D / 2 + 0.005); g.add(m);
+        m = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.08, 8), mats.metalDark);
+        m.position.set(W / 2 - 0.01, 0.1 + H * (0.25 + i * 0.5), D / 2 + 0.005); g.add(m);
+      }
+      // 门把手 + 锁(右门)
+      m = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.10, 0.03), mats.metalDark);
+      m.position.set(0.12, 0.1 + H * 0.5, D / 2 + 0.02); g.add(m);
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.03, 8), mats.chrome);
+      m.position.set(0.12, 0.1 + H * 0.42, D / 2 + 0.02); m.rotation.x = Math.PI / 2; g.add(m);
+      // 顶遮雨檐
+      m = new THREE.Mesh(new THREE.BoxGeometry(W + 0.06, 0.04, D + 0.06), mats.metalDark);
+      m.position.set(0, 0.1 + H + 0.02, 0.01); g.add(m);
+      // 散热百叶(下部, 4 条)
+      for (i = 0; i < 4; i++) {
+        m = new THREE.Mesh(new THREE.BoxGeometry(W * 0.6, 0.02, 0.02), mats.metalDark);
+        m.position.set(0, 0.1 + 0.18 + i * 0.06, D / 2 + 0.005); m.rotation.x = -0.35; g.add(m);
+      }
+      // 黄底警示三角牌(电击标)
+      m = new THREE.Mesh(new THREE.CircleGeometry(0.09, 3), mats.paintYellow);
+      m.position.set(-0.14, 0.1 + H * 0.62, D / 2 + 0.008); g.add(m);
+      m = new THREE.Mesh(new THREE.CircleGeometry(0.045, 3), mats.metalDark); // 内黑闪电近似
+      m.position.set(-0.14, 0.1 + H * 0.60, D / 2 + 0.012); m.rotation.z = Math.PI; g.add(m);
+      return g;
+    }
+
+    // 垂落电缆束: 上吊环 + 几股松垂线缆(用细长盒微弯近似垂链) + 中段绑扎 + 末端接头
+    // opts.span 两端跨距(默认仅作单侧垂束), opts.n 线数
+    function makeCableRun(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var n = opts.n || 4;
+      var drop = opts.drop || 1.6;   // 垂落高度
+      var top = opts.top || 3.2;     // 吊点高度
+      var mat = mats.plasticBlack;
+      var m, i, seg, sj, t, py;
+      // 吊点支架/绝缘子
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.12, 8), mats.metalDark);
+      m.position.y = top + 0.06; g.add(m);
+      m = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.08, 8), mats.chrome);
+      m.position.y = top - 0.02; g.add(m);
+      // 多股线缆: 每股用几段短盒拼出下垂弧(悬链近似), 沿 -Z 微散开
+      var segN = 5;
+      for (i = 0; i < n; i++) {
+        var off = (i - (n - 1) / 2) * 0.05;
+        for (seg = 0; seg < segN; seg++) {
+          t = seg / (segN - 1);
+          // 抛物线垂落: y 从 top 落到 top-drop, 中段最低
+          py = top - drop * (1 - (2 * t - 1) * (2 * t - 1)) * 0.5 - t * drop * 0.5;
+          var pz = -t * 0.25 + off;
+          var len = drop / segN + 0.08;
+          m = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, len, 6), mat);
+          m.position.set(off, py, pz);
+          m.rotation.x = (t - 0.4) * 1.2;   // 段渐倾
+          m.castShadow = true; g.add(m);
+        }
+      }
+      // 中段绑扎带(把线束束在一起)
+      m = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 6, 10), mats.metalDark);
+      m.position.set(0, top - drop * 0.55, -0.12); m.rotation.x = 0.5; g.add(m);
+      // 末端接头盒
+      m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.10, 0.08), mats.plasticBlack);
+      m.position.set(0, top - drop, -0.25); m.castShadow = true; g.add(m);
+      return g;
+    }
+    // =================== 市政设施 / 墙面附件 构建器 END ===================
+
+    // ===== town prop set 4 =====
+    // ============================================================
+    // 楼房立面套件 (building facade kit) — Three.js r137, ES5
+    // 全部 builder 返回一个 THREE.Group(局部坐标, 底/背贴 y/z=0, 正面朝 +Z)。
+    // 只用传入的 mats 调色板键; 发光件用 emissive 键 (lampGlow/glassLit/neon*).
+    // 装配阶段负责 scene.add / 碰撞 / 回收 / 摆放。
+    // 共用小工具(局部, 不污染全局): _fmesh 建带阴影 mesh; _frand 伪随机。
+    // ============================================================
+
+    // 内部: 造一个带阴影的 mesh 并放到 group(几何由调用方给)
+    function _fmesh(geo, mat, x, y, z) {
+      var m = new THREE.Mesh(geo, mat);
+      m.position.set(x || 0, y || 0, z || 0);
+      m.castShadow = true; m.receiveShadow = true;
+      return m;
+    }
+    // 内部: 稳定伪随机(给 seed 出可复现细节)
+    function _frand(s) { var x = Math.sin(s * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); }
+
+    // ---------- 窗户: 窗框 + 凹陷玻璃(可亮) + 窗台 + 可选空调/花盆 ----------
+    // opts: lit(bool 亮灯), w(宽,默认1.0), h(高,默认1.3), ac(bool 空调外机), plant(bool 花盆)
+    function makeWindow(mats, opts) {
+      opts = opts || {};
+      var w = opts.w || 1.0, h = opts.h || 1.3, fr = 0.09;   // fr=窗框厚
+      var g = new THREE.Group();
+      // 窗框(外框, 略凸出墙面)
+      var frameMat = mats.concrete || mats.plaster || mats.metalGray;
+      g.add(_fmesh(new THREE.BoxGeometry(w + fr * 2, h + fr * 2, 0.12), frameMat, 0, h / 2, 0.06));
+      // 玻璃(凹进去一点, 亮则用 glassLit)
+      var glassMat = opts.lit ? (mats.glassLit || mats.windowLit || mats.glass) : mats.glass;
+      g.add(_fmesh(new THREE.BoxGeometry(w, h, 0.05), glassMat, 0, h / 2, 0.02));
+      // 中竖梃 + 中横梃(把玻璃分成四格)
+      var mullMat = mats.metalDark || mats.metalGray;
+      g.add(_fmesh(new THREE.BoxGeometry(0.05, h, 0.07), mullMat, 0, h / 2, 0.05));
+      g.add(_fmesh(new THREE.BoxGeometry(w, 0.05, 0.07), mullMat, 0, h / 2, 0.05));
+      // 窗台(底部探出的石台)
+      var sill = mats.sidewalk || mats.concrete || mats.curb;
+      g.add(_fmesh(new THREE.BoxGeometry(w + fr * 2 + 0.1, 0.08, 0.22), sill, 0, 0.02, 0.11));
+      // 上楣(顶部一道挑檐)
+      g.add(_fmesh(new THREE.BoxGeometry(w + fr * 2 + 0.06, 0.06, 0.16), frameMat, 0, h + fr * 1.5, 0.08));
+      // 可选: 窗台外挂空调外机
+      if (opts.ac) {
+        var acMat = mats.metalGray || mats.plasticBlack;
+        var ac = _fmesh(new THREE.BoxGeometry(0.55, 0.36, 0.28), acMat, w * 0.28, -0.18, 0.2);
+        g.add(ac);
+        // 空调出风格栅(几道凹槽)
+        g.add(_fmesh(new THREE.BoxGeometry(0.5, 0.3, 0.02), mats.metalDark || acMat, w * 0.28, -0.18, 0.345));
+        // 滴水锈痕(挂一小条 rust 贴在墙)
+        g.add(_fmesh(new THREE.BoxGeometry(0.06, 0.5, 0.01), mats.rust || mats.metalDark, w * 0.28, -0.5, 0.015));
+      }
+      // 可选: 窗台花盆(花泥 + 绿叶)
+      if (opts.plant) {
+        g.add(_fmesh(new THREE.BoxGeometry(0.34, 0.16, 0.18), mats.dirt || mats.cardboard, -w * 0.28, 0.1, 0.16));
+        g.add(_fmesh(new THREE.SphereGeometry(0.16, 7, 6), mats.foliage || mats.leafGreen, -w * 0.28, 0.26, 0.16));
+      }
+      return g;
+    }
+
+    // ---------- 门: 店门/单元门 + 门框 + 台阶 + 门牌 + 门把手 ----------
+    // opts: w(宽,默认1.1), h(高,默认2.2), lit(门头灯亮), shop(bool 卷帘/玻璃店门)
+    function makeDoor(mats, opts) {
+      opts = opts || {};
+      var w = opts.w || 1.1, h = opts.h || 2.2;
+      var g = new THREE.Group();
+      // 门洞凹陷框(深一点制造门廊感)
+      var frameMat = mats.concrete || mats.brickB || mats.plaster;
+      g.add(_fmesh(new THREE.BoxGeometry(w + 0.3, h + 0.25, 0.18), frameMat, 0, (h + 0.25) / 2, -0.04));
+      // 门扇(店门用玻璃, 单元门用木/金属)
+      var doorMat = opts.shop ? (mats.glass) : (mats.woodBrown || mats.metalDark);
+      g.add(_fmesh(new THREE.BoxGeometry(w, h, 0.07), doorMat, 0, h / 2, 0.04));
+      if (opts.shop) {
+        // 店门: 双开玻璃, 中缝 + 下部金属踢板
+        g.add(_fmesh(new THREE.BoxGeometry(0.05, h, 0.09), mats.metalDark || mats.metalGray, 0, h / 2, 0.05));
+        g.add(_fmesh(new THREE.BoxGeometry(w, 0.4, 0.08), mats.metalGray || mats.metalDark, 0, 0.2, 0.05));
+      } else {
+        // 单元门: 上半镶玻璃小窗 + 木纹分格
+        g.add(_fmesh(new THREE.BoxGeometry(w * 0.6, h * 0.28, 0.04), opts.lit ? (mats.glassLit || mats.glass) : mats.glass, 0, h * 0.74, 0.06));
+        g.add(_fmesh(new THREE.BoxGeometry(w - 0.12, 0.05, 0.075), mats.metalDark || mats.woodBrown, 0, h * 0.5, 0.04));
+      }
+      // 门把手
+      g.add(_fmesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), mats.chrome || mats.metalGray, w * 0.36, h * 0.45, 0.09));
+      // 台阶(两级)
+      var stepMat = mats.concrete || mats.sidewalk;
+      g.add(_fmesh(new THREE.BoxGeometry(w + 0.6, 0.12, 0.55), stepMat, 0, 0.06, 0.32));
+      g.add(_fmesh(new THREE.BoxGeometry(w + 0.4, 0.12, 0.32), stepMat, 0, 0.18, 0.2));
+      // 门牌(小铭牌, 微亮)
+      g.add(_fmesh(new THREE.BoxGeometry(0.22, 0.12, 0.02), mats.paintWhite || mats.metalGray, w * 0.5 + 0.25, h * 0.6, 0.1));
+      // 门头灯(顶部挑出小灯, lit 则发光)
+      g.add(_fmesh(new THREE.BoxGeometry(0.26, 0.1, 0.22), mats.metalDark || mats.metalGray, 0, h + 0.18, 0.1));
+      g.add(_fmesh(new THREE.SphereGeometry(0.09, 8, 6), opts.lit ? (mats.lampGlow || mats.glassLit) : mats.glass, 0, h + 0.13, 0.16));
+      return g;
+    }
+
+    // ---------- 雨棚: 斜面条纹篷布 + 前沿垂边 + 两根斜撑 ----------
+    // opts: w(宽,默认2.4), color(篷布键, 默认 fabricRed), depth(挑出,默认1.1)
+    function makeAwning(mats, opts) {
+      opts = opts || {};
+      var w = opts.w || 2.4, depth = opts.depth || 1.1;
+      var fab = mats[opts.color] || mats.fabricRed || mats.fabricGreen || mats.paintRed;
+      var fabAlt = mats.paintWhite || mats.fabricBlue || fab;   // 条纹另一色
+      var g = new THREE.Group();
+      // 斜面顶布(由几条窄板交替拼出条纹), 整体向前下倾
+      var stripes = 5, sw = w / stripes;
+      for (var i = 0; i < stripes; i++) {
+        var panel = _fmesh(new THREE.BoxGeometry(sw - 0.02, 0.05, depth), (i % 2 === 0) ? fab : fabAlt,
+                           -w / 2 + sw * (i + 0.5), 0.18, depth / 2);
+        panel.rotation.x = 0.32;   // 前低后高
+        g.add(panel);
+      }
+      // 前沿垂边(波浪挡边)
+      g.add(_fmesh(new THREE.BoxGeometry(w, 0.22, 0.04), fab, 0, -0.02, depth * 0.95));
+      // 后沿安装条(贴墙)
+      g.add(_fmesh(new THREE.BoxGeometry(w + 0.1, 0.1, 0.06), mats.metalDark || mats.metalGray, 0, 0.34, 0.02));
+      // 两根斜撑杆
+      var bar = mats.metalDark || mats.metalGray;
+      var b1 = _fmesh(new THREE.CylinderGeometry(0.03, 0.03, depth * 1.15, 7), bar, -w * 0.4, 0.16, depth * 0.5);
+      b1.rotation.x = Math.PI / 2 - 0.32; g.add(b1);
+      var b2 = _fmesh(new THREE.CylinderGeometry(0.03, 0.03, depth * 1.15, 7), bar, w * 0.4, 0.16, depth * 0.5);
+      b2.rotation.x = Math.PI / 2 - 0.32; g.add(b2);
+      return g;
+    }
+
+    // ---------- 店招牌: 招牌底板 + 发光字条 + 边框 + 两个安装托架 ----------
+    // opts: w(宽,默认2.6), h(高,默认0.7), neon(霓虹色键, 默认 neonPink), lit(bool 默认true)
+    function makeShopSign(mats, opts) {
+      opts = opts || {};
+      var w = opts.w || 2.6, h = opts.h || 0.7;
+      var lit = opts.lit !== false;
+      var glow = mats[opts.neon] || mats.neonPink || mats.neonCyan || mats.glassLit;
+      var g = new THREE.Group();
+      // 招牌底板(暗板)
+      g.add(_fmesh(new THREE.BoxGeometry(w, h, 0.1), mats.plasticBlack || mats.metalDark, 0, 0, 0.05));
+      // 边框
+      g.add(_fmesh(new THREE.BoxGeometry(w + 0.08, h + 0.08, 0.06), mats.metalGray || mats.metalDark, 0, 0, 0.02));
+      // 发光"字"(几段亮条模拟霓虹文字)
+      var seg = 4, sgw = (w * 0.8) / seg;
+      for (var i = 0; i < seg; i++) {
+        var hh = (0.28 + _frand(i + 1) * 0.22) * h;
+        g.add(_fmesh(new THREE.BoxGeometry(sgw * 0.55, hh, 0.04), lit ? glow : mats.plasticBlack,
+                     -w * 0.4 + sgw * (i + 0.5), (_frand(i + 7) - 0.5) * 0.1, 0.11));
+      }
+      // 底部一道亮管(灯带)
+      g.add(_fmesh(new THREE.BoxGeometry(w * 0.86, 0.05, 0.04), lit ? (mats.neonCyan || glow) : mats.metalDark, 0, -h * 0.34, 0.11));
+      // 两个墙面安装托架
+      g.add(_fmesh(new THREE.BoxGeometry(0.06, h * 0.5, 0.18), mats.metalDark || mats.metalGray, -w * 0.42, 0, -0.06));
+      g.add(_fmesh(new THREE.BoxGeometry(0.06, h * 0.5, 0.18), mats.metalDark || mats.metalGray, w * 0.42, 0, -0.06));
+      return g;
+    }
+
+    // ---------- 逃生梯: 锈铁立柱 + 平台格栅 + 栏杆 + 斜梯(多级踏板) ----------
+    // opts: floors(层数,默认2), w(平台宽,默认2.0), fh(层高,默认2.8)
+    function makeFireEscape(mats, opts) {
+      opts = opts || {};
+      var floors = opts.floors || 2, w = opts.w || 2.0, fh = opts.fh || 2.8;
+      var depth = 0.9, rail = 0.85;
+      var steel = mats.rust || mats.metalDark;   // 锈铁
+      var g = new THREE.Group();
+      for (var f = 0; f < floors; f++) {
+        var y = fh * (f + 1);   // 该层平台标高
+        // 平台底板(格栅)
+        g.add(_fmesh(new THREE.BoxGeometry(w, 0.06, depth), steel, 0, y, depth / 2));
+        // 平台格栅条(纵向几根, 露空感)
+        for (var s = 0; s < 4; s++)
+          g.add(_fmesh(new THREE.BoxGeometry(0.04, 0.08, depth - 0.05), mats.metalDark || steel, -w / 2 + (w / 4) * (s + 0.5), y + 0.02, depth / 2));
+        // 外侧栏杆(上扶手 + 两根立柱 + 中横)
+        g.add(_fmesh(new THREE.CylinderGeometry(0.025, 0.025, w, 7).rotateZ(Math.PI / 2), steel, 0, y + rail, depth));
+        g.add(_fmesh(new THREE.CylinderGeometry(0.025, 0.025, w, 7).rotateZ(Math.PI / 2), steel, 0, y + rail * 0.5, depth));
+        g.add(_fmesh(new THREE.BoxGeometry(0.05, rail, 0.05), steel, -w / 2 + 0.05, y + rail / 2, depth));
+        g.add(_fmesh(new THREE.BoxGeometry(0.05, rail, 0.05), steel, w / 2 - 0.05, y + rail / 2, depth));
+        // 侧栏杆(两侧)
+        g.add(_fmesh(new THREE.BoxGeometry(0.04, rail, depth), steel, -w / 2 + 0.04, y + rail / 2, depth / 2));
+        g.add(_fmesh(new THREE.BoxGeometry(0.04, rail, depth), steel, w / 2 - 0.04, y + rail / 2, depth / 2));
+        // 四角承重立柱(到下一层)
+        g.add(_fmesh(new THREE.BoxGeometry(0.07, fh, 0.07), steel, -w / 2 + 0.05, y - fh / 2, 0.08));
+        g.add(_fmesh(new THREE.BoxGeometry(0.07, fh, 0.07), steel, w / 2 - 0.05, y - fh / 2, 0.08));
+        // 斜梯(连到下一层, 交错放在两侧), 5 级踏板
+        var sideX = (f % 2 === 0) ? -1 : 1;
+        var ladder = new THREE.Group();
+        var steps = 5;
+        for (var k = 0; k < steps; k++) {
+          var t = k / steps;
+          ladder.add(_fmesh(new THREE.BoxGeometry(0.5, 0.04, 0.18), steel,
+                            sideX * (w * 0.3), -t * fh + 0.1, depth - t * (depth - 0.1)));
+        }
+        // 梯帮(两条斜杆)
+        var rail1 = _fmesh(new THREE.BoxGeometry(0.04, fh * 1.15, 0.05), steel, sideX * (w * 0.3) - 0.27, y - fh / 2, depth * 0.55);
+        rail1.rotation.x = 0.5; ladder.add(rail1);
+        var rail2 = _fmesh(new THREE.BoxGeometry(0.04, fh * 1.15, 0.05), steel, sideX * (w * 0.3) + 0.27, y - fh / 2, depth * 0.55);
+        rail2.rotation.x = 0.5; ladder.add(rail2);
+        ladder.position.y = y;
+        g.add(ladder);
+      }
+      return g;
+    }
+
+    // ---------- 阳台: 挑出底板 + 实心栏板/竖栏 + 杂物(箱/盆/晾衣杆) ----------
+    // opts: w(宽,默认2.2), depth(挑出,默认1.0), solid(bool 实心栏板, 默认false竖栏), lit(bool 亮门)
+    function makeBalcony(mats, opts) {
+      opts = opts || {};
+      var w = opts.w || 2.2, depth = opts.depth || 1.0, rail = 0.95;
+      var g = new THREE.Group();
+      // 挑出底板
+      var slab = mats.concrete || mats.sidewalk;
+      g.add(_fmesh(new THREE.BoxGeometry(w, 0.14, depth), slab, 0, -0.07, depth / 2));
+      // 底板下两根支撑斜托
+      var br = mats.metalDark || mats.rust;
+      var t1 = _fmesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), br, -w * 0.4, -0.35, depth * 0.6); t1.rotation.x = 0.6; g.add(t1);
+      var t2 = _fmesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), br, w * 0.4, -0.35, depth * 0.6); t2.rotation.x = 0.6; g.add(t2);
+      // 栏杆: 上扶手
+      var railMat = mats.metalDark || mats.rust;
+      g.add(_fmesh(new THREE.BoxGeometry(w, 0.06, 0.06), railMat, 0, rail, depth));
+      g.add(_fmesh(new THREE.BoxGeometry(0.06, rail, 0.06), railMat, w / 2 - 0.03, rail / 2, depth));
+      g.add(_fmesh(new THREE.BoxGeometry(0.06, rail, 0.06), railMat, -w / 2 + 0.03, rail / 2, depth));
+      if (opts.solid) {
+        // 实心栏板(磨损混凝土/砖)
+        g.add(_fmesh(new THREE.BoxGeometry(w, rail * 0.85, 0.08), mats.brickA || mats.concrete, 0, rail * 0.42, depth));
+      } else {
+        // 竖栏(多根)
+        var bars = Math.max(6, Math.round(w / 0.18));
+        for (var i = 0; i < bars; i++)
+          g.add(_fmesh(new THREE.BoxGeometry(0.03, rail, 0.03), railMat, -w / 2 + (w / (bars - 1)) * i, rail / 2, depth));
+        // 侧栏(两边)
+        g.add(_fmesh(new THREE.BoxGeometry(0.06, rail, depth), railMat, w / 2 - 0.03, rail / 2, depth / 2));
+        g.add(_fmesh(new THREE.BoxGeometry(0.06, rail, depth), railMat, -w / 2 + 0.03, rail / 2, depth / 2));
+      }
+      // 杂物: 一个旧箱 + 一个花盆 + 晾衣杆挂布
+      g.add(_fmesh(new THREE.BoxGeometry(0.4, 0.4, 0.35), mats.cardboard || mats.woodBrown, -w * 0.3, 0.2, depth * 0.4));
+      g.add(_fmesh(new THREE.CylinderGeometry(0.16, 0.12, 0.28, 8), mats.plasticGreen || mats.rust, w * 0.32, 0.14, depth * 0.4));
+      g.add(_fmesh(new THREE.SphereGeometry(0.18, 7, 6), mats.foliage || mats.leafGreen, w * 0.32, 0.36, depth * 0.4));
+      // 晾衣杆 + 一块挂布
+      g.add(_fmesh(new THREE.CylinderGeometry(0.02, 0.02, w * 0.8, 6).rotateZ(Math.PI / 2), mats.metalGray || railMat, 0, rail + 0.18, depth * 0.7));
+      g.add(_fmesh(new THREE.BoxGeometry(0.5, 0.4, 0.02), mats.fabricBlue || mats.paintWhite, -w * 0.15, rail - 0.05, depth * 0.7));
+      return g;
+    }
+
+    // ---------- 女儿墙/屋顶压顶: 压顶帽 + 墙身 + 排水口 + 排水管头 ----------
+    // opts: w(宽,默认6), h(墙高,默认0.9), drains(排水口数,默认2)
+    function makeRoofParapet(mats, opts) {
+      opts = opts || {};
+      var w = opts.w || 6, h = opts.h || 0.9;
+      var g = new THREE.Group();
+      // 墙身(沿 +Z 面边缘的一道矮墙, 居中 z=0)
+      var wallMat = mats.brickB || mats.concrete || mats.plaster;
+      g.add(_fmesh(new THREE.BoxGeometry(w, h, 0.3), wallMat, 0, h / 2, 0));
+      // 压顶帽(略宽探出, 防水石檐)
+      g.add(_fmesh(new THREE.BoxGeometry(w + 0.12, 0.12, 0.42), mats.concrete || mats.sidewalk, 0, h + 0.06, 0));
+      // 内侧一道踢脚/防水卷材边
+      g.add(_fmesh(new THREE.BoxGeometry(w, 0.14, 0.06), mats.metalDark || mats.rust, 0, 0.07, -0.18));
+      // 排水口(墙底几个方孔 + 探出的排水嘴)
+      var drains = opts.drains || 2;
+      for (var i = 0; i < drains; i++) {
+        var dx = (drains === 1) ? 0 : -w * 0.35 + (w * 0.7) * (i / (drains - 1));
+        // 凹槽口(暗块)
+        g.add(_fmesh(new THREE.BoxGeometry(0.26, 0.16, 0.08), mats.metalDark || mats.plasticBlack, dx, 0.1, 0.13));
+        // 探出的排水嘴
+        var spout = _fmesh(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 8), mats.rust || mats.metalDark, dx, 0.08, 0.28);
+        spout.rotation.x = Math.PI / 2; g.add(spout);
+        // 嘴下墙面锈水痕
+        g.add(_fmesh(new THREE.BoxGeometry(0.1, 0.3, 0.01), mats.rust || mats.dirt, dx, -0.0, 0.16));
+      }
+      return g;
+    }
+
+    // ---------- 整面立面: 在 w×h 墙上自动密铺窗+底层店面+雨棚+招牌+落水管+空调 ----------
+    // 返回贴在 +Z 面前方的 Group(不含主墙体, 主墙体装配阶段用大盒子)。
+    // 楼局部坐标: 立面平面在 z=0, 这里把附件放在 z>0(向外凸), 楼底在 y=0。
+    // opts: seed(随机种), color(漆/招牌色), litRatio(亮窗比例,默认0.4)
+    function makeBuildingFacade(mats, w, h, opts) {
+      opts = opts || {};
+      w = w || 10; h = h || 12;
+      var seed = opts.seed || 1, litRatio = (opts.litRatio == null) ? 0.4 : opts.litRatio;
+      var g = new THREE.Group();
+      var z0 = 0.16;   // 附件相对墙面的凸出基准
+      // ---- 楼层划分 ----
+      var floorH = 3.0;
+      var floors = Math.max(1, Math.floor(h / floorH));
+      // 每层窗户列数(按宽度估)
+      var winW = 1.0, winSpace = 1.9;
+      var cols = Math.max(1, Math.floor((w - 1.2) / winSpace));
+      var colStart = -(cols - 1) * winSpace / 2;
+      var rcount = 0;   // 随机计数器
+
+      // ---- 底层: 店面(门 + 大橱窗 + 雨棚 + 招牌) ----
+      var groundShop = (_frand(seed * 3.1) > 0.35);   // 多数底层是店面
+      if (groundShop) {
+        // 店门(偏一侧)
+        var doorX = colStart + winSpace * (cols > 1 ? 0 : 0);
+        var door = makeDoor(mats, { shop: true, h: 2.4, lit: true });
+        door.position.set(doorX, 0, z0);
+        g.add(door);
+        // 大橱窗(其余列, 底层用矮亮玻璃)
+        for (var c = 1; c < cols; c++) {
+          var sx = colStart + winSpace * c;
+          var shopWin = makeWindow(mats, { w: 1.5, h: 1.8, lit: (_frand(seed + c * 1.7) < 0.7) });
+          shopWin.position.set(sx, 0.5, z0);
+          g.add(shopWin);
+        }
+        // 招牌(横跨店面顶部, 微高于底层)
+        var sign = makeShopSign(mats, { w: Math.min(w * 0.7, cols * winSpace * 0.7), h: 0.7,
+                                        neon: (_frand(seed * 5.5) > 0.5) ? 'neonPink' : 'neonCyan' });
+        sign.position.set(0, floorH - 0.55, z0 + 0.12);
+        g.add(sign);
+        // 雨棚(店门 + 部分橱窗上方)
+        for (var a = 0; a < cols; a++) {
+          var ax = colStart + winSpace * a;
+          var aw = makeAwning(mats, { w: winSpace * 0.92, depth: 1.0,
+                                      color: (_frand(seed + a) > 0.5) ? 'fabricRed' : 'fabricGreen' });
+          aw.position.set(ax, floorH - 1.15, z0 + 0.05);
+          g.add(aw);
+        }
+      } else {
+        // 非店面底层: 单元门 + 普通窗
+        var ud = makeDoor(mats, { shop: false, h: 2.2, lit: true });
+        ud.position.set(colStart, 0, z0);
+        g.add(ud);
+        for (var c2 = 1; c2 < cols; c2++) {
+          var w1 = makeWindow(mats, { w: winW, h: 1.3, lit: (_frand(seed + c2) < litRatio) });
+          w1.position.set(colStart + winSpace * c2, 0.9, z0);
+          g.add(w1);
+        }
+      }
+
+      // ---- 上层: 密铺住宅窗(部分亮灯/空调/花盆), 间或阳台 ----
+      for (var f = 1; f < floors; f++) {
+        var fy = f * floorH + 0.6;   // 该层窗底标高
+        for (var col = 0; col < cols; col++) {
+          var cx = colStart + winSpace * col;
+          rcount++;
+          var r = _frand(seed * 2.0 + rcount * 1.3);
+          var lit = (r < litRatio);
+          // 偶发阳台(替代窗户)
+          if (_frand(seed + f * 3.7 + col * 0.9) > 0.86 && f < floors) {
+            var bal = makeBalcony(mats, { w: winSpace * 0.95, depth: 0.9,
+                                          solid: (r > 0.5), lit: lit });
+            bal.position.set(cx, fy, z0);
+            g.add(bal);
+            // 阳台门(矮亮窗在后)
+            var bd = makeWindow(mats, { w: winW, h: 1.6, lit: lit });
+            bd.position.set(cx, fy, z0 - 0.02);
+            g.add(bd);
+          } else {
+            var win = makeWindow(mats, { w: winW, h: 1.3, lit: lit,
+                                         ac: (_frand(seed + rcount * 2.1) > 0.7),
+                                         plant: (!lit && _frand(seed + rcount * 0.6) > 0.8) });
+            win.position.set(cx, fy, z0);
+            g.add(win);
+          }
+        }
+      }
+
+      // ---- 落水管(竖向 2 根, 贴墙边, 带几道卡箍) ----
+      var pipeMat = mats.metalGray || mats.rust;
+      var pipeXs = [-w / 2 + 0.4, w / 2 - 0.4];
+      for (var p = 0; p < pipeXs.length; p++) {
+        g.add(_fmesh(new THREE.CylinderGeometry(0.08, 0.08, h - 0.3, 8), pipeMat, pipeXs[p], (h - 0.3) / 2, z0 - 0.02));
+        // 卡箍
+        for (var cl = 0; cl < floors; cl++)
+          g.add(_fmesh(new THREE.TorusGeometry(0.1, 0.02, 6, 10), mats.metalDark || pipeMat, pipeXs[p], 1.2 + cl * floorH, z0 - 0.02));
+        // 底部弯头(出水口朝外)
+        var elbow = _fmesh(new THREE.CylinderGeometry(0.08, 0.08, 0.4, 8), pipeMat, pipeXs[p], 0.3, z0 + 0.12);
+        elbow.rotation.x = Math.PI / 2.4; g.add(elbow);
+        // 锈水渍
+        g.add(_fmesh(new THREE.BoxGeometry(0.05, h * 0.5, 0.01), mats.rust || mats.dirt, pipeXs[p] + 0.12, h * 0.4, z0 - 0.05));
+      }
+
+      // ---- 间或挂一截逃生梯(约一半立面有, 偏一侧) ----
+      if (_frand(seed * 7.3) > 0.5 && floors >= 2) {
+        var fe = makeFireEscape(mats, { floors: Math.min(floors - 1, 3), w: 1.8, fh: floorH });
+        fe.position.set(w * 0.28, 0, z0 + 0.1);
+        g.add(fe);
+      }
+
+      // ---- 顶部女儿墙 ----
+      var par = makeRoofParapet(mats, { w: w, h: 0.9, drains: 2 });
+      par.position.set(0, h, z0 - 0.05);
+      g.add(par);
+
+      return g;
+    }
+
+    // ===== town prop set 5 =====
+    // ============================================================================
+    // 车辆 / 工地杂物 构建器 (Three.js r137, ES5)
+    // 约定: 每个 make* 返回一个 THREE.Group, 底部坐落 y=0, 居中 x=z=0, 正面朝 +Z。
+    // 只引用传入的 mats 调色板键; 不 scene.add / 不设 spawnPoints / 不 new Material。
+    // ============================================================================
+
+    // --- 内部小工具(局部作用域, 不污染全局; 仅本段使用) ---------------------
+    function _vp_box(g, mat, x, y, z, sx, sy, sz, rx, ry, rz) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(x, y, z);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    function _vp_cyl(g, mat, x, y, z, rt, rb, h, seg, rx, ry, rz) {
+      var m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg || 16), mat);
+      m.position.set(x, y, z);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    function _vp_cone(g, mat, x, y, z, r, h, seg, rx, ry, rz) {
+      var m = new THREE.Mesh(new THREE.ConeGeometry(r, h, seg || 16), mat);
+      m.position.set(x, y, z);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    function _vp_torus(g, mat, x, y, z, r, tube, rseg, tseg, rx, ry, rz) {
+      var m = new THREE.Mesh(new THREE.TorusGeometry(r, tube, rseg || 8, tseg || 16), mat);
+      m.position.set(x, y, z);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    // 橡胶轮胎(胎面 torus + 黑盘 + 银轮毂), 沿 X 轴卧倒, 返回一个子 Group 便于定位
+    function _vp_wheel(mats, R) {
+      var w = new THREE.Group();
+      _vp_torus(w, mats.tire, 0, 0, 0, R, R * 0.42, 8, 18, 0, Math.PI / 2, 0);   // 胎面绕 X 轴立起
+      _vp_cyl(w, mats.tire, 0, 0, 0, R * 0.62, R * 0.62, R * 0.5, 18, 0, 0, Math.PI / 2); // 胎壁圆盘
+      _vp_cyl(w, mats.chrome, 0, 0, 0, R * 0.42, R * 0.42, R * 0.54, 12, 0, 0, Math.PI / 2); // 轮毂
+      return w;
+    }
+
+    // === 1) 轿车: 车体+车顶+引擎盖/后备箱分段+4窗玻璃+4轮+保险杠+车灯/尾灯+后视镜+车牌 ===
+    // opts.color = 漆色键(默认 mats.paintRed)
+    function makeSedan(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var paint = opts.color || mats.paintRed;
+      var L = 4.4, W = 1.8, wheelR = 0.34, sill = wheelR + 0.12; // 底盘离地
+
+      // 下车体(乘员舱底盘段, 微收边)
+      _vp_box(g, paint, 0, sill + 0.30, 0, W, 0.60, L * 0.92);
+      // 引擎盖(前低段) + 后备箱(后低段) 分段, 比舱体略低
+      _vp_box(g, paint, 0, sill + 0.46, L * 0.34, W * 0.96, 0.30, L * 0.30);   // 引擎盖
+      _vp_box(g, paint, 0, sill + 0.46, -L * 0.36, W * 0.96, 0.30, L * 0.26);  // 后备箱
+      // 车顶舱(更窄, 抬高)
+      _vp_box(g, paint, 0, sill + 0.86, -0.05, W * 0.84, 0.52, L * 0.40);
+      // 4 个车窗玻璃(前/后/左/右), 略缩进车顶舱
+      _vp_box(g, mats.glass, 0, sill + 0.88, L * 0.16, W * 0.78, 0.42, 0.04);   // 前挡风
+      _vp_box(g, mats.glass, 0, sill + 0.88, -L * 0.26, W * 0.78, 0.42, 0.04);  // 后挡风
+      _vp_box(g, mats.glass, W * 0.42, sill + 0.88, -0.05, 0.04, 0.40, L * 0.34); // 右侧窗
+      _vp_box(g, mats.glass, -W * 0.42, sill + 0.88, -0.05, 0.04, 0.40, L * 0.34); // 左侧窗
+      // 前后保险杠
+      _vp_box(g, mats.metalDark, 0, sill + 0.16, L * 0.50, W * 0.98, 0.22, 0.18);
+      _vp_box(g, mats.metalDark, 0, sill + 0.16, -L * 0.50, W * 0.98, 0.22, 0.18);
+      // 前大灯(发光) x2 + 尾灯(发光红) x2
+      _vp_box(g, mats.lampGlow, W * 0.30, sill + 0.40, L * 0.495, 0.30, 0.16, 0.05);
+      _vp_box(g, mats.lampGlow, -W * 0.30, sill + 0.40, L * 0.495, 0.30, 0.16, 0.05);
+      _vp_box(g, mats.tailLight, W * 0.30, sill + 0.42, -L * 0.495, 0.28, 0.18, 0.05);
+      _vp_box(g, mats.tailLight, -W * 0.30, sill + 0.42, -L * 0.495, 0.28, 0.18, 0.05);
+      // 车牌(脏白) 前后
+      _vp_box(g, mats.paper, 0, sill + 0.18, L * 0.505, 0.42, 0.14, 0.02);
+      _vp_box(g, mats.paper, 0, sill + 0.22, -L * 0.505, 0.42, 0.14, 0.02);
+      // 后视镜 x2(臂+镜片)
+      _vp_box(g, paint, W * 0.50, sill + 0.78, L * 0.18, 0.14, 0.10, 0.08);
+      _vp_box(g, mats.chrome, W * 0.56, sill + 0.78, L * 0.18, 0.04, 0.12, 0.14);
+      _vp_box(g, paint, -W * 0.50, sill + 0.78, L * 0.18, 0.14, 0.10, 0.08);
+      _vp_box(g, mats.chrome, -W * 0.56, sill + 0.78, L * 0.18, 0.04, 0.12, 0.14);
+      // 进气格栅
+      _vp_box(g, mats.metalDark, 0, sill + 0.36, L * 0.50, W * 0.5, 0.18, 0.04);
+      // 4 轮
+      var wx = W * 0.52, wz = L * 0.33;
+      var corners = [[wx, wz], [-wx, wz], [wx, -wz], [-wx, -wz]];
+      for (var i = 0; i < 4; i++) {
+        var wl = _vp_wheel(mats, wheelR);
+        wl.position.set(corners[i][0], wheelR, corners[i][1]);
+        g.add(wl);
+      }
+      return g;
+    }
+
+    // === 2) 厢式货车: 更高更方 + 侧滑门 + 车顶 + 驾驶舱挡风 + 轮 + 保险杠灯 ===
+    // opts.color = 漆色(默认 mats.paintWhite)
+    function makeVan(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var paint = opts.color || mats.paintWhite;
+      var L = 5.0, W = 2.0, H = 2.4, wheelR = 0.40, sill = wheelR + 0.14;
+
+      // 货厢主体(高大方块)
+      _vp_box(g, paint, 0, sill + H * 0.5, -L * 0.16, W, H, L * 0.66);
+      // 驾驶舱(略低前突)
+      _vp_box(g, paint, 0, sill + H * 0.38, L * 0.40, W * 0.98, H * 0.76, L * 0.30);
+      // 前挡风玻璃(斜)
+      _vp_box(g, mats.glass, 0, sill + H * 0.62, L * 0.54, W * 0.86, H * 0.40, 0.05, -0.34);
+      // 驾驶舱侧窗
+      _vp_box(g, mats.glass, W * 0.50, sill + H * 0.55, L * 0.42, 0.04, H * 0.30, L * 0.22);
+      _vp_box(g, mats.glass, -W * 0.50, sill + H * 0.55, L * 0.42, 0.04, H * 0.30, L * 0.22);
+      // 侧滑门(右侧, 凹槽板 + 把手)
+      _vp_box(g, mats.metalGray, W * 0.505, sill + H * 0.46, -L * 0.06, 0.06, H * 0.66, L * 0.34);
+      _vp_box(g, mats.metalDark, W * 0.52, sill + H * 0.46, -L * 0.06, 0.03, 0.10, 0.30); // 门轨
+      _vp_box(g, mats.metalDark, W * 0.55, sill + H * 0.40, L * 0.04, 0.05, 0.06, 0.18);  // 把手
+      // 后双开门 + 缝
+      _vp_box(g, paint, 0, sill + H * 0.46, -L * 0.49, W * 0.96, H * 0.70, 0.06);
+      _vp_box(g, mats.metalDark, 0, sill + H * 0.46, -L * 0.50, 0.04, H * 0.66, 0.04);
+      // 车顶通风/行李架
+      _vp_box(g, mats.metalGray, 0, sill + H + 0.05, -L * 0.16, W * 0.7, 0.10, L * 0.5);
+      // 保险杠 + 前大灯 + 尾灯
+      _vp_box(g, mats.metalDark, 0, sill + 0.20, L * 0.55, W * 0.98, 0.26, 0.18);
+      _vp_box(g, mats.lampGlow, W * 0.32, sill + 0.46, L * 0.555, 0.30, 0.20, 0.05);
+      _vp_box(g, mats.lampGlow, -W * 0.32, sill + 0.46, L * 0.555, 0.30, 0.20, 0.05);
+      _vp_box(g, mats.tailLight, W * 0.34, sill + 0.50, -L * 0.495, 0.20, 0.40, 0.05);
+      _vp_box(g, mats.tailLight, -W * 0.34, sill + 0.50, -L * 0.495, 0.20, 0.40, 0.05);
+      // 后视镜
+      _vp_box(g, mats.metalDark, W * 0.55, sill + H * 0.62, L * 0.46, 0.06, 0.26, 0.16);
+      _vp_box(g, mats.metalDark, -W * 0.55, sill + H * 0.62, L * 0.46, 0.06, 0.26, 0.16);
+      // 4 轮(后轮略靠后)
+      var wx = W * 0.54;
+      var corners = [[wx, L * 0.34], [-wx, L * 0.34], [wx, -L * 0.30], [-wx, -L * 0.30]];
+      for (var i = 0; i < 4; i++) {
+        var wl = _vp_wheel(mats, wheelR);
+        wl.position.set(corners[i][0], wheelR, corners[i][1]);
+        g.add(wl);
+      }
+      return g;
+    }
+
+    // === 3) 自行车: 车架(双三角)+两轮+车把+座+脚踏+链罩; 默认带支脚微倾 ===
+    // opts.color = 车架漆色(默认 mats.paintBlue); opts.upright=true 则不倾斜
+    function makeBicycle(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var frame = opts.color || mats.paintBlue;
+      var R = 0.34, base = R, wb = 1.05; // 轮半径 / 离地 / 轴距
+
+      // 两轮(沿 X 轴薄, 在 XY 平面立着, 前后排开 -> 沿 Z 轴前后)
+      function wheel(z) {
+        _vp_torus(g, mats.tire, 0, base, z, R, 0.04, 6, 20, 0, 0, 0);       // 外胎(XY平面)
+        _vp_torus(g, mats.chrome, 0, base, z, R * 0.92, 0.015, 4, 18, 0, 0, 0); // 钢圈
+        var i, n = 8;
+        for (i = 0; i < n; i++) { // 辐条
+          _vp_cyl(g, mats.chrome, 0, base, z, 0.006, 0.006, R * 1.7, 4, 0, 0, i * Math.PI / n);
+        }
+        _vp_cyl(g, mats.metalDark, 0, base, z, 0.03, 0.03, 0.06, 8, 0, 0, Math.PI / 2); // 花鼓
+      }
+      wheel(wb * 0.5);   // 前轮 (+Z 前)
+      wheel(-wb * 0.5);  // 后轮
+      // 车架: 五通(中轴)位置
+      var bb = base + 0.18; // 中轴高
+      // 下管(中轴->前轮花鼓)
+      _vp_cyl(g, frame, 0, base + 0.32, wb * 0.30, 0.025, 0.025, 0.62, 8, Math.atan2(wb * 0.30, 0.18) + 0.3, Math.PI / 2, 0);
+      // 立管(中轴->座) 沿 +Y 略后倾
+      _vp_cyl(g, frame, 0, base + 0.40, -wb * 0.10, 0.025, 0.025, 0.46, 8, 0.18, 0, 0);
+      // 上管(座管顶->头管)
+      _vp_cyl(g, frame, 0, base + 0.58, wb * 0.12, 0.022, 0.022, 0.56, 8, 0, Math.PI / 2, 0);
+      // 后下叉(中轴->后花鼓)
+      _vp_cyl(g, frame, 0, base + 0.10, -wb * 0.26, 0.018, 0.018, 0.56, 6, Math.PI / 2 - 0.3, 0, 0);
+      // 后上叉(座->后花鼓)
+      _vp_cyl(g, frame, 0, base + 0.30, -wb * 0.30, 0.016, 0.016, 0.50, 6, 0.7, 0, 0);
+      // 前叉(头管->前花鼓)
+      _vp_cyl(g, mats.chrome, 0, base + 0.30, wb * 0.42, 0.018, 0.018, 0.42, 6, 0.18, 0, 0);
+      // 头管 + 车把(横杆 + 立管)
+      _vp_cyl(g, frame, 0, base + 0.50, wb * 0.40, 0.03, 0.03, 0.18, 8, 0.18, 0, 0);
+      _vp_cyl(g, mats.metalDark, 0, base + 0.62, wb * 0.40, 0.02, 0.02, 0.40, 6, 0, 0, Math.PI / 2); // 车把横杆
+      _vp_box(g, mats.plasticBlack, 0, base + 0.62, wb * 0.40, 0.05, 0.05, 0.05); // 把立接头
+      // 座垫
+      _vp_box(g, mats.plasticBlack, 0, base + 0.66, -wb * 0.12, 0.10, 0.05, 0.24);
+      // 脚踏曲柄 + 踏板
+      _vp_cyl(g, mats.chrome, 0, bb, 0, 0.012, 0.012, 0.30, 6, 0, 0, 0.6);
+      _vp_box(g, mats.plasticBlack, 0.12, bb + 0.07, 0, 0.06, 0.03, 0.10);
+      _vp_box(g, mats.plasticBlack, -0.12, bb - 0.07, 0, 0.06, 0.03, 0.10);
+      // 链罩
+      _vp_box(g, mats.metalDark, 0.05, base + 0.10, -wb * 0.16, 0.02, 0.10, 0.40);
+
+      if (!opts.upright) g.rotation.z = 0.10; // 支脚停靠微倾
+      return g;
+    }
+
+    // === 4) 交通锥: 橙锥(分两段更挺)+反光环x2+方底座+顶尖 ===
+    function makeTrafficCone(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      // 方底座
+      _vp_box(g, mats.plasticBlack, 0, 0.03, 0, 0.38, 0.06, 0.38);
+      _vp_box(g, mats.paintOrange, 0, 0.09, 0, 0.30, 0.06, 0.30);
+      // 锥体下段(粗) + 上段(细)
+      _vp_cone(g, mats.paintOrange, 0, 0.32, 0, 0.18, 0.40, 14);
+      _vp_cone(g, mats.paintOrange, 0, 0.62, 0, 0.07, 0.30, 12);
+      // 顶尖小球收口
+      _vp_cyl(g, mats.paintOrange, 0, 0.76, 0, 0.025, 0.04, 0.05, 8);
+      // 两道反光环(脏白)
+      _vp_cyl(g, mats.paintWhite, 0, 0.40, 0, 0.155, 0.165, 0.08, 14);
+      _vp_cyl(g, mats.paintWhite, 0, 0.58, 0, 0.085, 0.095, 0.06, 12);
+      if (opts.fallen) g.rotation.z = Math.PI / 2 - 0.08; // 个别倒地
+      return g;
+    }
+
+    // === 5) 木托盘: 顶板条 + 底板条 + 三根纵梁(标准欧式托盘观感) ===
+    function makePallet(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var W = 1.2, L = 1.0, deck = 0.025, gap;
+      // 三根纵向承重梁(底)
+      var beamY = 0.05;
+      _vp_box(g, mats.woodBrown, -W * 0.42, beamY, 0, 0.10, 0.10, L);
+      _vp_box(g, mats.woodBrown, 0, beamY, 0, 0.10, 0.10, L);
+      _vp_box(g, mats.woodBrown, W * 0.42, beamY, 0, 0.10, 0.10, L);
+      // 顶面板条(5 条沿 X 铺, 长边沿 X)
+      var n = 5, i;
+      for (i = 0; i < n; i++) {
+        var z = -L * 0.42 + (L * 0.84) * (i / (n - 1));
+        _vp_box(g, mats.woodBrown, 0, 0.12, z, W, deck, 0.13);
+      }
+      // 底面板条(3 条)
+      for (i = 0; i < 3; i++) {
+        var z2 = -L * 0.40 + (L * 0.80) * (i / 2);
+        _vp_box(g, mats.woodBrown, 0, 0.005, z2, W, deck, 0.14);
+      }
+      return g;
+    }
+
+    // === 6) 油桶: 桶身(微锥)+上下顶圈+三道加强棱+顶盖凸口+锈斑块 ===
+    // opts.color = 桶身漆色(默认 mats.rust); 立着, 高约 0.9
+    function makeBarrel(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var body = opts.color || mats.rust;
+      var R = 0.29, H = 0.88;
+      // 桶身
+      _vp_cyl(g, body, 0, H * 0.5, 0, R, R, H, 20);
+      // 上下顶圈(略大)
+      _vp_cyl(g, mats.metalDark, 0, H - 0.02, 0, R + 0.02, R + 0.02, 0.05, 20);
+      _vp_cyl(g, mats.metalDark, 0, 0.03, 0, R + 0.02, R + 0.02, 0.05, 20);
+      // 三道中部加强棱(torus)
+      _vp_torus(g, mats.metalDark, 0, H * 0.32, 0, R, 0.022, 6, 18, Math.PI / 2, 0, 0);
+      _vp_torus(g, mats.metalDark, 0, H * 0.5, 0, R, 0.022, 6, 18, Math.PI / 2, 0, 0);
+      _vp_torus(g, mats.metalDark, 0, H * 0.68, 0, R, 0.022, 6, 18, Math.PI / 2, 0, 0);
+      // 顶盖 + 注油口凸台
+      _vp_cyl(g, mats.metalGray, 0, H + 0.005, 0, R * 0.98, R * 0.98, 0.02, 20);
+      _vp_cyl(g, mats.metalDark, R * 0.55, H + 0.03, 0, 0.05, 0.05, 0.05, 10);
+      // 几块锈蚀斑(贴在桶身, 用 rust 即便桶身已是漆色也显旧)
+      _vp_box(g, mats.rust, R * 0.86, H * 0.36, R * 0.55, 0.14, 0.20, 0.02, 0, -0.6, 0);
+      _vp_box(g, mats.rust, -R * 0.80, H * 0.62, -R * 0.6, 0.10, 0.16, 0.02, 0, 0.7, 0);
+      if (opts.fallen) { g.rotation.x = Math.PI / 2; g.position.y = R; } // 个别躺倒
+      return g;
+    }
+
+    // === 7) 木条板箱: 6 面镂空木条筐(角柱 + 横条) + 顶部缝隙 ===
+    function makeWoodCrate(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var S = opts.size || 0.7, h = S, half = S * 0.5, t = 0.04;
+      // 4 根角柱
+      var cx = half - t * 0.5;
+      _vp_box(g, mats.woodBrown, cx, h * 0.5, cx, t, h, t);
+      _vp_box(g, mats.woodBrown, -cx, h * 0.5, cx, t, h, t);
+      _vp_box(g, mats.woodBrown, cx, h * 0.5, -cx, t, h, t);
+      _vp_box(g, mats.woodBrown, -cx, h * 0.5, -cx, t, h, t);
+      // 每面 3 道横条(上/中/下)
+      var levels = [h * 0.12, h * 0.5, h * 0.88], i;
+      for (i = 0; i < 3; i++) {
+        var y = levels[i];
+        _vp_box(g, mats.woodBrown, 0, y, half, S, t * 1.4, t); // 前
+        _vp_box(g, mats.woodBrown, 0, y, -half, S, t * 1.4, t); // 后
+        _vp_box(g, mats.woodBrown, half, y, 0, t, t * 1.4, S); // 右
+        _vp_box(g, mats.woodBrown, -half, y, 0, t, t * 1.4, S); // 左
+      }
+      // 底板(实) + 顶部两条留缝
+      _vp_box(g, mats.woodBrown, 0, t * 0.5, 0, S - t, t, S - t);
+      _vp_box(g, mats.woodBrown, -S * 0.22, h - t * 0.5, 0, S * 0.30, t, S);
+      _vp_box(g, mats.woodBrown, S * 0.22, h - t * 0.5, 0, S * 0.30, t, S);
+      return g;
+    }
+
+    // === 8) 地面碎屑场(InstancedMesh): 矩形区随机散布碎砖/木片/金属屑, 一次 draw call ===
+    // makeDebrisField(mats, count, x0,z0, x1,z1, opts?)
+    // 紧贴地面, 随机旋转/缩放/微沉; 默认材质 mats.trashMix; 可 opts.mat 指定。
+    function makeDebrisField(mats, count, x0, z0, x1, z1, opts) {
+      opts = opts || {};
+      count = count || 300;
+      var mat = opts.mat || mats.trashMix;
+      // 一片薄长方碎屑作为基元
+      var geo = new THREE.BoxGeometry(1, 1, 1);
+      var inst = new THREE.InstancedMesh(geo, mat, count);
+      inst.castShadow = false; inst.receiveShadow = true;
+      var dummy = new THREE.Object3D();
+      var minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
+      var minZ = Math.min(z0, z1), maxZ = Math.max(z0, z1);
+      var hasColor = false, c = new THREE.Color();
+      var palette = [0x8a8275, 0x6b4a2f, 0xb04a3a, 0x9a9a9a, 0xd8d2c4]; // 砖/木/锈红/金属/纸
+      for (var i = 0; i < count; i++) {
+        var px = minX + Math.random() * (maxX - minX);
+        var pz = minZ + Math.random() * (maxZ - minZ);
+        var sx = 0.06 + Math.random() * 0.22;
+        var sz = 0.05 + Math.random() * 0.18;
+        var sy = 0.01 + Math.random() * 0.04;
+        dummy.position.set(px, sy * 0.5 - 0.005, pz); // 微沉贴地
+        dummy.rotation.set((Math.random() - 0.5) * 0.3, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.3);
+        dummy.scale.set(sx, sy, sz);
+        dummy.updateMatrix();
+        inst.setMatrixAt(i, dummy.matrix);
+        if (inst.setColorAt) { // 若材质支持顶点色则上随机调色, 否则忽略
+          c.setHex(palette[(Math.random() * palette.length) | 0]);
+          inst.setColorAt(i, c); hasColor = true;
+        }
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      if (hasColor && inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      // 包一层 Group 以符合"返回 Group"约定, 便于装配统一处理
+      var g = new THREE.Group();
+      g.add(inst);
+      return g;
+    }
+
+
+    // ===== town prop set 6 =====
+    // ===================== 绿化 / 招贴 / 旗 物件构建器 =====================
+    // 约定: 每个 make* 返回一个 THREE.Group(底坐 y=0, 居中 x=z=0, 正面朝 +Z)。
+    // 只引用传入的 mats 调色板键(MeshStandardMaterial)。不 scene.add / 不设碰撞。
+    // 小工具(局部, 不与全局 mBox/mCyl 重名): 直接 new Mesh 并 add 进 group。
+
+    // 局部网格工厂: 盒
+    function _gpBox(g, mat, sx, sy, sz, px, py, pz, ry) {
+      var m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      m.position.set(px, py, pz); if (ry) m.rotation.y = ry;
+      m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    // 局部网格工厂: 圆柱(r1顶 r2底)
+    function _gpCyl(g, mat, r1, r2, h, px, py, pz, seg) {
+      var m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg || 12), mat);
+      m.position.set(px, py, pz); m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    // 局部网格工厂: 球(可压扁做树冠/灌木团)
+    function _gpSphere(g, mat, r, px, py, pz, seg) {
+      var m = new THREE.Mesh(new THREE.SphereGeometry(r, seg || 8, seg || 6), mat);
+      m.position.set(px, py, pz); m.castShadow = true; m.receiveShadow = true; g.add(m); return m;
+    }
+    // 确定性伪随机(给实例化/不规则用, 同 seed 同结果)
+    function _gpRng(seed) { var s = seed || 1; return function () { s = (s * 16807) % 2147483647; return s / 2147483647; }; }
+
+    // 花池: 混凝土或木框 + 内泥土 + 几团灌木(foliage) + 露出的塑料袋垃圾
+    // opts.wood=true 用木框; opts.size 边长(默认1.4); opts.litter=true 撒点垃圾
+    function makePlanter(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var s = opts.size || 1.4, h = 0.55, t = 0.12; // 边长 / 高 / 壁厚
+      var wall = opts.wood ? (mats.woodBrown || mats.concrete) : (mats.concrete || mats.sidewalk);
+      // 四壁(微外扩做磨损感)
+      _gpBox(g, wall, s, h, t, 0, h / 2, s / 2 - t / 2);          // 前
+      _gpBox(g, wall, s, h, t, 0, h / 2, -(s / 2 - t / 2));       // 后
+      _gpBox(g, wall, t, h, s, s / 2 - t / 2, h / 2, 0);          // 右
+      _gpBox(g, wall, t, h, s, -(s / 2 - t / 2), h / 2, 0);       // 左
+      // 顶沿压条(混凝土更厚, 模拟磕碰缺角靠轻微下沉的小块)
+      _gpBox(g, wall, s + 0.06, 0.06, 0.08, 0, h - 0.03, s / 2 - 0.04);
+      _gpBox(g, wall, s + 0.06, 0.06, 0.08, 0, h - 0.03, -(s / 2 - 0.04));
+      // 缺角小块(磕掉一块, 露出深色)
+      _gpBox(g, mats.rust || mats.metalDark, 0.14, 0.1, 0.14, s / 2 - 0.07, h - 0.05, s / 2 - 0.07);
+      // 内填泥土(略低于沿口)
+      _gpBox(g, mats.dirt || mats.woodBrown, s - 2 * t, 0.1, s - 2 * t, 0, h - 0.14, 0);
+      // 灌木团(foliage 几个压扁球叠成不规则丛)
+      var fol = mats.foliage || mats.leafGreen;
+      var rng = _gpRng(opts.seed || 7);
+      for (var i = 0; i < 5; i++) {
+        var bx = (rng() - 0.5) * (s - 0.5), bz = (rng() - 0.5) * (s - 0.5);
+        var r = 0.22 + rng() * 0.16, m = _gpSphere(g, fol, r, bx, h - 0.05 + r * 0.55, bz, 7);
+        m.scale.set(1, 0.8 + rng() * 0.3, 1);
+      }
+      // 露出土面的塑料袋/垃圾(可选)
+      if (opts.litter !== false) {
+        var bag = _gpSphere(g, mats.trashMix || mats.paper, 0.12, (rng() - 0.5) * s * 0.6, h - 0.04, (rng() - 0.5) * s * 0.6, 6);
+        bag.scale.set(1.3, 0.5, 1.1);
+      }
+      return g;
+    }
+
+    // 行道树: 树干(微锥/略弯) + 2~3根分叉枝 + 树冠(多个压扁 foliage 球叠成不规则蓬), 略不规则
+    // opts.h 总高(默认5); opts.bare=true 落叶光秃(少冠)
+    function makeStreetTree(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var H = opts.h || 5, rng = _gpRng(opts.seed || 13);
+      var trunkH = H * 0.46, r0 = 0.16 + H * 0.012;
+      var bark = mats.woodBrown || mats.dirt;
+      // 树干(几段微弯, 上细下粗)
+      var segs = 3, py = 0, lastR = r0, lean = (rng() - 0.5) * 0.06;
+      for (var i = 0; i < segs; i++) {
+        var sh = trunkH / segs, rTop = lastR * 0.78;
+        var seg = _gpCyl(g, bark, rTop, lastR, sh, lean * i * 0.5, py + sh / 2, 0, 8);
+        seg.rotation.z = lean * (i - 1);
+        py += sh; lastR = rTop;
+      }
+      // 根盘凸起
+      _gpCyl(g, bark, r0 * 1.3, r0 * 1.7, 0.18, 0, 0.09, 0, 8);
+      // 分叉枝(从干顶向外上斜)
+      var fol = mats.foliage || mats.leafGreen, topY = trunkH;
+      var nb = 3;
+      for (var b = 0; b < nb; b++) {
+        var ang = b / nb * Math.PI * 2 + rng();
+        var bl = 0.7 + rng() * 0.5;
+        var br = _gpCyl(g, bark, lastR * 0.4, lastR * 0.7, bl, Math.cos(ang) * bl * 0.3, topY + bl * 0.3, Math.sin(ang) * bl * 0.3, 6);
+        br.rotation.set(Math.sin(ang) * 0.7, 0, -Math.cos(ang) * 0.7);
+      }
+      // 树冠: 一大球 + 若干小球簇(不规则), 落叶款则稀疏
+      if (!opts.bare) {
+        var crownR = H * 0.26, cy = topY + crownR * 0.5;
+        var main = _gpSphere(g, fol, crownR, 0, cy, 0, 9); main.scale.set(1.1, 0.92, 1.05);
+        var lobes = 6;
+        for (var c = 0; c < lobes; c++) {
+          var a2 = c / lobes * Math.PI * 2, rr = crownR * (0.45 + rng() * 0.35);
+          var off = crownR * (0.7 + rng() * 0.3);
+          var lob = _gpSphere(g, fol, rr, Math.cos(a2) * off, cy + (rng() - 0.5) * crownR * 0.7, Math.sin(a2) * off, 7);
+          lob.scale.set(1, 0.85, 1);
+        }
+      } else {
+        // 光秃: 只挂几片残叶
+        for (var d = 0; d < 4; d++) {
+          var a3 = rng() * Math.PI * 2;
+          _gpSphere(g, fol, 0.18 + rng() * 0.12, Math.cos(a3) * 0.5, topY + rng() * 0.6, Math.sin(a3) * 0.5, 5);
+        }
+      }
+      return g;
+    }
+
+    // 矮灌木丛: 多团压扁 foliage 球聚成不规则一坨 + 底下零星枯枝
+    // opts.r 半径(默认0.6)
+    function makeBush(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var R = opts.r || 0.6, fol = mats.foliage || mats.leafGreen, rng = _gpRng(opts.seed || 23);
+      var n = 6;
+      for (var i = 0; i < n; i++) {
+        var a = rng() * Math.PI * 2, d = rng() * R * 0.7;
+        var rr = R * (0.4 + rng() * 0.4);
+        var m = _gpSphere(g, fol, rr, Math.cos(a) * d, rr * 0.7 + rng() * 0.15, Math.sin(a) * d, 7);
+        m.scale.set(1, 0.78, 1);
+      }
+      // 顶部一团封口
+      _gpSphere(g, fol, R * 0.6, 0, R * 0.85, 0, 7).scale.set(1, 0.8, 1);
+      // 露出的几根枯枝
+      var bark = mats.woodBrown || mats.dirt;
+      for (var b = 0; b < 3; b++) {
+        var ab = rng() * Math.PI * 2;
+        var br = _gpCyl(g, bark, 0.015, 0.025, 0.4, Math.cos(ab) * R * 0.4, 0.2, Math.sin(ab) * R * 0.4, 5);
+        br.rotation.z = (rng() - 0.5) * 0.8;
+      }
+      return g;
+    }
+
+    // 窗台花箱: 长木/塑料箱 + 泥土 + 一排小花团 + 垂下的藤蔓; 默认贴墙朝 +Z
+    // opts.len 长(默认1.2); opts.blue/opts.green 改箱色
+    function makeFlowerBox(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var L = opts.len || 1.2, W = 0.26, Hh = 0.24, t = 0.04;
+      var box = opts.blue ? (mats.plasticBlue || mats.woodBrown) : (opts.green ? (mats.plasticGreen || mats.woodBrown) : (mats.woodBrown || mats.plasticGreen));
+      // 箱体四壁
+      _gpBox(g, box, L, Hh, t, 0, Hh / 2, W / 2 - t / 2);
+      _gpBox(g, box, L, Hh, t, 0, Hh / 2, -(W / 2 - t / 2));
+      _gpBox(g, box, t, Hh, W, L / 2 - t / 2, Hh / 2, 0);
+      _gpBox(g, box, t, Hh, W, -(L / 2 - t / 2), Hh / 2, 0);
+      _gpBox(g, box, L - 2 * t, t, W - 2 * t, 0, t / 2, 0); // 底
+      // 泥土
+      _gpBox(g, mats.dirt || mats.woodBrown, L - 2 * t, 0.06, W - 2 * t, 0, Hh - 0.05, 0);
+      // 一排小花团(foliage 绿叶 + 彩花点)
+      var fol = mats.foliage || mats.leafGreen, rng = _gpRng(opts.seed || 31);
+      var flowerCols = [mats.paintRed, mats.paintYellow, mats.paintWhite, mats.neonPink];
+      var cnt = Math.max(3, Math.round(L / 0.28));
+      for (var i = 0; i < cnt; i++) {
+        var fx = -L / 2 + 0.18 + i * (L - 0.36) / (cnt - 1 || 1);
+        _gpSphere(g, fol, 0.1, fx, Hh + 0.05, 0, 6).scale.set(1, 0.9, 1);
+        var fc = flowerCols[i % flowerCols.length] || mats.paintRed;
+        _gpSphere(g, fc, 0.05, fx, Hh + 0.13, (rng() - 0.5) * 0.08, 5);
+      }
+      // 垂下藤蔓(前壁外侧几条)
+      for (var v = 0; v < 3; v++) {
+        var vx = -L * 0.3 + v * L * 0.3;
+        var vine = _gpCyl(g, fol, 0.02, 0.03, 0.22, vx, Hh - 0.11, W / 2 + 0.01, 5);
+        vine.scale.set(1, 1, 0.5);
+      }
+      return g;
+    }
+
+    // 横幅/布幅: 两端固定(杆或墙挂), 中间下垂的脏布(fabric), 带磨损破口 + 印字色块
+    // opts.span 跨度(默认3); opts.color 选 fabricRed/Blue/Green; opts.tatter 破损
+    function makeBanner(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var span = opts.span || 3, sag = 0.45, fh = 0.7, y = 2.4;
+      var cloth = opts.color || mats.fabricRed || mats.fabricBlue;
+      // 主布: 用稍微旋转的几段 plane 模拟下垂弧
+      var segs = 5;
+      for (var i = 0; i < segs; i++) {
+        var fx = -span / 2 + (i + 0.5) * span / segs;
+        var tt = (i + 0.5) / segs * 2 - 1;            // -1..1
+        var dy = -sag * (1 - tt * tt);                 // 抛物下垂
+        var pm = new THREE.Mesh(new THREE.PlaneGeometry(span / segs + 0.02, fh), cloth);
+        pm.position.set(fx, y + dy, 0); pm.rotation.x = 0;
+        pm.material.side = THREE.DoubleSide;
+        pm.castShadow = true; pm.receiveShadow = true; g.add(pm);
+      }
+      // 印字色块(几块对比色贴布上)
+      var ink = mats.paintWhite || mats.paper;
+      for (var k = 0; k < 3; k++) {
+        var kx = -span * 0.28 + k * span * 0.28;
+        var bl = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.18), ink);
+        bl.position.set(kx, y - sag * 0.55, 0.01); bl.material.side = THREE.DoubleSide; g.add(bl);
+      }
+      // 两端绳/扣
+      var rope = mats.metalDark || mats.rust;
+      _gpCyl(g, rope, 0.02, 0.02, 0.25, -span / 2, y + 0.1, 0, 5).rotation.z = Math.PI / 2;
+      _gpCyl(g, rope, 0.02, 0.02, 0.25, span / 2, y + 0.1, 0, 5).rotation.z = Math.PI / 2;
+      // 破口(底边撕下的一角, 用窄三角靠压扁盒近似)
+      if (opts.tatter !== false) {
+        var rip = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.25), cloth);
+        rip.position.set(span * 0.32, y - fh * 0.7, 0.005); rip.rotation.z = 0.4;
+        rip.material.side = THREE.DoubleSide; g.add(rip);
+      }
+      return g;
+    }
+
+    // 旗: 旗杆(金属) + 顶球 + 布旗(fabric, 微飘/带褶) + 升旗绳
+    // opts.h 杆高(默认5); opts.color 旗色; opts.wave 飘动幅度
+    function makeFlag(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var H = opts.h || 5, pole = mats.metalGray || mats.chrome;
+      // 底座
+      _gpCyl(g, mats.concrete || mats.metalDark, 0.2, 0.28, 0.2, 0, 0.1, 0, 12);
+      // 杆(上细)
+      _gpCyl(g, pole, 0.04, 0.06, H, 0, H / 2 + 0.18, 0, 10);
+      // 顶球(金球)
+      _gpSphere(g, mats.chrome || mats.paintYellow, 0.09, 0, H + 0.22, 0, 8);
+      // 布旗: 多段 plane 顺杆挂, 各段沿 X 渐离杆并加波浪 Z 偏移模拟飘
+      var cloth = opts.color || mats.fabricBlue || mats.fabricRed;
+      var fw = 1.6, fhh = 1.0, segs = 6, top = H - 0.2, wave = opts.wave == null ? 0.18 : opts.wave;
+      for (var i = 0; i < segs; i++) {
+        var t0 = i / segs, t1 = (i + 1) / segs;
+        var fx = 0.06 + (t0 + t1) * 0.5 * fw;
+        var zoff = Math.sin((t0) * 6.0) * wave * (t0);    // 越远端飘越大
+        var pm = new THREE.Mesh(new THREE.PlaneGeometry(fw / segs + 0.01, fhh), cloth);
+        pm.position.set(fx, top - fhh / 2, zoff);
+        pm.rotation.y = Math.cos(t0 * 6.0) * wave * 1.4;
+        pm.material.side = THREE.DoubleSide; pm.castShadow = true; g.add(pm);
+      }
+      // 升旗绳
+      _gpCyl(g, mats.metalDark || mats.rust, 0.008, 0.008, H * 0.9, 0.02, H * 0.5, 0.03, 4);
+      return g;
+    }
+
+    // 墙面海报/涂鸦区: 一片叠层破海报(脏白/彩) + 撕角 + 几道霓虹涂鸦发光; 默认贴 +Z 面(墙在 -Z 侧)
+    // opts.w,opts.h 区域尺寸(默认2.4x2); opts.neon=true 加发光涂鸦
+    function makePosterWall(mats, opts) {
+      opts = opts || {}; var g = new THREE.Group();
+      var W = opts.w || 2.4, Hh = opts.h || 2.0, rng = _gpRng(opts.seed || 41);
+      var posterMats = [mats.paper, mats.paintYellow, mats.paintBlue, mats.paintRed, mats.paintWhite, mats.cardboard];
+      // 多张海报随机叠贴(各自微旋, z 微叠避免 z-fighting)
+      var n = 9;
+      for (var i = 0; i < n; i++) {
+        var pw = 0.5 + rng() * 0.7, ph = 0.6 + rng() * 0.8;
+        var px = (rng() - 0.5) * (W - pw), py = ph / 2 + rng() * (Hh - ph);
+        var mat = posterMats[(i + Math.floor(rng() * 6)) % posterMats.length] || mats.paper;
+        var pm = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), mat);
+        pm.position.set(px, py, 0.005 + i * 0.004);
+        pm.rotation.z = (rng() - 0.5) * 0.18;
+        pm.material.side = THREE.DoubleSide; pm.receiveShadow = true; g.add(pm);
+        // 撕角(露出底层): 小块脏白
+        if (rng() > 0.5) {
+          var tr = new THREE.Mesh(new THREE.PlaneGeometry(pw * 0.3, ph * 0.25), mats.plaster || mats.concrete);
+          tr.position.set(px + pw * 0.3, py + ph * 0.3, 0.004 + i * 0.004);
+          tr.rotation.z = (rng() - 0.5) * 0.5; tr.material.side = THREE.DoubleSide; g.add(tr);
+        }
+      }
+      // 霓虹涂鸦发光条(可选, 让 bloom 点亮)
+      if (opts.neon) {
+        var neons = [mats.neonPink, mats.neonCyan];
+        for (var k = 0; k < 4; k++) {
+          var nm = neons[k % 2] || mats.neonPink;
+          var gw = 0.4 + rng() * 0.9;
+          var gr = new THREE.Mesh(new THREE.PlaneGeometry(gw, 0.07 + rng() * 0.06), nm);
+          gr.position.set((rng() - 0.5) * W, 0.3 + rng() * (Hh - 0.4), 0.05 + k * 0.003);
+          gr.rotation.z = (rng() - 0.5) * 1.2; gr.material.side = THREE.DoubleSide; g.add(gr);
+        }
+      }
+      return g;
+    }
+
+    // 散落落叶/碎垃圾场(InstancedMesh, 一次 draw call 出几百片): 矩形区 [x0,z0]~[x1,z1] 随机散布
+    // 平贴地(略微沉), 随机旋转/缩放; mats 用 leafGreen / foliage / trashMix
+    function makeLeafLitterField(mats, count, x0, z0, x1, z1) {
+      count = count || 200;
+      var mat = mats.leafGreen || mats.foliage || mats.trashMix;
+      var geo = new THREE.PlaneGeometry(0.16, 0.1);            // 单片小叶/碎纸
+      var inst = new THREE.InstancedMesh(geo, mat, count);
+      inst.receiveShadow = true; inst.castShadow = false;
+      var dummy = new THREE.Object3D(), rng = _gpRng(987);
+      var ax = x0 == null ? -2 : x0, az = z0 == null ? -2 : z0;
+      var bx = x1 == null ? 2 : x1, bz = z1 == null ? 2 : z1;
+      for (var i = 0; i < count; i++) {
+        var px = ax + rng() * (bx - ax), pz = az + rng() * (bz - az);
+        dummy.position.set(px, 0.012 + rng() * 0.01, pz);     // 微浮避免穿地
+        dummy.rotation.set(-Math.PI / 2 + (rng() - 0.5) * 0.5, rng() * Math.PI * 2, (rng() - 0.5) * 0.4);
+        var sc = 0.6 + rng() * 1.1; dummy.scale.set(sc, sc, sc);
+        dummy.updateMatrix(); inst.setMatrixAt(i, dummy.matrix);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      // 包成 Group 以符合统一返回约定
+      var g = new THREE.Group(); g.add(inst); return g;
+    }
+
+    // ===== town prop set 7 =====
+    // ============================================================ 地面细节/路面 builder 群
+    // 约定: 每个 builder 返回一个 THREE.Group(局部坐标, 平贴地面 y≈0, 居中 x=z=0)。
+    // 全部用平贴地的薄 Plane/Box 做"贴花", 不参与碰撞(装配阶段 mAdd(g,false,false))。
+    // 朝向: 正面/纹理走向默认沿 +Z(道路前进方向)。无参也能 build。
+    // 薄贴花统一抬起一点点避免 z-fighting; 用 polygonOffset 思路靠微小 y 偏移分层。
+
+    // 小工具: 造一片平贴地的薄长方面片(默认水平躺平), 返回 Mesh。
+    // w 沿 x, d 沿 z, y 为离地高度(很小), rotY 绕竖轴旋转。
+    function _groundQuad(mat, w, d, y, rotY) {
+      var geo = new THREE.PlaneGeometry(w, d);
+      var m = new THREE.Mesh(geo, mat);
+      m.rotation.x = -Math.PI / 2;        // 躺平朝上
+      if (rotY) m.rotation.z = rotY;      // PlaneGeometry 旋平后, 绕原法线即 rotation.z
+      m.position.y = (y == null ? 0.012 : y);
+      m.receiveShadow = true;
+      return m;
+    }
+
+    // 斑马线: 一排沿 +Z 排列的白漆横条(每条横向沿 x)。opts.bars 条数, opts.span 总长(沿z)。
+    function makeCrosswalk(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var bars = opts.bars || 6;
+      var width = opts.width || 4.0;        // 斑马线整体横宽(沿 x)
+      var barW = opts.barW || 0.45;         // 单条厚度(沿 z)
+      var gap = opts.gap || 0.42;           // 条间空隙
+      var paint = mats.paintWhite;
+      var pitch = barW + gap;
+      var z0 = -((bars - 1) * pitch) / 2;
+      for (var i = 0; i < bars; i++) {
+        // 略微随机化每条宽度/磨损, 用微小 y 抖动让油漆看着不平整
+        var wornW = barW * (0.86 + Math.random() * 0.18);
+        var bar = _groundQuad(paint, width * (0.92 + Math.random() * 0.08), wornW, 0.014 + Math.random() * 0.004, 0);
+        bar.position.x = (Math.random() - 0.5) * 0.08;
+        bar.position.z = z0 + i * pitch;
+        g.add(bar);
+        // 磨掉一角: 叠一小片沥青色把油漆"擦掉"一块(随机出现)
+        if (Math.random() < 0.5) {
+          var wear = _groundQuad(mats.asphalt, width * (0.18 + Math.random() * 0.2), wornW * 0.9, 0.016, 0);
+          wear.position.x = (Math.random() - 0.5) * width * 0.6;
+          wear.position.z = bar.position.z;
+          g.add(wear);
+        }
+      }
+      return g;
+    }
+
+    // 道路标线: 中线(虚线/实线)、停止线。opts.variant: 'dash'|'solid'|'stop'|'double'。沿 +Z 延伸。
+    function makeLaneMarking(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var variant = opts.variant || 'dash';
+      var len = opts.length || 8.0;         // 沿 z 总长
+      var col = opts.color === 'white' ? mats.paintWhite : mats.paintYellow;
+      if (variant === 'stop') {
+        // 停止线: 一道横向粗白条(沿 x)
+        var stop = _groundQuad(mats.paintWhite, opts.width || 3.6, 0.4, 0.014, 0);
+        g.add(stop);
+        return g;
+      }
+      if (variant === 'solid' || variant === 'double') {
+        var line = _groundQuad(col, 0.16, len, 0.014, 0);
+        line.position.x = (variant === 'double') ? -0.13 : 0;
+        g.add(line);
+        if (variant === 'double') {
+          var line2 = _groundQuad(col, 0.16, len, 0.014, 0);
+          line2.position.x = 0.13;
+          g.add(line2);
+        }
+        return g;
+      }
+      // 默认 dash: 一串虚线段
+      var seg = 1.0, gap = 1.0, pitch = seg + gap;
+      var n = Math.max(1, Math.floor(len / pitch));
+      var z0 = -((n - 1) * pitch) / 2;
+      for (var i = 0; i < n; i++) {
+        var dash = _groundQuad(col, 0.16, seg * (0.8 + Math.random() * 0.25), 0.014, 0);
+        dash.position.z = z0 + i * pitch;
+        dash.position.x = (Math.random() - 0.5) * 0.05;
+        g.add(dash);
+      }
+      return g;
+    }
+
+    // 水洼: 暗反光不规则水面(几片叠加的圆盘, 略亮/玻璃感模拟反光) + 一圈湿渍边。
+    function makePuddle(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var r = opts.radius || 0.9;
+      // 湿渍外圈(用 dirt 暗一点, 比水面大)
+      var wet = new THREE.Mesh(new THREE.CircleGeometry(r * 1.25, 20), mats.dirt);
+      wet.rotation.x = -Math.PI / 2; wet.position.y = 0.008; wet.receiveShadow = true;
+      wet.scale.set(1, 1, 0.78 + Math.random() * 0.3);   // 压扁成不规则
+      g.add(wet);
+      // 水面主体(glass 有反光感) 由 2~3 片偏移圆叠出不规则轮廓
+      var blobs = 2 + (Math.random() < 0.5 ? 1 : 0);
+      for (var i = 0; i < blobs; i++) {
+        var rr = r * (0.55 + Math.random() * 0.5);
+        var water = new THREE.Mesh(new THREE.CircleGeometry(rr, 18), mats.glass);
+        water.rotation.x = -Math.PI / 2;
+        water.position.set((Math.random() - 0.5) * r * 0.5, 0.011 + i * 0.0005, (Math.random() - 0.5) * r * 0.5);
+        water.scale.set(1, 1, 0.7 + Math.random() * 0.35);
+        water.rotation.z = Math.random() * Math.PI;
+        g.add(water);
+      }
+      return g;
+    }
+
+    // 裂缝: 沿 +Z 的细暗线, 由若干小段微转拼成折线裂纹(主缝 + 几条分叉)。
+    function makeCrackDecal(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var len = opts.length || 3.0;
+      var segs = Math.max(3, Math.floor(len / 0.5));
+      var x = 0, z = -len / 2, ang = 0;
+      for (var i = 0; i < segs; i++) {
+        ang += (Math.random() - 0.5) * 0.6;
+        var sl = len / segs;
+        var w = 0.04 + Math.random() * 0.04;
+        var crk = _groundQuad(mats.metalDark, w, sl * 1.1, 0.013, ang);
+        crk.position.x = x + Math.sin(ang) * sl * 0.5;
+        crk.position.z = z + Math.cos(ang) * sl * 0.5;
+        g.add(crk);
+        // 偶尔分叉
+        if (Math.random() < 0.3) {
+          var bl = sl * (0.6 + Math.random());
+          var br = _groundQuad(mats.metalDark, w * 0.7, bl, 0.013, ang + (Math.random() < 0.5 ? 1 : -1) * 0.8);
+          br.position.x = crk.position.x; br.position.z = crk.position.z;
+          g.add(br);
+        }
+        x = crk.position.x + Math.sin(ang) * sl * 0.5;
+        z = crk.position.z + Math.cos(ang) * sl * 0.5;
+      }
+      return g;
+    }
+
+    // 油污暗斑: 几片叠加的黑亮油渍圆(metalDark 模拟油的暗反光) + 散落小溅点。
+    function makeOilStain(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var r = opts.radius || 0.7;
+      // 主油斑(扁圆)
+      var main = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mats.metalDark);
+      main.rotation.x = -Math.PI / 2; main.position.y = 0.009; main.receiveShadow = true;
+      main.scale.set(1, 1, 0.6 + Math.random() * 0.4);
+      main.rotation.z = Math.random() * Math.PI;
+      g.add(main);
+      // 中心更亮一层(rust/tire 表现新鲜油层) — 用 tire 黑亮
+      var core = new THREE.Mesh(new THREE.CircleGeometry(r * 0.5, 16), mats.tire);
+      core.rotation.x = -Math.PI / 2; core.position.y = 0.011;
+      core.position.set((Math.random() - 0.5) * r * 0.3, 0.011, (Math.random() - 0.5) * r * 0.3);
+      g.add(core);
+      // 溅点
+      var drops = 4 + Math.floor(Math.random() * 4);
+      for (var i = 0; i < drops; i++) {
+        var dr = 0.04 + Math.random() * 0.08;
+        var d = new THREE.Mesh(new THREE.CircleGeometry(dr, 8), mats.metalDark);
+        d.rotation.x = -Math.PI / 2; d.position.y = 0.0095;
+        var a = Math.random() * Math.PI * 2, dist = r * (0.7 + Math.random() * 0.7);
+        d.position.x = Math.cos(a) * dist; d.position.z = Math.sin(a) * dist;
+        g.add(d);
+      }
+      return g;
+    }
+
+    // 落叶满地: InstancedMesh 在矩形区 [x0,z0]~[x1,z1] 随机散布落叶(平贴地, 随机旋转/缩放/微沉)。
+    // 一次 draw call 出 count 片。叶片用一小片倾斜的方形(leafGreen/foliage 混)。
+    function makeLeafScatter(mats, count, x0, z0, x1, z1) {
+      count = count || 200;
+      var g = new THREE.Group();
+      var leafGeo = new THREE.PlaneGeometry(0.18, 0.13);
+      var inst = new THREE.InstancedMesh(leafGeo, mats.leafGreen, count);
+      inst.receiveShadow = true; inst.castShadow = false;
+      var mat4 = new THREE.Matrix4();
+      var q = new THREE.Quaternion();
+      var e = new THREE.Euler();
+      var pos = new THREE.Vector3();
+      var scl = new THREE.Vector3();
+      var minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
+      var minZ = Math.min(z0, z1), maxZ = Math.max(z0, z1);
+      for (var i = 0; i < count; i++) {
+        pos.set(minX + Math.random() * (maxX - minX),
+                0.006 + Math.random() * 0.01,
+                minZ + Math.random() * (maxZ - minZ));
+        // 躺平为主 + 轻微翘起, 随机绕竖轴转
+        e.set(-Math.PI / 2 + (Math.random() - 0.5) * 0.5, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.4);
+        q.setFromEuler(e);
+        var s = 0.7 + Math.random() * 0.8;
+        scl.set(s, s, s);
+        mat4.compose(pos, q, scl);
+        inst.setMatrixAt(i, mat4);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      // 第二层枯叶(foliage 偏黄棕) 让颜色不单调
+      var inst2 = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.16, 0.12), mats.foliage, Math.floor(count * 0.5));
+      inst2.receiveShadow = true;
+      var n2 = Math.floor(count * 0.5);
+      for (var j = 0; j < n2; j++) {
+        pos.set(minX + Math.random() * (maxX - minX), 0.006 + Math.random() * 0.01, minZ + Math.random() * (maxZ - minZ));
+        e.set(-Math.PI / 2 + (Math.random() - 0.5) * 0.5, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.4);
+        q.setFromEuler(e);
+        var s2 = 0.6 + Math.random() * 0.7;
+        scl.set(s2, s2, s2);
+        mat4.compose(pos, q, scl);
+        inst2.setMatrixAt(j, mat4);
+      }
+      inst2.instanceMatrix.needsUpdate = true;
+      g.add(inst); g.add(inst2);
+      return g;
+    }
+
+    // 路缘堆积脏物: 沿 +Z 方向的一条脏物带(贴地脏渍底 + 散落小纸/罐/碎屑小块), 表现路边积污。
+    // opts.length 带长(沿z), opts.width 带宽(沿x)。
+    function makeGutterTrash(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var len = opts.length || 6.0;
+      var wid = opts.width || 0.5;
+      // 底层脏渍带(dirt)
+      var grime = _groundQuad(mats.dirt, wid, len, 0.007, 0);
+      grime.scale.set(1, 1, 1);
+      g.add(grime);
+      // 沿带随机散落的小垃圾块(纸/卡纸/杂色/罐头), 用小立体块带一点高度更真实
+      var n = Math.max(6, Math.floor(len * 2.2));
+      var palette = [mats.paper, mats.cardboard, mats.trashMix, mats.plasticGreen, mats.plasticBlue];
+      for (var i = 0; i < n; i++) {
+        var pick = palette[Math.floor(Math.random() * palette.length)];
+        var kind = Math.random();
+        var piece;
+        if (kind < 0.4) {
+          // 平躺的纸片/卡纸
+          var pw = 0.1 + Math.random() * 0.22;
+          piece = _groundQuad(pick, pw, pw * (0.6 + Math.random() * 0.8), 0.012 + Math.random() * 0.01, Math.random() * Math.PI);
+        } else if (kind < 0.7) {
+          // 小罐/瓶(横躺的小圆柱)
+          piece = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.13, 8), Math.random() < 0.5 ? mats.metalGray : pick);
+          piece.rotation.z = Math.PI / 2; piece.rotation.y = Math.random() * Math.PI;
+          piece.position.y = 0.035;
+          piece.castShadow = true;
+        } else {
+          // 一小团垃圾(揉皱小块)
+          piece = new THREE.Mesh(new THREE.BoxGeometry(0.1 + Math.random() * 0.1, 0.05 + Math.random() * 0.05, 0.1 + Math.random() * 0.1), pick);
+          piece.position.y = 0.04; piece.rotation.y = Math.random() * Math.PI;
+          piece.castShadow = true;
+        }
+        piece.position.x = (Math.random() - 0.5) * wid * 0.9;
+        piece.position.z = (Math.random() - 0.5) * len * 0.96;
+        g.add(piece);
+      }
+      return g;
+    }
+
+    // 墙根污渍/水渍贴片: 一组竖直挂在墙面上的污渍片(默认贴在 z 面, 顶对齐 y=0 向下流的水渍)。
+    // 注意: 这组是【竖直】贴片(法线沿 +Z), 装配时贴到墙面外侧; 底部坐落 y=0 向上延伸。
+    // opts.height 渍高, opts.width 整体宽。
+    function makeStainSet(mats, opts) {
+      opts = opts || {};
+      var g = new THREE.Group();
+      var h = opts.height || 2.2;
+      var w = opts.width || 2.4;
+      // 主水渍(从上往下的暗渍, 用 dirt) — 竖直面片
+      var n = 3 + Math.floor(Math.random() * 3);
+      for (var i = 0; i < n; i++) {
+        var sw = 0.2 + Math.random() * 0.6;
+        var sh = h * (0.4 + Math.random() * 0.6);
+        var st = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), Math.random() < 0.6 ? mats.dirt : mats.rust);
+        st.position.x = (Math.random() - 0.5) * w;
+        st.position.y = h - sh / 2 - Math.random() * 0.2;   // 顶部对齐往下挂
+        st.position.z = 0.01 + i * 0.002;                   // 略离墙避免 z-fight
+        g.add(st);
+      }
+      // 墙根积污(贴近地面的横向脏带)
+      var base = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.5), mats.dirt);
+      base.position.set(0, 0.25, 0.005);
+      g.add(base);
+      // 几道锈水滴痕(细长 rust 条)
+      var drips = 2 + Math.floor(Math.random() * 3);
+      for (var j = 0; j < drips; j++) {
+        var dh = h * (0.3 + Math.random() * 0.5);
+        var dr = new THREE.Mesh(new THREE.PlaneGeometry(0.05 + Math.random() * 0.05, dh), mats.rust);
+        dr.position.set((Math.random() - 0.5) * w, h - dh / 2, 0.013);
+        g.add(dr);
+      }
+      return g;
+    }
+
+    // ============================================================ 档位4 · 小城镇地图 town（主街式, 高密度细节）
+    // 复用 P0 共享系统(MAP_BUILD/MAP_FX/mAdd/mBox/makeSkyDome/makeParticles/fxOwn/worldSolids/solidBoxes)
+    // 复用 8 套 foundry builder(make*(mats,opts) 返回 Group; field 类世界坐标不再平移)
+    // ---- 城镇材质调色板(41 键, 全部 fxOwn, 切图统一回收) ----
+    function townMats() {
+      function M(c, r, m, e, ei, extra) {
+        var o = { color: c, roughness: (r == null ? 0.85 : r), metalness: (m == null ? 0.1 : m), envMapIntensity: 0.4 };
+        if (e != null) { o.emissive = e; o.emissiveIntensity = (ei == null ? 1.5 : ei); }
+        if (extra) for (var k in extra) o[k] = extra[k];
+        return fxOwn(new THREE.MeshStandardMaterial(o));
+      }
+      return {
+        asphalt:M(0x2a2c30,0.95,0.05), concrete:M(0x8d8a82,0.9,0.05), sidewalk:M(0x9a978e,0.9,0.04), curb:M(0xb6b3aa,0.85,0.05),
+        brickA:M(0x8a4636,0.93,0.04), brickB:M(0xab9476,0.9,0.04), plaster:M(0x9a9488,0.9,0.05), stucco:M(0xb8b0a0,0.9,0.05),
+        woodBrown:M(0x6b4a2a,0.8,0.05), dirt:M(0x3a2e22,1.0,0.0),
+        metalGray:M(0x8a9098,0.5,0.55), metalDark:M(0x33373d,0.6,0.5), rust:M(0x7a4a2e,0.85,0.2), chrome:M(0xc2cad2,0.25,0.85),
+        plasticGreen:M(0x2f7d3a,0.7,0.05), plasticBlue:M(0x2a5a9a,0.7,0.05), plasticBlack:M(0x191b1f,0.7,0.05),
+        paintRed:M(0xb22a22,0.55,0.2), paintYellow:M(0xd9b021,0.55,0.2), paintBlue:M(0x2a5fb0,0.55,0.2),
+        paintGreen:M(0x2f8a4a,0.55,0.2), paintWhite:M(0xd8d8d2,0.6,0.1), paintOrange:M(0xd9772a,0.55,0.2),
+        glass:M(0x9bbcd0,0.1,0.2,null,null,{transparent:true,opacity:0.42}),
+        glassLit:M(0x3a3320,0.4,0.1,0xffd9a0,1.7), windowLit:M(0x3a3526,0.5,0.05,0xffe6b0,1.6),
+        lampGlow:M(0x2a2418,0.4,0.0,0xffdca0,2.6), neonPink:M(0x300a20,0.4,0.0,0xff2a9d,1.7), neonCyan:M(0x06303a,0.4,0.0,0x16e0ff,1.7),
+        trafficRed:M(0x300806,0.4,0,0xff2a1a,2.2), trafficYellow:M(0x302600,0.4,0,0xffc020,2.2), trafficGreen:M(0x06300e,0.4,0,0x20e040,2.2),
+        tailLight:M(0x300604,0.4,0,0xff2010,2.0),
+        tire:M(0x141519,0.9,0.05), cardboard:M(0xa07a4a,0.9,0.02), paper:M(0xc8c4b8,0.9,0.0,null,null,{side:THREE.DoubleSide}),
+        fabricRed:M(0xa83228,0.85,0.02), fabricBlue:M(0x2a4a8a,0.85,0.02), fabricGreen:M(0x2a7a3a,0.85,0.02),
+        leafGreen:M(0x3a6a2a,0.9,0.0), foliage:M(0x355f28,0.9,0.0), trashMix:M(0x6a6258,0.85,0.1)
+      };
+    }
+    var _TOWN_INVIS = null;   // 隐形子弹碰撞体材质(透明可见以确保被射线命中)
+    // 放置辅助：把一个 builder 产物摆到 (x,z)、朝向 ry、按 mode 加场景
+    //   mode: 'decor'(不碰撞不挡弹) / 'solid'(挡移动 AABB) / 'cover'(挡移动+隐形盒挡弹)
+    function townPut(group, x, y, z, ry, mode) {
+      group.position.set(x, y, z); if (ry) group.rotation.y = ry;
+      scene.add(group); mapMeshes.push(group);
+      if (mode === 'solid' || mode === 'cover') {
+        var box = new THREE.Box3().setFromObject(group);
+        if (!box.isEmpty()) {
+          solidBoxes.push(box);
+          if (mode === 'cover') {
+            var sz = new THREE.Vector3(); box.getSize(sz); var ctr = new THREE.Vector3(); box.getCenter(ctr);
+            var col = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.3,sz.x), Math.max(0.3,sz.y), Math.max(0.3,sz.z)), _TOWN_INVIS);
+            col.position.copy(ctr); scene.add(col); mapMeshes.push(col); worldSolids.push(col);
+          }
+        }
+      }
+      return group;
+    }
+
+    MAP_BUILD['town'] = function buildTown() {
+      var M = townMats();
+      _TOWN_INVIS = fxOwn(new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false }));
+      var i, x, z;
+      function curbY(px) { var ax = Math.abs(px); return (ax >= 7 && ax <= 10.2) ? 0.2 : 0; }   // 人行道抬高
+
+      // ---------- 地面(沥青) + 城镇边界墙(砖) ----------
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), M.asphalt); floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+      var WH = 8;
+      mBox(0, WH/2, 30, 60, WH, 1, M.brickB); mBox(0, WH/2, -30, 60, WH, 1, M.brickB);
+      mBox(30, WH/2, 0, 1, WH, 60, M.brickB); mBox(-30, WH/2, 0, 1, WH, 60, M.brickB);
+
+      // ---------- 人行道(两侧抬高混凝土条) + 路缘 ----------
+      function sidewalk(x0, x1) {
+        var w = x1 - x0, s = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, 60), M.sidewalk);
+        s.position.set((x0 + x1) / 2, 0.1, 0); s.receiveShadow = true; mAdd(s, true, true);
+        var cx = (x0 < 0) ? x1 - 0.12 : x0 + 0.12;
+        var curb = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.3, 60), M.curb); curb.position.set(cx, 0.15, 0); mAdd(curb, true, true);
+      }
+      sidewalk(7, 10.2); sidewalk(-10.2, -7);
+
+      // ---------- 楼房(主街两侧各3栋, 临街面贴密集 facade) ----------
+      var EAST = [ {cz:-19,w:14,d:14,h:14,seed:3,mat:M.brickA}, {cz:-1,w:14,d:12,h:10,seed:7,mat:M.plaster}, {cz:17,w:14,d:14,h:16,seed:11,mat:M.brickB} ];
+      var WEST = [ {cz:-17,w:14,d:16,h:12,seed:5,mat:M.brickB}, {cz:3,w:14,d:12,h:15,seed:9,mat:M.brickA}, {cz:21,w:14,d:12,h:9,seed:13,mat:M.plaster} ];
+      function building(side, b) {
+        var cx = side > 0 ? (11 + b.w/2) : -(11 + b.w/2);
+        mBox(cx, b.h/2, b.cz, b.w, b.h, b.d, b.mat);                 // 主墙体(碰撞+挡弹)
+        // 屋顶女儿墙
+        var par = makeRoofParapet(M, { w: b.d, drains: 2 }); townPut(par, cx - side*(b.w/2), b.h, b.cz, side>0 ? -Math.PI/2 : Math.PI/2, 'decor');
+        // 临街面 facade(朝向街道: 东楼朝 -x, 西楼朝 +x)
+        var fac = makeBuildingFacade(M, b.d, b.h, { seed: b.seed, litRatio: 0.45 });
+        townPut(fac, cx - side*(b.w/2) - side*0.05, 0, b.cz, side>0 ? -Math.PI/2 : Math.PI/2, 'decor');
+        // 巷子侧(朝 +z 或 -z)挂空调/落水管/逃生梯/排气管
+        var alleyZ = b.cz + b.d/2;
+        townPut(makeACUnit(M, { wall:true }), cx - side*2, 3.0, alleyZ + 0.05, 0, 'decor');
+        townPut(makeDrainpipe(M, { h: b.h - 1 }), cx - side*4, 0, alleyZ + 0.05, 0, 'decor');
+        townPut(makeFireEscape(M, { floors: Math.min(3, Math.floor(b.h/3)-1) }), cx + side*1, 0, alleyZ + 0.05, 0, 'decor');
+        townPut(makeVentPipe(M, { h: 0.9 }), cx, b.h, b.cz - b.d/2 + 1, 0, 'decor');
+      }
+      for (i = 0; i < EAST.length; i++) building(1, EAST[i]);
+      for (i = 0; i < WEST.length; i++) building(-1, WEST[i]);
+
+      // ---------- 路面标线/斑马线/井盖/水洼/油污/裂缝 ----------
+      townPut(makeLaneMarking(M, { variant:'dash', length:58 }), 0, 0, 0, 0, 'decor');
+      var cwZ = [-15, 0, 15];
+      for (i = 0; i < cwZ.length; i++) { townPut(makeCrosswalk(M, {}), 0, 0, cwZ[i], 0, 'decor'); townPut(makeLaneMarking(M, { variant:'stop', length:6 }), 0, 0, cwZ[i] + (i?2.5:2.5), 0, 'decor'); }
+      var mh = [[3,-22],[-2,-9],[4,6],[-3,20],[2,-2],[-4,12],[3,26],[-2,-26]];
+      for (i = 0; i < mh.length; i++) townPut(makeManhole(M, {}), mh[i][0], 0, mh[i][1], i*0.7, 'decor');
+      var pud = [[4,-18],[-3,-5],[5,10],[-4,22],[2,2],[-5,-13],[3,16]];
+      for (i = 0; i < pud.length; i++) townPut(makePuddle(M, { radius: 0.7 + (i%3)*0.3 }), pud[i][0], 0, pud[i][1], i, 'decor');
+      for (i = 0; i < 7; i++) townPut(makeOilStain(M, { radius: 0.6 + (i%2)*0.3 }), (i%2?5:-5), 0, -24 + i*8, i, 'decor');
+      for (i = 0; i < 22; i++) townPut(makeCrackDecal(M, { length: 1.6 + (i%4) }), (i%5-2)*2.4, 0, -28 + i*2.6, i*0.9, 'decor');
+
+      // ---------- 沿人行道密集摆放(路灯/垃圾桶/长椅/消防栓/树/花池/标牌/咪表) ----------
+      var lampZ = [-24,-12,0,12,24], lampLightZ = {};
+      var SX = 8.6;   // 人行道中心 x
+      for (i = 0; i < lampZ.length; i++) {
+        townPut(makeLampPost(M, { lit:true, double:(i===2) }), SX, 0.2, lampZ[i], -Math.PI/2, 'decor');
+        townPut(makeLampPost(M, { lit:(i!==1) }), -SX, 0.2, lampZ[i], Math.PI/2, 'decor');
+      }
+      // 暖路灯点光(取若干盏, 控制数量)
+      var plZ = [-18, -4, 10, 22];
+      for (i = 0; i < plZ.length; i++) {
+        var L1 = new THREE.PointLight(0xffdca0, 1.3, 16, 2); L1.position.set(SX-1, 4.6, plZ[i]); scene.add(L1); mapMeshes.push(L1);
+        var L2 = new THREE.PointLight(0xffdca0, 1.3, 16, 2); L2.position.set(-SX+1, 4.6, plZ[i]+6); scene.add(L2); mapMeshes.push(L2);
+      }
+      // 垃圾桶(金属/塑料混, 沿街密集)
+      var canZ = [-26,-21,-15,-9,-3,3,9,15,21,26];
+      for (i = 0; i < canZ.length; i++) {
+        var col = ['metalGray','paintGreen','plasticBlue'][i%3];
+        townPut(makeTrashCanMetal(M, { color: col }), SX + (i%2?0.4:-0.3), curbY(SX), canZ[i], i, 'solid');
+        if (i%2===0) townPut(makeTrashCanPlastic(M, { color: ['plasticGreen','plasticBlue','plasticBlack'][i%3] }), -SX - 0.3, curbY(SX), canZ[i]+2, 0, 'solid');
+      }
+      // 长椅(朝街)
+      var benZ = [-22,-8,6,20];
+      for (i = 0; i < benZ.length; i++) { townPut(makeBench(M, {}), SX+0.6, curbY(SX), benZ[i], -Math.PI/2, 'solid'); townPut(makeBench(M, {}), -SX-0.6, curbY(SX), benZ[i]-4, Math.PI/2, 'solid'); }
+      // 消防栓
+      var hyZ = [-20,-2,14,26];
+      for (i = 0; i < hyZ.length; i++) townPut(makeHydrant(M, { rust:(i%2===1) }), (i%2?SX-1.4:-SX+1.4), curbY(SX), hyZ[i], 0, 'solid');
+      // 行道树 + 花池 + 灌木
+      var treeZ = [-27,-18,-9,0,9,18,27];
+      for (i = 0; i < treeZ.length; i++) { townPut(makeStreetTree(M, { bare:(i%4===3) }), SX+1.1, curbY(SX), treeZ[i], i, 'decor'); townPut(makeStreetTree(M, {}), -SX-1.1, curbY(SX), treeZ[i]+4, i*2, 'decor'); }
+      var plZ2 = [-13,5,23];
+      for (i = 0; i < plZ2.length; i++) { townPut(makePlanter(M, { wood:(i%2===0) }), SX-0.2, curbY(SX), plZ2[i], 0, 'solid'); townPut(makeBush(M, {}), -SX+0.4, curbY(SX), plZ2[i]-6, i, 'decor'); }
+      // 标牌/交通灯/咪表/护桩
+      townPut(makeTrafficLight(M, { state:'red', arm:true }), 6.5, 0, 6.5, -Math.PI/2, 'decor');
+      townPut(makeTrafficLight(M, { state:'green', arm:true }), -6.5, 0, -6.5, Math.PI/2, 'decor');
+      townPut(makeStreetSign(M, { signColor:'paintGreen' }), SX+0.5, curbY(SX), -6, -Math.PI/2, 'decor');
+      townPut(makeStreetSign(M, { signColor:'paintBlue', second:false }), -SX-0.5, curbY(SX), 11, Math.PI/2, 'decor');
+      for (i = 0; i < 8; i++) townPut(makeParkingMeter(M, { lit:(i%3!==0) }), SX+0.3, curbY(SX), -10 + i*3, -Math.PI/2, 'solid');
+      for (i = 0; i < 6; i++) townPut(makeBollard(M, { color:(i%2?'paintYellow':'paintRed') }), -SX+0.2, curbY(SX), -3 + i*1.4, 0, 'solid');
+      for (i = 0; i < 3; i++) townPut(makeTrafficSignPole(M, { signType:(i%2?'stop':'limit') }), (i%2?SX:-SX)+0.2, curbY(SX), -25 + i*18, 0, 'decor');
+
+      // ---------- 站点/箱体类 ----------
+      townPut(makeBusStop(M, {}), SX+0.8, curbY(SX), -13, -Math.PI/2, 'solid');
+      townPut(makePhoneBooth(M, {}), -SX-0.6, curbY(SX), 16, Math.PI/2, 'solid');
+      townPut(makeMailbox(M, {}), SX-0.6, curbY(SX), 2, -Math.PI/2, 'solid');
+      townPut(makeMailbox(M, { color:'paintRed' }), -SX+0.6, curbY(SX), -19, Math.PI/2, 'solid');
+      townPut(makeNewspaperBox(M, {}), SX-0.4, curbY(SX), 21, -Math.PI/2, 'solid');
+      townPut(makeBikeRack(M, { bike:true }), -SX+0.6, curbY(SX), 24, Math.PI/2, 'solid');
+
+      // ---------- 停在路边的车 ----------
+      var carDefs = [ {x:5.4,z:-23,ry:0,c:'paintRed'}, {x:5.4,z:-11,ry:0,c:'paintBlue'}, {x:5.4,z:8,ry:0,c:'paintWhite'}, {x:5.4,z:22,ry:0,c:'metalGray'},
+                      {x:-5.4,z:-18,ry:Math.PI,c:'paintGreen'}, {x:-5.4,z:0,ry:Math.PI,c:'paintWhite'}, {x:-5.4,z:18,ry:Math.PI,c:'paintBlue'} ];
+      for (i = 0; i < carDefs.length; i++) townPut(makeSedan(M, { color: carDefs[i].c }), carDefs[i].x, 0, carDefs[i].z, carDefs[i].ry, 'cover');
+      townPut(makeVan(M, {}), -5.6, 0, 26, Math.PI, 'cover');
+      townPut(makeVan(M, { color:'paintWhite' }), 5.6, 0, -3, 0, 'cover');
+      // 自行车/交通锥点缀
+      for (i = 0; i < 5; i++) townPut(makeBicycle(M, {}), -SX+0.5, curbY(SX), -22 + i*11, (i%2?0.3:-0.3), 'solid');
+      for (i = 0; i < 10; i++) townPut(makeTrafficCone(M, {}), (i%2?5.6:-5.6), 0, -27 + i*6, 0, 'decor');
+
+      // ---------- 巷子/墙根的脏乱：dumpster/垃圾袋/垃圾堆/木箱/油桶/托盘 ----------
+      var dumpAt = [[26,-19],[-26,-15],[26,17],[-26,21]];
+      for (i = 0; i < dumpAt.length; i++) {
+        townPut(makeDumpster(M, { color:(i%2?'paintBlue':'paintGreen'), open:true }), dumpAt[i][0], 0, dumpAt[i][1], (dumpAt[i][0]>0?Math.PI/2:-Math.PI/2), 'cover');
+        townPut(makeGarbageBag(M, { pile:true }), dumpAt[i][0] - (dumpAt[i][0]>0?1.6:-1.6), 0, dumpAt[i][1]+1.2, i, 'decor');
+        townPut(makeTrashPile(M, { seed:i+1 }), dumpAt[i][0] - (dumpAt[i][0]>0?1.4:-1.4), 0, dumpAt[i][1]-1.6, i, 'decor');
+      }
+      // 巷口木箱/油桶/托盘堆(掩体)
+      var stackAt = [[24,-26],[-24,-26],[24,27],[-24,27],[22,2],[-22,-4]];
+      for (i = 0; i < stackAt.length; i++) {
+        var bx = stackAt[i][0], bz = stackAt[i][1];
+        townPut(makeWoodCrate(M, {}), bx, 0, bz, i, 'solid');
+        townPut(makeWoodCrate(M, {}), bx + 0.9, 0, bz + 0.3, i*1.3, 'solid');
+        townPut(makeBarrel(M, { color:(i%2?'rust':'paintBlue') }), bx - 0.9, 0, bz - 0.4, 0, 'solid');
+        if (i%2===0) townPut(makePallet(M, {}), bx, 1.0, bz, i*0.5, 'decor');
+      }
+      // 墙面海报/招贴 + 招牌
+      var posterAt = [[10.8,-24,-Math.PI/2],[-10.8,-22,Math.PI/2],[10.8,12,-Math.PI/2],[-10.8,8,Math.PI/2]];
+      for (i = 0; i < posterAt.length; i++) townPut(makePosterWall(M, { neon:(i%2===0) }), posterAt[i][0], 2.2, posterAt[i][1], posterAt[i][2], 'decor');
+      townPut(makeBanner(M, { span:3.2 }), 0, 5.2, -10, 0, 'decor');
+      townPut(makeFlag(M, { h:5 }), SX+1.2, curbY(SX), 28, 0, 'decor');
+
+      // ---------- 海量地面垃圾/落叶/碎屑(InstancedMesh, 极低开销) ----------
+      townPut(makeLitterField(M, 520, -29, -29, 29, 29), 0, 0, 0, 0, 'decor');          // 全场散落垃圾
+      townPut(makeLeafScatter(M, 320, -10, -30, 10, 30), 0, 0, 0, 0, 'decor');          // 街道落叶
+      townPut(makeLeafLitterField(M, 240, -29, 8, -7, 29), 0, 0, 0, 0, 'decor');         // 树多处补落叶/垃圾
+      townPut(makeDebrisField(M, 260, -29, -29, 29, 29, {}), 0, 0, 0, 0, 'decor');       // 碎砖木屑
+      // 沿路缘/墙根的堆积脏物条
+      var gutAt = [[8.8,-15,0],[-8.8,5,0],[8.8,18,0],[-8.8,-20,0],[27,0,Math.PI/2],[-27,0,Math.PI/2]];
+      for (i = 0; i < gutAt.length; i++) townPut(makeGutterTrash(M, { length: 5 + (i%3)*2 }), gutAt[i][0], 0, gutAt[i][1], gutAt[i][2], 'decor');
+      for (i = 0; i < 8; i++) townPut(makeStainSet(M, {}), (i%2?10.8:-10.8), 0, -22 + i*6, (i%2?-Math.PI/2:Math.PI/2), 'decor');
+
+      // ---------- 出生点(沿街分散, 远离彼此) ----------
+      var sp = [[0,-27],[0,27],[8.6,-20],[-8.6,-20],[8.6,20],[-8.6,20],[8.6,2],[-8.6,2],[0,-10],[0,12]];
+      spawnPoints = sp.map(function (p) { return new THREE.Vector3(p[0], curbY(p[0]) + EYE, p[1]); });
+    };
+
+    MAP_FX['town'] = { onEnter: function (scene) {
+      scene.background = new THREE.Color(0x3a3550);
+      scene.fog = new THREE.Fog(0x6a5560, 26, 120);                 // 黄昏暖灰雾
+      if (hemiLight) { hemiLight.color.setHex(0x8a86a0); hemiLight.groundColor.setHex(0x2e2824); hemiLight.intensity = 0.62; }
+      if (keyLight) { keyLight.color.setHex(0xffb070); keyLight.intensity = 0.65; keyLight.position.set(-34, 18, -22); }   // 低角度暖夕阳
+      if (bloom) { bloom.bright.uniforms.threshold.value = 0.72; bloom.comp.uniforms.strength.value = 1.0; bloom.comp.uniforms.exposure.value = 1.06; }
+      makeSkyDome({ radius:150, topCol:0x121a33, midCol:0x4a3a55, botCol:0xc06a3a, emberAmt:0.0 });   // 黄昏渐变天
+    } };
+    if (!MAP_LIST.some(function (m) { return m.id === 'town'; })) MAP_LIST.push({ id:'town', name:'小城镇' });
+
+
     function randomSpawn() {
       var s = spawnPoints[Math.floor(Math.random()*spawnPoints.length)];
       return s.clone();
