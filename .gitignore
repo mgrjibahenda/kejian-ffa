@@ -12,3 +12,9 @@ test/_*
 # 系统垃圾
 .DS_Store
 Thumbs.db
+
+# 根目录临时脚本/产物
+*.tmp
+gen_*.*
+check_*.*
+tmp_*.*
