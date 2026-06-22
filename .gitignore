@@ -1,6 +1,7 @@
 # 依赖与本地工具产物（部署不需要）
 node_modules/
 test/*.png
+test/_*
 
 # 编辑器 / Claude Code 本地配置
 .claude/
