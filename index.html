@@ -949,6 +949,541 @@
     } };
     if (!MAP_LIST.some(function (m) { return m.id === 'magmacore'; })) MAP_LIST.push({ id:'magmacore', name:'熔岩地心·钢铁工厂' });
 
+
+    // ===== 档位4 P3 量产地图: skytemple =====
+    // ============================================================ 破碎天空神殿 skytemple（仙侠浮空岛）
+    // 自定义冷蓝云海天空(makeSkyDome) + 冷暖光 + 中央青龙祭坛 + 四角浮台(断桥相连) + 残破仙门牌坊 + 金色符文/裂隙(accent发光) + 上飘灵尘
+    var SKYTEMPLE_THEME = { floor:0x3a3050, wall:0x6b5a7e, metal:0x8a82a0, crate:0x4a3f63, accentHot:0xffcf5a, accentWarm:0xffd98a };
+
+    MAP_BUILD['skytemple'] = function buildSkytemple() {
+      var T = SKYTEMPLE_THEME, WH = 7, HALF = 30;
+
+      // ---- 地面（暗紫灰石材）----
+      var ft = texSet(makePanelPBR(512, 8, T.floor), 22); fxOwn(ft.map); fxOwn(ft.normalMap); fxOwn(ft.roughnessMap);
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2), fxOwn(new THREE.MeshStandardMaterial({ map:ft.map, normalMap:ft.normalMap, roughnessMap:ft.roughnessMap, roughness:0.94, metalness:0.1, envMapIntensity:0.35 })));
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+
+      // ---- 四周围墙 ----
+      var wt = texSet(makePanelPBR(512, 6, T.wall), 10, 1.4); fxOwn(wt.map); fxOwn(wt.normalMap); fxOwn(wt.roughnessMap);
+      var wallMat = fxOwn(new THREE.MeshStandardMaterial({ map:wt.map, normalMap:wt.normalMap, roughnessMap:wt.roughnessMap, roughness:0.8, metalness:0.22, envMapIntensity:0.45 }));
+      mBox(0, WH/2, HALF, HALF*2, WH, 1, wallMat); mBox(0, WH/2, -HALF, HALF*2, WH, 1, wallMat);
+      mBox(HALF, WH/2, 0, 1, WH, HALF*2, wallMat); mBox(-HALF, WH/2, 0, 1, WH, HALF*2, wallMat);
+
+      // ---- 共享材质 ----
+      var metalMat  = fxOwn(new THREE.MeshStandardMaterial({ color:T.metal, roughness:0.4, metalness:0.6, envMapIntensity:0.7 }));
+      var crateMat  = fxOwn(new THREE.MeshStandardMaterial({ color:T.crate, roughness:0.78, metalness:0.15, envMapIntensity:0.4 }));
+      var stoneMat  = fxOwn(new THREE.MeshStandardMaterial({ color:T.wall, roughness:0.82, metalness:0.18, envMapIntensity:0.45 }));
+      var accentMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.accentHot, emissive:T.accentHot, emissiveIntensity:2.2, roughness:0.4, metalness:0.2 }));
+      var accentWarmMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.accentWarm, emissive:T.accentWarm, emissiveIntensity:1.8, roughness:0.4, metalness:0.2 }));
+
+      // ---- 中央青龙祭坛：三级抬高圆台(顶≈2.6) + 中心炉柱 + 发光金色符文环(非碰撞) ----
+      mCyl(0, 0.45, 0, 7.0, 0.9, stoneMat, true, 36);
+      mCyl(0, 1.25, 0, 5.0, 0.8, metalMat, true, 32);
+      mCyl(0, 1.95, 0, 3.4, 0.7, metalMat, true, 28);   // 顶面 y≈2.3
+      // 中心炉柱（掩体）
+      mCyl(0, 3.1, 0, 1.0, 2.2, metalMat, true, 20);
+      // 发光符文环（扁圆柱，非碰撞，被 bloom 点亮）
+      var ring1 = new THREE.Mesh(new THREE.CylinderGeometry(3.55, 3.55, 0.12, 40, 1, true), accentMat); ring1.position.set(0, 2.32, 0); mAdd(ring1, true, false);
+      var ring2 = new THREE.Mesh(new THREE.CylinderGeometry(5.15, 5.15, 0.12, 44, 1, true), accentWarmMat); ring2.position.set(0, 1.62, 0); mAdd(ring2, true, false);
+      var ring3 = new THREE.Mesh(new THREE.CylinderGeometry(7.15, 7.15, 0.12, 48, 1, true), accentMat); ring3.position.set(0, 0.88, 0); mAdd(ring3, true, false);
+      // 祭坛四向上坛楼梯（贴第三级，退向第一级外缘）
+      makeStairs(0, 3.4, 0, 1, 2.3, 2.2, crateMat);   // 朝 +z 退向 -z … 顶贴(0,3.4)
+      makeStairs(0, -3.4, 0, -1, 2.3, 2.2, crateMat);
+      makeStairs(3.4, 0, 1, 0, 2.3, 2.2, crateMat);
+      makeStairs(-3.4, 0, -1, 0, 2.3, 2.2, crateMat);
+
+      // ---- 四角浮台（top≈3.2, 5x5）+ 倒锥支撑 + 上台楼梯 ----
+      var platTop = 3.2, platH = 0.8, platCY = platTop - platH/2;   // 中心 y
+      var corners = [[18,18],[-18,18],[18,-18],[-18,-18]];
+      for (var ci = 0; ci < corners.length; ci++) {
+        var px = corners[ci][0], pz = corners[ci][1];
+        // 浮台主体
+        mBox(px, platCY, pz, 5, platH, 5, stoneMat);
+        // 台缘金色裂隙发光条（非碰撞，沿四边）
+        var edgeY = platTop + 0.02;
+        var eN = new THREE.Mesh(new THREE.BoxGeometry(5, 0.06, 0.3), accentWarmMat); eN.position.set(px, edgeY, pz+2.35); mAdd(eN, true, false);
+        var eS = new THREE.Mesh(new THREE.BoxGeometry(5, 0.06, 0.3), accentWarmMat); eS.position.set(px, edgeY, pz-2.35); mAdd(eS, true, false);
+        // 倒锥悬浮支撑（装饰，顶大底小，非碰撞，悬于浮台之下）
+        var cone = new THREE.Mesh(new THREE.ConeGeometry(2.2, 3.0, 18), metalMat); cone.position.set(px, platTop - platH - 1.5, pz); cone.rotation.x = Math.PI; mAdd(cone, true, false);
+        // 上台楼梯（朝竞技场中心方向退向地面）
+        var sgnx = px > 0 ? 1 : -1, sgnz = pz > 0 ? 1 : -1;
+        makeStairs(px - sgnx*1.6, pz - sgnz*1.6, -sgnx, -sgnz, platTop, 2.0, crateMat);
+      }
+
+      // ---- 断桥：四角浮台向中央祭坛方向延伸的窄长条（可走，中段留视觉缺口但路径连续）----
+      // 桥面高度与浮台齐平(top≈3.2)，逐段铺设，段间小间隙(<可跨越)由台阶补足落差。这里桥与祭坛顶(≈2.3)有落差，用矮台阶过渡。
+      var bridgeTop = platTop, bridgeH = 0.5, bridgeCY = bridgeTop - bridgeH/2;
+      // 每条桥从浮台(±18,±18)指向祭坛外缘，分两段，中间留 1.2 视觉缺口
+      var bridgeDefs = [
+        { x:18, z:18 }, { x:-18, z:18 }, { x:18, z:-18 }, { x:-18, z:-18 }
+      ];
+      for (var bi = 0; bi < bridgeDefs.length; bi++) {
+        var bx = bridgeDefs[bi].x, bz = bridgeDefs[bi].z;
+        var sx2 = bx > 0 ? 1 : -1, sz2 = bz > 0 ? 1 : -1;
+        // 外段：从浮台内缘(±15.5)向中心铺到 ±10
+        mBox(sx2*12.7, bridgeCY, sz2*12.7, 5.8, bridgeH, 2.0, stoneMat);   // 沿对角线的近似窄桥(用方块近似，足以行走)
+        // 内段：从 ±8 铺到祭坛外（落差用台阶补）
+        mBox(sx2*8.2, bridgeCY, sz2*8.2, 3.0, bridgeH, 2.0, stoneMat);
+        // 桥灯（金色发光条，非碰撞）
+        var bl = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.05, 6.0), accentMat); bl.position.set(sx2*12.7, bridgeTop+0.03, sz2*12.7); bl.rotation.y = sz2*sx2 > 0 ? -Math.PI/4 : Math.PI/4; mAdd(bl, true, false);
+        // 内段下台阶接祭坛顶（从桥内端 ±6.5 退到祭坛第三级外缘）
+        makeStairs(sx2*6.6, sz2*6.6, sx2, sz2, bridgeTop, 1.8, crateMat);
+      }
+
+      // ---- 地面金色裂隙发光条（非碰撞，纵横交错点缀）----
+      var crackDefs = [
+        [0, 0, 24, 0.18, 0.4, 0], [0, 0, 0.4, 0.18, 24, 0],
+        [13, 0, 10, 0.16, 0.3, 0.6], [-13, 0, 10, 0.16, 0.3, -0.6],
+        [0, 13, 0.3, 0.16, 10, 0], [0, -13, 0.3, 0.16, 10, 0]
+      ];
+      for (var cri = 0; cri < crackDefs.length; cri++) {
+        var cd = crackDefs[cri];
+        var crk = new THREE.Mesh(new THREE.BoxGeometry(cd[2], cd[3], cd[4]), accentMat);
+        crk.position.set(cd[0], 0.09, cd[1]); crk.rotation.y = cd[5]; mAdd(crk, true, false);
+      }
+
+      // ---- 两侧对角残破仙门牌坊（两柱一梁，柱可碰撞作掩体）----
+      var gates = [[ -24, 24, Math.PI/4 ], [ 24, -24, Math.PI/4 ]];
+      for (var gi = 0; gi < gates.length; gi++) {
+        var gx = gates[gi][0], gz = gates[gi][1], grot = gates[gi][2];
+        var off = 2.6;
+        var dxg = Math.cos(grot) * off, dzg = Math.sin(grot) * off;
+        // 两根立柱（碰撞掩体）
+        var col1 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 6.0, 1.0), stoneMat); col1.position.set(gx + dxg, 3.0, gz + dzg); col1.castShadow = true; col1.receiveShadow = true; mAdd(col1, true, true);
+        var col2 = new THREE.Mesh(new THREE.BoxGeometry(1.0, 6.0, 1.0), stoneMat); col2.position.set(gx - dxg, 3.0, gz - dzg); col2.castShadow = true; col2.receiveShadow = true; mAdd(col2, true, true);
+        // 横梁（破损，略短，非碰撞装饰）+ 金色符文梁纹
+        var lintel = new THREE.Mesh(new THREE.BoxGeometry(off*2 + 1.4, 0.9, 1.2), stoneMat); lintel.position.set(gx, 6.3, gz); lintel.rotation.y = -grot; lintel.castShadow = true; mAdd(lintel, true, false);
+        var rune = new THREE.Mesh(new THREE.BoxGeometry(off*2 + 1.0, 0.18, 0.3), accentMat); rune.position.set(gx, 6.3, gz); rune.rotation.y = -grot; mAdd(rune, true, false);
+      }
+
+      // ---- 出生点（四角浮台 + 地面外环，远离中央祭坛超级武器点）----
+      var sp = [
+        [18,18],[-18,18],[18,-18],[-18,-18],   // 四角浮台顶
+        [26,0],[-26,0],[0,26],[0,-26],         // 四边地面
+        [24,12],[-24,-12]                      // 补充外环
+      ];
+      spawnPoints = sp.map(function (p) { return new THREE.Vector3(p[0], highestSurfaceAt(p[0], p[1]) + EYE, p[1]); });
+    };
+
+    MAP_FX['skytemple'] = { onEnter: function (scene) {
+      scene.background = new THREE.Color(0x9fc0e8);
+      scene.fog = new THREE.Fog(0x8fb4e0, 30, 150);   // 边缘溶进云海
+      if (hemiLight) { hemiLight.color.setHex(0x7fb6ff); hemiLight.groundColor.setHex(0x4a3a60); hemiLight.intensity = 0.9; }
+      if (keyLight) { keyLight.color.setHex(0xffd98a); keyLight.intensity = 1.0; keyLight.position.set(-30, 42, 18); }
+      if (bloom) { bloom.bright.uniforms.threshold.value = 0.62; bloom.comp.uniforms.strength.value = 1.1; bloom.comp.uniforms.exposure.value = 1.0; }
+      // 冷蓝云海渐变天穹
+      makeSkyDome({ radius:150, topCol:0x16284a, midCol:0x6f9fd8, botCol:0xbcd2f0, emberAmt:0.0 });
+      // 暖金祭坛点光（中央上方）
+      var pl1 = new THREE.PointLight(0xffcf5a, 1.6, 26, 2); pl1.position.set(0, 6, 0); scene.add(pl1); mapMeshes.push(pl1);
+      var pl2 = new THREE.PointLight(0x7fb6ff, 0.8, 40, 2); pl2.position.set(0, 16, 0); scene.add(pl2); mapMeshes.push(pl2);
+      // 上飘金色灵尘（缓慢上升 + 轻微横移，越界回卷）
+      makeParticles({ count:260, color:0xffd98a, size:0.14, opacity:0.85, additive:true,
+        init:function(arr,n){ for(var i=0;i<n;i++){ var k=i*3; arr[k]=Math.random()*58-29; arr[k+1]=Math.random()*16; arr[k+2]=Math.random()*58-29; } },
+        step:function(arr,n,dt,t){ for(var i=0;i<n;i++){ var k=i*3;
+          arr[k+1] += dt*(0.5+(i%7)*0.06);
+          arr[k]   += dt*Math.sin(t*0.4 + i)*0.25;
+          arr[k+2] += dt*Math.cos(t*0.35 + i)*0.25;
+          if(arr[k+1]>16){ arr[k+1]=0.1; arr[k]=Math.random()*58-29; arr[k+2]=Math.random()*58-29; }
+          if(arr[k]>29) arr[k]=-29; else if(arr[k]<-29) arr[k]=29;
+          if(arr[k+2]>29) arr[k+2]=-29; else if(arr[k+2]<-29) arr[k+2]=29;
+        } } });
+    } };
+
+    if (!MAP_LIST.some(function (m) { return m.id === 'skytemple'; })) MAP_LIST.push({ id:'skytemple', name:'破碎天空神殿' });
+
+    // ===== 档位4 P3 量产地图: frostfort =====
+    // ===== 地图模块：frostfort「冰封要塞·极光雪原」 =====
+    // 共享工具直接调用(mAdd/mBox/mCyl/makeStairs/makeParticles/fxOwn/texSet/makePanelPBR/GLSL_NOISE/highestSurfaceAt)
+    var FROSTFORT_THEME = { floor:0xdfeefc, wall:0x9fc4e0, accent:0x46e8ff, ice:0xbfe0f5, deep:0x0a1430 };
+
+    // ---- 自写极光天穹 fragment shader(复用 GLSL_NOISE) ----
+    var FROSTFORT_SKY_VS = 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
+    var FROSTFORT_SKY_FS = GLSL_NOISE + '\n' + [
+      'varying vec3 vDir; uniform float uTime;',
+      'uniform vec3 uDeep, uGreen, uCyan, uMag;',
+      'void main(){',
+      '  float hh = clamp(vDir.y*0.5+0.5, 0.0, 1.0);',
+      '  // 暗夜空底色，越高越深',
+      '  vec3 col = mix(uDeep*1.4, uDeep*0.5, smoothstep(0.0,1.0,hh));',
+      '  // 极光主要出现在中上空(hh 0.45~0.95)的水平带',
+      '  float band = smoothstep(0.40,0.62,hh) * (1.0 - smoothstep(0.86,0.99,hh));',
+      '  vec2 uv = vec2(atan(vDir.z, vDir.x)*0.9, vDir.y*2.2);',
+      '  // 缓慢水平平移的飘带',
+      '  float curtain = fbm(uv*2.2 + vec2(uTime*0.035, uTime*0.012));',
+      '  float curtain2 = fbm(uv*4.1 - vec2(uTime*0.05, 0.0));',
+      '  float w = curtain*0.65 + curtain2*0.35;',
+      '  // 沿高度分层取色: 低->绿, 中->青, 高->品红',
+      '  vec3 aur = mix(uGreen, uCyan, smoothstep(0.30,0.62,hh));',
+      '  aur = mix(aur, uMag, smoothstep(0.66,0.92,hh) * 0.7);',
+      '  // 竖直褶皱使飘带呈条纹',
+      '  float streak = smoothstep(0.45,0.85,w);',
+      '  float glow = streak * band;',
+      '  col += aur * glow * 1.25;',
+      '  // 高处稀疏星点',
+      '  float st = h21(floor(uv*40.0));',
+      '  col += vec3(0.7,0.8,1.0) * smoothstep(0.992,1.0,st) * hh;',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}'
+    ].join('\n');
+
+    function frostfortMakeSky() {
+      var u = { uTime:{value:0},
+        uDeep:{value:new THREE.Color(0x0a1430)},
+        uGreen:{value:new THREE.Color(0x5affa0)},
+        uCyan:{value:new THREE.Color(0x46e8ff)},
+        uMag:{value:new THREE.Color(0xc060ff)} };
+      var mat = fxOwn(new THREE.ShaderMaterial({ uniforms:u, vertexShader:FROSTFORT_SKY_VS, fragmentShader:FROSTFORT_SKY_FS, side:THREE.BackSide, depthWrite:false, fog:false }));
+      var mesh = new THREE.Mesh(new THREE.SphereGeometry(150, 32, 24), mat);
+      mesh.renderOrder = -1; mesh.frustumCulled = false;
+      scene.add(mesh); mapMeshes.push(mesh); fxUniforms.push(u);
+      return mesh;
+    }
+
+    MAP_BUILD['frostfort'] = function buildFrostfort() {
+      var T = FROSTFORT_THEME, HALF = 30, WH = 7;
+
+      // ---- 地面:高明度雪面 ----
+      var ft = texSet(makePanelPBR(512, 8, T.floor), 22); fxOwn(ft.map); fxOwn(ft.normalMap); fxOwn(ft.roughnessMap);
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2),
+        fxOwn(new THREE.MeshStandardMaterial({ map:ft.map, normalMap:ft.normalMap, roughnessMap:ft.roughnessMap, roughness:0.9, metalness:0.05, envMapIntensity:0.35 })));
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+
+      // ---- 四周冰墙 ----
+      var wt = texSet(makePanelPBR(512, 6, T.wall), 10, 1.4); fxOwn(wt.map); fxOwn(wt.normalMap); fxOwn(wt.roughnessMap);
+      var wallMat = fxOwn(new THREE.MeshStandardMaterial({ map:wt.map, normalMap:wt.normalMap, roughnessMap:wt.roughnessMap, roughness:0.7, metalness:0.18, envMapIntensity:0.5 }));
+      mBox(0, WH/2, HALF, HALF*2, WH, 1, wallMat); mBox(0, WH/2, -HALF, HALF*2, WH, 1, wallMat);
+      mBox(HALF, WH/2, 0, 1, WH, HALF*2, wallMat); mBox(-HALF, WH/2, 0, 1, WH, HALF*2, wallMat);
+
+      // ---- 共享材质 ----
+      var iceMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.ice, roughness:0.28, metalness:0.1, envMapIntensity:0.8 }));
+      var crystalMat = fxOwn(new THREE.MeshStandardMaterial({ color:0xeaf6ff, roughness:0.15, metalness:0.05, envMapIntensity:1.0 }));
+      // 发光青强调材质(被 bloom 拾取)
+      var accentMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.accent, emissive:T.accent, emissiveIntensity:2.4, roughness:0.4, metalness:0.2 }));
+      // 半透发光晶体(顶端仙器)
+      var glowCrystalMat = fxOwn(new THREE.MeshStandardMaterial({ color:0xaef4ff, emissive:T.accent, emissiveIntensity:1.6, roughness:0.2, metalness:0.1, transparent:true, opacity:0.55 }));
+
+      // ============ 中央冰核巨柱 ============
+      // 基座圆台(可站)
+      mCyl(0, 0.4, 0, 4.0, 0.8, iceMat, true, 30);
+      // 主巨柱 r2.4 h10
+      mCyl(0, 5.4, 0, 2.4, 10, iceMat, true, 28);
+      // 外裹旋转错位的细长冰晶(非碰撞装饰,带发光青缝)
+      var coreShards = 6;
+      for (var ci = 0; ci < coreShards; ci++) {
+        var ang = (ci / coreShards) * Math.PI * 2;
+        var rad = 3.0;
+        var sx = Math.cos(ang) * rad, sz = Math.sin(ang) * rad;
+        var shard = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7.5, 0.5), crystalMat);
+        shard.position.set(sx, 5.0 + (ci % 2) * 1.2, sz);
+        shard.rotation.set((ci % 2 ? 0.18 : -0.14), ang, (ci % 3) * 0.12 - 0.12);
+        shard.castShadow = true; mAdd(shard, true, false); // 装饰不碰撞(避免旋转AABB误差)
+        // 发光青裂缝条
+        var crack = new THREE.Mesh(new THREE.BoxGeometry(0.12, 6.0, 0.12), accentMat);
+        crack.position.set(sx, 5.2 + (ci % 2) * 1.2, sz);
+        crack.rotation.copy(shard.rotation);
+        mAdd(crack, true, false);
+      }
+      // 顶端半透发光晶体(仙器核心)
+      var topCrystal = new THREE.Mesh(new THREE.IcosahedronGeometry(2.0, 0), glowCrystalMat);
+      topCrystal.position.set(0, 11.8, 0); mAdd(topCrystal, true, false);
+      var topGlow = new THREE.Mesh(new THREE.IcosahedronGeometry(1.0, 0), accentMat);
+      topGlow.position.set(0, 11.8, 0); mAdd(topGlow, true, false);
+
+      // ============ 中央悬浮仙器祭坛(环形平台 top≈4.5) ============
+      // 用一圈实心 mBox 拼成方环(避免圆环不可站),内径留空给冰核
+      var altarY = 4.3, altarT = 0.4, ringHalf = 7.5, segLen = 6.0, segW = 2.2;
+      // 四条边(轴对齐,可站立)
+      mBox(0, altarY - altarT/2, ringHalf, segLen, altarT, segW, iceMat);   // +z
+      mBox(0, altarY - altarT/2, -ringHalf, segLen, altarT, segW, iceMat);  // -z
+      mBox(ringHalf, altarY - altarT/2, 0, segW, altarT, segLen, iceMat);   // +x
+      mBox(-ringHalf, altarY - altarT/2, 0, segW, altarT, segLen, iceMat);  // -x
+      // 四角连接块,使环封闭可绕行
+      mBox(ringHalf-1.0, altarY - altarT/2, ringHalf-1.0, 2.4, altarT, 2.4, iceMat);
+      mBox(-(ringHalf-1.0), altarY - altarT/2, ringHalf-1.0, 2.4, altarT, 2.4, iceMat);
+      mBox(ringHalf-1.0, altarY - altarT/2, -(ringHalf-1.0), 2.4, altarT, 2.4, iceMat);
+      mBox(-(ringHalf-1.0), altarY - altarT/2, -(ringHalf-1.0), 2.4, altarT, 2.4, iceMat);
+      // 符文环:沿环面铺发光青条(非碰撞,薄,贴在平台上表面)
+      var runeY = altarY + 0.06;
+      mBox(0, runeY, ringHalf, segLen-0.6, 0.08, 0.25, accentMat, false);
+      mBox(0, runeY, -ringHalf, segLen-0.6, 0.08, 0.25, accentMat, false);
+      mBox(ringHalf, runeY, 0, 0.25, 0.08, segLen-0.6, accentMat, false);
+      mBox(-ringHalf, runeY, 0, 0.25, 0.08, segLen-0.6, accentMat, false);
+
+      // ============ 四角冰晶尖塔(塔身 r2 h6, 顶平台 top≈6, 斜插冰晶尖) ============
+      var towerPos = [[22,22],[-22,22],[22,-22],[-22,-22]];
+      for (var ti = 0; ti < towerPos.length; ti++) {
+        var tx = towerPos[ti][0], tz = towerPos[ti][1];
+        // 塔身圆柱 r2 h6 -> 顶面 y=6
+        mCyl(tx, 3.0, tz, 2.0, 6, iceMat, true, 24);
+        // 顶平台 box(可站, top≈6.4)
+        mBox(tx, 6.2, tz, 5.0, 0.4, 5.0, iceMat);
+        // 平台边缘发光青条(非碰撞)
+        mBox(tx, 6.46, tz+2.3, 5.0, 0.06, 0.18, accentMat, false);
+        mBox(tx, 6.46, tz-2.3, 5.0, 0.06, 0.18, accentMat, false);
+        mBox(tx+2.3, 6.46, tz, 0.18, 0.06, 5.0, accentMat, false);
+        mBox(tx-2.3, 6.46, tz, 0.18, 0.06, 5.0, accentMat, false);
+        // 斜插冰晶尖(装饰,非碰撞)指向场内
+        var inX = (tx > 0 ? -1 : 1), inZ = (tz > 0 ? -1 : 1);
+        var spike = new THREE.Mesh(new THREE.ConeGeometry(0.9, 4.5, 6), crystalMat);
+        spike.position.set(tx + inX*1.3, 7.6, tz + inZ*1.3);
+        spike.rotation.set(inZ*0.5, 0, -inX*0.5);
+        spike.castShadow = true; mAdd(spike, true, false);
+        var spikeGlow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 4.0, 6), accentMat);
+        spikeGlow.position.copy(spike.position); spikeGlow.rotation.copy(spike.rotation);
+        mAdd(spikeGlow, true, false);
+        // 上塔楼梯:从塔旁地面爬到顶平台(top≈6.4),沿朝向场内方向退台阶
+        makeStairs(tx + inX*2.6, tz + inZ*2.6, inX, inZ, 6.2, 2.4, iceMat);
+      }
+
+      // ============ 三条断裂冰桥(桥面 top≈3.2, 中段缺口分两段) ============
+      // 桥连接相邻塔/通向祭坛。桥墩 mCyl 撑地, 桥侧 accent 灯条。
+      // 桥 helper: 沿 X 方向的一段桥(给中点cx,cz,半长,留缺口)
+      function frostfortBridgeX(cx, cz, halfLen, gap) {
+        var segL = halfLen - gap/2; var bw = 3.0, bt = 0.4, by = 3.0;
+        // 左段 + 右段(中段缺口)
+        var lcx = cx - (gap/2 + segL/2), rcx = cx + (gap/2 + segL/2);
+        mBox(lcx, by - bt/2, cz, segL, bt, bw, iceMat);
+        mBox(rcx, by - bt/2, cz, segL, bt, bw, iceMat);
+        // 桥侧发光青灯条(非碰撞)
+        mBox(lcx, by + 0.05, cz+bw/2-0.1, segL, 0.08, 0.16, accentMat, false);
+        mBox(lcx, by + 0.05, cz-bw/2+0.1, segL, 0.08, 0.16, accentMat, false);
+        mBox(rcx, by + 0.05, cz+bw/2-0.1, segL, 0.08, 0.16, accentMat, false);
+        mBox(rcx, by + 0.05, cz-bw/2+0.1, segL, 0.08, 0.16, accentMat, false);
+        // 桥墩撑地(每段一个)
+        mCyl(lcx, by/2, cz, 0.6, by, iceMat, true, 12);
+        mCyl(rcx, by/2, cz, 0.6, by, iceMat, true, 12);
+        return { lcx:lcx, rcx:rcx, by:by };
+      }
+      function frostfortBridgeZ(cx, cz, halfLen, gap) {
+        var segL = halfLen - gap/2; var bw = 3.0, bt = 0.4, by = 3.0;
+        var lcz = cz - (gap/2 + segL/2), rcz = cz + (gap/2 + segL/2);
+        mBox(cx, by - bt/2, lcz, bw, bt, segL, iceMat);
+        mBox(cx, by - bt/2, rcz, bw, bt, segL, iceMat);
+        mBox(cx+bw/2-0.1, by + 0.05, lcz, 0.16, 0.08, segL, accentMat, false);
+        mBox(cx-bw/2+0.1, by + 0.05, lcz, 0.16, 0.08, segL, accentMat, false);
+        mBox(cx+bw/2-0.1, by + 0.05, rcz, 0.16, 0.08, segL, accentMat, false);
+        mBox(cx-bw/2+0.1, by + 0.05, rcz, 0.16, 0.08, segL, accentMat, false);
+        mCyl(cx, by/2, lcz, 0.6, by, iceMat, true, 12);
+        mCyl(cx, by/2, rcz, 0.6, by, iceMat, true, 12);
+        return { lcz:lcz, rcz:rcz, by:by };
+      }
+      // 桥1: 沿 +Z 一侧横桥(x方向),中点(0,15),半长10,缺口3
+      frostfortBridgeX(0, 15, 10, 3.0);
+      // 桥2: 沿 -Z 一侧横桥(x方向),中点(0,-15)
+      frostfortBridgeX(0, -15, 10, 3.0);
+      // 桥3: 沿 +X 一侧纵桥(z方向),中点(15,0)
+      frostfortBridgeZ(15, 0, 10, 3.0);
+      // 桥可达:在桥两端落地处放小冰阶梯爬上桥面(by=3.0)
+      makeStairs(9.5, 15, 1, 0, 3.0, 3.0, iceMat);   // 桥1右端附近上桥
+      makeStairs(-9.5, 15, -1, 0, 3.0, 3.0, iceMat);
+      makeStairs(9.5, -15, 1, 0, 3.0, 3.0, iceMat);
+      makeStairs(-9.5, -15, -1, 0, 3.0, 3.0, iceMat);
+      makeStairs(15, 9.5, 0, 1, 3.0, 3.0, iceMat);
+      makeStairs(15, -9.5, 0, -1, 3.0, 3.0, iceMat);
+
+      // ============ 出生点 ~10:四角塔顶 + 四边城墙回廊中点(远离中央祭坛) ============
+      var sp = [
+        [22,22],[-22,22],[22,-22],[-22,-22],   // 四角塔顶(highestSurfaceAt 落到 6.4)
+        [0,27],[0,-27],[27,0],[-27,0],          // 四边墙边中点(地面)
+        [14,27],[-14,-27]                       // 补两个边角(地面)
+      ];
+      spawnPoints = sp.map(function (p) { return new THREE.Vector3(p[0], highestSurfaceAt(p[0], p[1]) + EYE, p[1]); });
+    };
+
+    MAP_FX['frostfort'] = { onEnter: function (scene) {
+      scene.background = new THREE.Color(0x0a1430);
+      scene.fog = new THREE.FogExp2(0x9fb8d6, 0.018);
+      if (hemiLight) { hemiLight.color.setHex(0xbfe3ff); hemiLight.groundColor.setHex(0x34465e); hemiLight.intensity = 0.85; }
+      if (keyLight) { keyLight.color.setHex(0xdfefff); keyLight.intensity = 0.7; keyLight.position.set(30, 22, -18); }
+      if (bloom) { bloom.bright.uniforms.threshold.value = 0.82; bloom.comp.uniforms.strength.value = 1.0; bloom.comp.uniforms.exposure.value = 1.1; }
+      // 极光天穹
+      frostfortMakeSky();
+      // 中央冰核青色辉光点光
+      var pl1 = new THREE.PointLight(0x46e8ff, 1.6, 28, 2); pl1.position.set(0, 11, 0); scene.add(pl1); mapMeshes.push(pl1);
+      // 祭坛环柔光
+      var pl2 = new THREE.PointLight(0x8ff0ff, 0.9, 18, 2); pl2.position.set(0, 5.5, 0); scene.add(pl2); mapMeshes.push(pl2);
+      // ---- 风雪下落粒子(横风偏移, 落底/出界回卷顶部) ----
+      makeParticles({ count:1000, color:0xffffff, size:0.12, opacity:0.85, additive:false,
+        init:function(arr,n){ for(var i=0;i<n;i++){ var k=i*3; arr[k]=Math.random()*60-30; arr[k+1]=Math.random()*20; arr[k+2]=Math.random()*60-30; } },
+        step:function(arr,n,dt,t){ for(var i=0;i<n;i++){ var k=i*3;
+          arr[k+1] -= dt*(3.2 + (i%7)*0.35);                       // 下落
+          arr[k]   += dt*(1.1 + Math.sin(t*0.4 + i)*0.6);           // 横风偏移(+x)
+          if (arr[k+1] < 0.05 || arr[k] > 30 || arr[k] < -30) {     // 落底或出界 -> 回卷顶部
+            arr[k+1] = 20; arr[k] = Math.random()*60-30; arr[k+2] = Math.random()*60-30;
+          }
+        } } });
+    } };
+    if (!MAP_LIST.some(function (m) { return m.id === 'frostfort'; })) MAP_LIST.push({ id:'frostfort', name:'冰封要塞·极光雪原' });
+
+    // ===== 档位4 P3 量产地图: cybercity =====
+    // ============================================================ 赛博废城·雨夜霓虹 cybercity
+    // 雨夜都市战：中央霓虹武器塔 + 东侧倒塌写字楼(可攀爬狙击位) + 四色霓虹牌坊 + 集装箱/车体掩体 + 斜向落雨
+    var CYBER_THEME = {
+      floor:0x10141d, wall:0x171c2b, steel:0x2a3346, crate:0x222a3a,
+      neonCyan:0x16e0ff, neonMag:0xff2a9d, neonAmb:0xffae3a, neonPur:0x9a4cff
+    };
+    MAP_BUILD['cybercity'] = function buildCybercity() {
+      var T = CYBER_THEME, HALF = 30, WH = 7;
+
+      // ---- 地面：湿沥青 ----
+      var ft = texSet(makePanelPBR(512, 8, T.floor), 24); fxOwn(ft.map); fxOwn(ft.normalMap); fxOwn(ft.roughnessMap);
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, HALF*2), fxOwn(new THREE.MeshStandardMaterial({
+        map:ft.map, normalMap:ft.normalMap, roughnessMap:ft.roughnessMap, roughness:0.42, metalness:0.45, envMapIntensity:0.6 })));
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+
+      // ---- 四周墙：暗钢蓝 ----
+      var wt = texSet(makePanelPBR(512, 6, T.wall), 10, 1.4); fxOwn(wt.map); fxOwn(wt.normalMap); fxOwn(wt.roughnessMap);
+      var wallMat = fxOwn(new THREE.MeshStandardMaterial({ map:wt.map, normalMap:wt.normalMap, roughnessMap:wt.roughnessMap,
+        roughness:0.78, metalness:0.32, envMapIntensity:0.4 }));
+      mBox(0, WH/2, HALF, HALF*2, WH, 1, wallMat); mBox(0, WH/2, -HALF, HALF*2, WH, 1, wallMat);
+      mBox(HALF, WH/2, 0, 1, WH, HALF*2, wallMat); mBox(-HALF, WH/2, 0, 1, WH, HALF*2, wallMat);
+
+      // ---- 共享材质 ----
+      var steelMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.steel, roughness:0.4, metalness:0.7, envMapIntensity:0.7 }));
+      var crateMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.crate, roughness:0.66, metalness:0.34, envMapIntensity:0.4 }));
+      // 四色霓虹发光材质(被 bloom 强烈点亮)
+      function cyberNeon(hex, inten) { return fxOwn(new THREE.MeshStandardMaterial({
+        color:hex, emissive:hex, emissiveIntensity:inten == null ? 2.6 : inten, roughness:0.35, metalness:0.2 })); }
+      var matCyan = cyberNeon(T.neonCyan, 2.8), matMag = cyberNeon(T.neonMag, 2.8),
+          matAmb = cyberNeon(T.neonAmb, 2.6), matPur = cyberNeon(T.neonPur, 2.4);
+
+      // ====== 中央霓虹武器塔 ======
+      // 八棱基座(可站, 顶≈2.4 是拾取点)
+      mCyl(0, 0.6, 0, 5.0, 1.2, steelMat, true, 8);
+      mCyl(0, 1.8, 0, 4.0, 1.2, steelMat, true, 8);   // 顶面 y≈2.4
+      // 渐细塔身(装饰, 非碰撞以免卡顶)
+      var bodyA = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3.2, 4.0, 16), steelMat); bodyA.position.set(0, 4.4, 0);
+      bodyA.castShadow = true; bodyA.receiveShadow = true; mAdd(bodyA, true, false);
+      var bodyB = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 2.4, 4.0, 16), steelMat); bodyB.position.set(0, 8.0, 0);
+      bodyB.castShadow = true; mAdd(bodyB, true, false);
+      // 竖直霓虹条(青/品红交替, 贴塔身, 非碰撞)
+      var stripN = 6;
+      for (var s = 0; s < stripN; s++) {
+        var ang = s / stripN * Math.PI * 2, sr = 2.7;
+        var strip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 5.4, 0.22), (s % 2 === 0) ? matCyan : matMag);
+        strip.position.set(Math.cos(ang)*sr, 5.5, Math.sin(ang)*sr); mAdd(strip, true, false);
+      }
+      // 顶端 Torus 光环(发光, 非碰撞)
+      var halo = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.18, 12, 40), matCyan);
+      halo.position.set(0, 10.4, 0); halo.rotation.x = Math.PI/2; mAdd(halo, true, false);
+
+      // ====== 东侧倒塌写字楼(错层堆叠, 可攀爬到顶层狙击平台) ======
+      // 错位楼板(每层落差≤台阶高, 玩家可逐级跳/走上); 楼板间用矮台阶补可达性
+      // 第1层 y≈1.4
+      mBox(20, 0.7, 6, 8, 1.4, 7, crateMat);
+      // 第2层 偏移 y≈3.0 (相对第1层顶2.0 抬1.0, 留一阶)
+      mBox(22, 2.0, 2, 7, 1.2, 6, crateMat);   // 顶≈2.6
+      mBox(18, 3.0, -1, 6, 1.0, 5, crateMat);  // 顶≈3.5
+      // 第3层 顶层狙击平台 y≈4.6 顶≈5.2
+      mBox(21, 4.6, -4, 6, 1.2, 5, crateMat);  // 狙击平台顶≈5.2
+      // 断裂女儿墙(掩体, 在狙击平台边缘)
+      mBox(21, 5.9, -6.0, 6, 0.9, 0.5, crateMat);
+      // 攀爬阶梯：从地面爬上第1层(top≈1.4) 与 跨层补阶
+      makeStairs(24, 9.5, 0, 1, 1.4, 3.0, crateMat);     // 地面->第1层(沿 +z 退向墙根)
+      makeStairs(26, 2, -1, 0, 2.6, 2.6, crateMat);      // 第1层顶->第2层(2.0) 退向东墙
+      makeStairs(17.5, -1, 0, -1, 3.5, 2.6, crateMat);   // ->第3层附近
+      makeStairs(21, -1.5, 0, 1, 5.2, 2.6, crateMat);    // ->狙击平台(5.2) 退向内场
+
+      // ====== 四座霓虹牌坊门(两立柱碰撞作掩体 + 横向发光牌匾非碰撞) ======
+      function cyberGate(cx, cz, rot, neonMat) {
+        var hw = 3.2; // 半跨
+        // 立柱(碰撞掩体)
+        var dirx = Math.cos(rot), dirz = Math.sin(rot);
+        var lx = cx + (-hw)*dirx, lz = cz + (-hw)*dirz;
+        var rx = cx + ( hw)*dirx, rz = cz + ( hw)*dirz;
+        mBox(lx, 2.5, lz, 0.7, 5.0, 0.7, steelMat);
+        mBox(rx, 2.5, rz, 0.7, 5.0, 0.7, steelMat);
+        // 横向发光牌匾(非碰撞, 切高视线): 用细长 box 横跨两柱顶
+        var beam = new THREE.Mesh(new THREE.BoxGeometry(hw*2 + 0.8, 0.8, 0.4), neonMat);
+        beam.position.set(cx, 5.2, cz); beam.rotation.y = -rot; mAdd(beam, true, false);
+        // 牌匾下挂霓虹小条
+        var hang = new THREE.Mesh(new THREE.BoxGeometry(hw*2, 0.25, 0.18), neonMat);
+        hang.position.set(cx, 4.5, cz); hang.rotation.y = -rot; mAdd(hang, true, false);
+      }
+      cyberGate(0, 22, 0, matCyan);          // 北门 青
+      cyberGate(0, -22, 0, matMag);          // 南门 品红
+      cyberGate(22, 0, Math.PI/2, matAmb);   // 东门 琥珀
+      cyberGate(-22, 0, Math.PI/2, matPur);  // 西门 紫
+
+      // ====== 集装箱 / 断墙 / 翻倒车体 掩体(mBox 组合) ======
+      // 集装箱(西北/西南)
+      mBox(-18, 1.3, 14, 6, 2.6, 2.6, crateMat); mBox(-18, 3.6, 14, 5.6, 2.0, 2.4, crateMat); // 叠两层可上
+      makeStairs(-15, 14, -1, 0, 2.6, 2.4, crateMat); // 爬上集装箱第一层
+      mBox(-16, 1.3, -14, 2.6, 2.6, 6, crateMat);
+      // 断墙(中场分割掩体)
+      mBox(8, 1.4, 12, 0.6, 2.8, 5, steelMat);
+      mBox(-8, 1.4, -12, 5, 2.8, 0.6, steelMat);
+      // 翻倒车体(扁长低掩体)
+      mBox(12, 0.8, -6, 4.2, 1.6, 2.0, steelMat);
+      mBox(-12, 0.8, 6, 2.0, 1.6, 4.2, steelMat);
+      // 西南低台阶掩体堆
+      mBox(-20, 1.0, -18, 3, 2.0, 3, crateMat);
+
+      // ====== 沿墙霓虹招牌灯箱(emissive, 非碰撞, 贴墙发光) ======
+      function cyberSign(x, y, z, w, h, neonMat, ry) {
+        var sign = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.3), neonMat);
+        sign.position.set(x, y, z); if (ry) sign.rotation.y = ry; mAdd(sign, true, false);
+      }
+      cyberSign(-14, 4.5, 29.2, 5, 2.2, matMag);            // 北墙
+      cyberSign(13, 4.0, 29.2, 4, 1.6, matAmb);
+      cyberSign(10, 4.8, -29.2, 5, 2.4, matCyan);           // 南墙
+      cyberSign(-12, 3.8, -29.2, 4, 1.5, matPur);
+      cyberSign(29.2, 4.6, -14, 5, 2.2, matCyan, Math.PI/2); // 东墙
+      cyberSign(-29.2, 4.4, 12, 5, 2.0, matMag, Math.PI/2);  // 西墙
+      cyberSign(-29.2, 4.0, -10, 3.5, 1.6, matAmb, Math.PI/2);
+
+      // ====== 出生点 ~10 个：四角走廊入口 + 四边招牌阴影处, 背靠墙, 远离中央塔 ======
+      var sp = [[26,26],[-26,26],[26,-26],[-26,-26],[27,12],[-27,12],[-27,-12],[12,27],[-14,-27],[27,-2]];
+      spawnPoints = sp.map(function (p) { return new THREE.Vector3(p[0], highestSurfaceAt(p[0], p[1]) + EYE, p[1]); });
+    };
+
+    MAP_FX['cybercity'] = { onEnter: function (scene) {
+      // 紫黑雨夜背景 + 浓紫雾
+      scene.background = new THREE.Color(0x0c0a18);
+      scene.fog = new THREE.FogExp2(0x1a1438, 0.03);
+      // 压暗全局光照, 真正照明靠 emissive + PointLight
+      if (hemiLight) { hemiLight.color.setHex(0x2b1f4a); hemiLight.groundColor.setHex(0x0a0c14); hemiLight.intensity = 0.35; }
+      if (keyLight) { keyLight.color.setHex(0x3550aa); keyLight.intensity = 0.25; keyLight.position.set(0, 40, -20); }
+      if (bloom) { bloom.bright.uniforms.threshold.value = 0.6; bloom.comp.uniforms.strength.value = 1.15; bloom.comp.uniforms.exposure.value = 1.0; }
+      // 紫黑雨夜渐变天穹(地平线被霓虹染紫)
+      makeSkyDome({ radius:150, topCol:0x07060f, midCol:0x2a1850, botCol:0x3a1c5c, emberAmt:0.0 });
+
+      // 6~10 个 PointLight(青/品红/琥珀交替, 钉在招牌/掩体上)
+      var lights = [
+        [0, 11, 0, 0x16e0ff, 2.0, 20],     // 中央塔光环
+        [0, 5.4, 22, 0x16e0ff, 1.6, 16],   // 北门
+        [0, 5.4, -22, 0xff2a9d, 1.6, 16],  // 南门
+        [22, 5.4, 0, 0xffae3a, 1.4, 16],   // 东门
+        [-22, 5.4, 0, 0x9a4cff, 1.4, 16],  // 西门
+        [21, 6.0, -4, 0xff2a9d, 1.6, 15],  // 倒塌楼顶
+        [-14, 4.8, 28, 0xff2a9d, 1.3, 14], // 北墙招牌
+        [29, 4.8, -14, 0x16e0ff, 1.3, 14], // 东墙招牌
+        [-18, 4.0, 14, 0xffae3a, 1.2, 13]  // 集装箱
+      ];
+      for (var i = 0; i < lights.length; i++) {
+        var L = lights[i], pl = new THREE.PointLight(L[3], L[4], L[5], 2);
+        pl.position.set(L[0], L[1], L[2]); scene.add(pl); mapMeshes.push(pl);
+      }
+
+      // 斜向落雨(快速下落 + 横移, 回卷)
+      makeParticles({ count:900, color:0xafc8e0, size:0.10, opacity:0.55, additive:false,
+        init:function(arr,n){ for(var i=0;i<n;i++){ var k=i*3; arr[k]=Math.random()*60-30; arr[k+1]=Math.random()*20; arr[k+2]=Math.random()*60-30; } },
+        step:function(arr,n,dt,t){ for(var i=0;i<n;i++){ var k=i*3;
+          arr[k+1] -= dt*26.0;             // 快速下落
+          arr[k]   += dt*5.0;              // 横移(雨丝斜向)
+          if(arr[k+1] < 0.0 || arr[k] > 30){ arr[k]=Math.random()*60-30; arr[k+1]=20.0; arr[k+2]=Math.random()*60-30; } } } });
+
+      // 稀疏品红火花(additive, 上飘)
+      makeParticles({ count:120, color:0xff2a9d, size:0.13, opacity:0.9, additive:true,
+        init:function(arr,n){ for(var i=0;i<n;i++){ var k=i*3; arr[k]=Math.random()*60-30; arr[k+1]=Math.random()*10; arr[k+2]=Math.random()*60-30; } },
+        step:function(arr,n,dt,t){ for(var i=0;i<n;i++){ var k=i*3;
+          arr[k+1] += dt*(0.8+(i%7)*0.1);
+          if(arr[k+1] > 11){ arr[k+1]=0.2; arr[k]=Math.random()*60-30; arr[k+2]=Math.random()*60-30; } } } });
+    } };
+
+    if (!MAP_LIST.some(function (m) { return m.id === 'cybercity'; })) MAP_LIST.push({ id:'cybercity', name:'赛博废城·雨夜霓虹' });
+
+
     function randomSpawn() {
       var s = spawnPoints[Math.floor(Math.random()*spawnPoints.length)];
       return s.clone();
@@ -1129,24 +1664,48 @@
       }
       var ax = god ? 0.56 : 0.5, ay = god ? 1.78 : 1.75, lx = god ? 0.26 : 0.22;
       var armL = limb(-ax, ay, P.upperArm, { y:-0.5, parts:(P.forearm||[]).concat(P.hand||[]) });
-      var armR = limb( ax, ay, P.upperArm, { y:-0.5, parts:P.cannon }, true);
+      var armR = limb( ax, ay, P.upperArm, null, true);   // 右臂武器改为可换挂载点(熔炮↔爆地)
+      var weaponMount = new THREE.Group(); weaponMount.position.y = -0.5; armR.add(weaponMount);
       var legL = limb(-lx, 1.1, P.thigh, { y:-0.55, parts:(P.shin||[]).concat(P.foot||[]) });
       var legR = limb( lx, 1.1, P.thigh, { y:-0.55, parts:(P.shin||[]).concat(P.foot||[]) });
       if (P.shoulder) { buildMechSeg(armL, P.shoulder, col, cache); buildMechSeg(armR, P.shoulder, col, cache); }
       // 终焉机神专属装具：背后巨剑 + 一对能量翼 + 头后光环(挂在躯干上随身动)
+      var backSword = null;
       if (god) {
         function deco(parts, x, y, z, rx, ry, rz, mir) {
-          if (!parts) return; var g = new THREE.Group(); g.position.set(x, y, z);
+          if (!parts) return null; var g = new THREE.Group(); g.position.set(x, y, z);
           if (rx || ry || rz) g.rotation.set(rx || 0, ry || 0, rz || 0); if (mir) g.scale.x = -1;
           buildMechSeg(g, parts, col, cache); torso.add(g); return g;
         }
-        deco(P.backSword, 0.06, 0.18, 0.44, -0.22, 0, 0.14);
+        backSword = deco(P.backSword, 0.06, 0.18, 0.44, -0.22, 0, 0.14);
         deco(P.wing, 0.46, 0.36, 0.32, 0, 0, 0);
         deco(P.wing, -0.46, 0.36, 0.32, 0, 0, 0, true);
         deco(P.halo, 0, 0.72, 0.18, 0, 0, 0);
       }
       root.scale.setScalar(0.82);   // 收到接近人形高度，再由 MECHA_SCALE 整体放大
-      return { root:root, torso:torso, head:head, armL:armL, armR:armR, legL:legL, legR:legR, hitMeshes:hits };
+      var rig = { root:root, torso:torso, head:head, armL:armL, armR:armR, legL:legL, legR:legR, hitMeshes:hits,
+        weaponMount:weaponMount, backSword:backSword, kind:kind, col:col };
+      setMechWeapon(rig, 0);   // 默认装上炮(手炮/熔炮)
+      return rig;
+    }
+    // 机甲右臂武器换装：mw 0=机甲炮(熔炮/手炮，雕进右臂)  1=爆地发光巨剑(握在手中，背剑收起)
+    function setMechWeapon(rig, mw) {
+      if (!rig || !rig.weaponMount) return;
+      var mount = rig.weaponMount;
+      while (mount.children.length) { var c = mount.children[0]; mount.remove(c); c.traverse(function (o){ if (o.geometry) o.geometry.dispose(); }); }
+      var god = rig.kind === 'godmecha';
+      if (god && mw === 1) {
+        var sword = new THREE.Group();
+        if (MECHA_VIEW_PARTS.sword) buildFromParts(sword, MECHA_VIEW_PARTS.sword, SUPERS.godmecha);
+        else buildMechSeg(sword, MECH_PARTS_GOD.backSword, rig.col, {});
+        sword.scale.setScalar(1.35); sword.position.set(0, 0.05, -0.15);
+        mount.add(sword);
+        if (rig.backSword) rig.backSword.visible = false;
+      } else {
+        var P = god ? MECH_PARTS_GOD : MECH_PARTS_SUPER;
+        buildMechSeg(mount, P.cannon, rig.col, {});
+        if (rig.backSword) rig.backSword.visible = true;
+      }
     }
 
     function buildViewGun() {
@@ -1269,7 +1828,7 @@
         armL:armL.pivot, armR:armR.pivot, legL:legL.pivot, legR:legR.pivot,
         runPhase:0, deathLean:0, lastX:0, lastZ:0,
         pos:new THREE.Vector3(), target:new THREE.Vector3(), yaw:0, targetYaw:0,
-        hp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now(),
+        hp:100, maxHp:100, alive:true, weapon:0, labelDirty:true, lastSeen:now(),
         bodyMat:bodyMat, limbMat:limbMat, headMat:headMat, baseColor:color, mecha:null   // 机甲化时改色/放大
       };
       setRemoteWeapon(r, 'pistol');
@@ -1296,6 +1855,7 @@
         }
         if (!r.mechRig) { r.mechRig = buildMechRig(kind === 'godmecha' ? 0xff5a8c : 0xffb24d, r.id, kind); r._rigKind = kind; r.group.add(r.mechRig.root); }
         r.mechRig.root.visible = true;
+        setMechWeapon(r.mechRig, r.mw || 0);   // 按当前武器变体挂炮/挂剑
         r.armL = r.mechRig.armL; r.armR = r.mechRig.armR; r.legL = r.mechRig.legL; r.legR = r.mechRig.legR; r.head = r.mechRig.head;
         r.hitMeshes = r.mechRig.hitMeshes;
       } else {
@@ -3082,11 +3642,11 @@
           if (r) {
             r.target.set(msg.x, msg.y - EYE, msg.z); // 网络发的是"眼睛"高度，小人底座 = 眼高-EYE
             r.targetYaw = msg.yaw;
-            r.mw = msg.mw || 0;                          // 机甲武器变体(手炮/巨剑)
+            var oldMw = r.mw; r.mw = msg.mw || 0;        // 机甲武器变体(手炮/巨剑)
             if (msg.wid) setRemoteWeapon(r, msg.wid);   // 看到对方手中的真实武器
             applyRemoteMecha(r, msg.mecha);             // 穿上机甲 → 放大 + 金属化
-            // 机甲：炮口已雕进右臂模型，不再额外端武器
-            if (r.hp !== msg.hp || r.alive !== msg.alive) { r.hp = msg.hp; r.alive = msg.alive; r.labelDirty = true; }
+            if (r.mecha && r.mechRig && r.mw !== oldMw) setMechWeapon(r.mechRig, r.mw);   // 切炮/剑 → 重挂右臂武器
+            if (r.hp !== msg.hp || r.alive !== msg.alive || r.maxHp !== (msg.maxHp || 100)) { r.hp = msg.hp; r.alive = msg.alive; r.maxHp = msg.maxHp || 100; r.labelDirty = true; }
             // 首个状态：直接吸附到位（避免从原点滑入）并初始化测速基准（避免首帧"奔跑"误判）
             if (!r.spawned) { r.group.position.copy(r.target); r.group.rotation.y = r.targetYaw;
               r.lastX = r.target.x; r.lastZ = r.target.z; r.spawned = true; }
@@ -3180,7 +3740,7 @@
       netSend({
         type:'state', from:me.id, name:me.name, color:me.colorHex,
         x:playerPos.x, y:playerPos.y, z:playerPos.z, yaw:yaw, pitch:pitch,
-        wid:activeWeapon().id, hp:me.hp, alive:me.alive, kills:me.kills, deaths:me.deaths,
+        wid:activeWeapon().id, hp:me.hp, maxHp:maxHp, alive:me.alive, kills:me.kills, deaths:me.deaths,
         mecha: mechaWorn ? superKind : null,  // 穿上的机甲种类(远端据此放大渲染)
         mw: mechaWorn ? mechaWeapon : 0       // 机甲当前武器(0=手炮/熔炮 1=爆地巨剑)
       });
@@ -3464,7 +4024,7 @@
         while (dy < -Math.PI) dy += Math.PI*2;
         r.group.rotation.y += dy * k;
         poseRemote(r, dt);                 // 举枪/奔跑/跳跃/死亡 动画
-        if (r.labelDirty) { drawLabel(r.label, r.name, r.hp, r.alive, r.isDummy ? r.dummyMax : 100); r.labelDirty = false; }
+        if (r.labelDirty) { drawLabel(r.label, r.name, r.hp, r.alive, r.isDummy ? r.dummyMax : (r.maxHp || 100)); r.labelDirty = false; }
         // 长时间没收到状态（非正常离开）→ 移除
         if (!r.isDummy && t - r.lastSeen > 6000) { removeRemote(id); delete scores[id]; updateScoreboard(); }
       }
@@ -3482,11 +4042,11 @@
         r.group.rotation.z = r.deathLean * 1.45;
         r.legL.rotation.x = r.legR.rotation.x = 0.25;
         r.armL.rotation.x = r.armR.rotation.x = 0.4;
-        for (var i = 0; i < r.parts.length; i++) r.parts[i].visible = true;
+        if (!r.mecha) for (var i = 0; i < r.parts.length; i++) r.parts[i].visible = true;   // 机甲化时人形保持隐藏(否则四肢穿模)
         return;
       }
       if (r.deathLean) { r.deathLean = 0; r.group.rotation.z = 0; }   // 复活：站起
-      for (var j = 0; j < r.parts.length; j++) r.parts[j].visible = true;
+      if (!r.mecha) for (var j = 0; j < r.parts.length; j++) r.parts[j].visible = true;     // 同上：机甲时不重新显示人形
 
       // 注意：手臂从肩部垂下，正 rotation.x 才是"朝前"（之前用负值导致双臂卡到身后）
       var airborne = r.group.position.y > 0.2;
@@ -3495,8 +4055,8 @@
         r.armL.rotation.x = 1.6; r.armR.rotation.x = 1.45;
         r.runPhase = 0;
       } else if (speed > 1.0) {             // 奔跑：腿前后摆，左手随步摆，右手持枪向前
-        r.runPhase += dt * (7 + Math.min(speed, 10) * 0.5);
-        var s = Math.sin(r.runPhase) * 0.85;
+        r.runPhase += dt * ((r.mecha ? 4.5 : 7) + Math.min(speed, 10) * 0.5);
+        var s = Math.sin(r.runPhase) * (r.mecha ? 0.55 : 0.85);   // 机甲步幅更沉
         r.legL.rotation.x = s;  r.legR.rotation.x = -s;
         r.armR.rotation.x = 1.45;
         r.armL.rotation.x = 1.25 - s * 0.4;
@@ -3504,6 +4064,14 @@
         r.legL.rotation.x = 0; r.legR.rotation.x = 0;
         r.armL.rotation.x = 1.3; r.armR.rotation.x = 1.45;
         r.runPhase = 0;
+      }
+      // 机甲待机/起伏：即使站立也有液压般的缓慢摆动，绝不僵死(叠加在基础姿势上)
+      if (r.mecha) {
+        r.idlePhase = (r.idlePhase || 0) + dt;
+        var ib = Math.sin(r.idlePhase * 1.6), ib2 = Math.sin(r.idlePhase * 1.6 + 1.0);
+        r.armL.rotation.x += ib * 0.07; r.armR.rotation.x += ib2 * 0.05;
+        r.legL.rotation.z = ib * 0.025; r.legR.rotation.z = -ib * 0.025;
+        if (r.mechRig) { r.mechRig.root.position.y = Math.abs(ib) * 0.05; r.mechRig.torso.rotation.y = ib2 * 0.04; }
       }
     }
 
