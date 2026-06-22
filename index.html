@@ -3020,7 +3020,7 @@
     function makeSedan(mats, opts) {
       opts = opts || {};
       var g = new THREE.Group();
-      var paint = opts.color || mats.paintRed;
+      var paint = (typeof opts.color === 'string' ? mats[opts.color] : opts.color) || mats.paintRed;   // 兼容传材质或调色板键
       var L = 4.4, W = 1.8, wheelR = 0.34, sill = wheelR + 0.12; // 底盘离地
 
       // 下车体(乘员舱底盘段, 微收边)
@@ -3069,7 +3069,7 @@
     function makeVan(mats, opts) {
       opts = opts || {};
       var g = new THREE.Group();
-      var paint = opts.color || mats.paintWhite;
+      var paint = (typeof opts.color === 'string' ? mats[opts.color] : opts.color) || mats.paintWhite;   // 兼容传材质或调色板键
       var L = 5.0, W = 2.0, H = 2.4, wheelR = 0.40, sill = wheelR + 0.14;
 
       // 货厢主体(高大方块)
@@ -6772,7 +6772,7 @@
     function checkCollapse(x, z) {
       for (var i = 0; i < townBuildings.length; i++) {
         var b = townBuildings[i]; if (b.collapsing || b.gwOrig < 5 || !_inFoot(b, x, z)) continue;
-        if (_groundWalls(b) < b.gwOrig * 0.4) collapseBuilding(b);
+        if (_groundWalls(b) < b.gwOrig * 0.3) collapseBuilding(b);
       }
     }
     function collapseBuilding(b) {
@@ -6794,7 +6794,7 @@
     }
     function regDestruct(obj, kind, collider, solidBox) {
       var box = new THREE.Box3().setFromObject(obj), ctr = new THREE.Vector3(); box.getCenter(ctr);
-      var rec = { obj:obj, kind:kind, collider:(collider||null), solidBox:(solidBox||null), box:box, cx:ctr.x, cy:ctr.y, cz:ctr.z, gone:false };
+      var rec = { obj:obj, kind:kind, collider:(collider||null), solidBox:(solidBox||null), box:box, cx:ctr.x, cy:ctr.y, cz:ctr.z, hp:(kind === 'wall' ? 3 : 1), gone:false };
       obj.userData.dx = rec; if (collider) collider.userData.dx = rec;
       destructibles.push(rec); return rec;
     }
@@ -6854,7 +6854,9 @@
       fx.push({ obj:p, life:0, ttl:0.5, fade:true, maxOp:0.5, expandFrom:1.2, expandTo:3.4 });
     }
     function shatterRecord(rec, mode, param) {
-      if (!rec || rec.gone) return false; rec.gone = true;
+      if (!rec || rec.gone) return false;
+      if (rec.kind === 'wall' && rec.hp > 1) { rec.hp--; _frag(rec.box, _debMat(rec.obj), 1, mode, param); _dust(rec.box); return false; }   // 墙更耐打: 先崩裂掉血, HP耗尽才整段碎
+      rec.gone = true;
       var box = rec.box || new THREE.Box3().setFromObject(rec.obj);
       _frag(box, _debMat(rec.obj), rec.kind === 'wall' ? 5 : 7, mode, param);
       _dust(box);
@@ -7767,6 +7769,7 @@
             roarTerminal(b.origin, b.dir, b.col);   // 落点：爆团 + 灼痕
             if (b.starOrb) { scene.remove(b.starOrb); b.starOrb.material.dispose(); b.starOrb = null; }   // 星核塌缩完→轰出
           } else deathSound();
+          laserPunch(b.origin, b.dir, b.len);   // 所有能量束都击穿沿途建筑/家具(各端 beam 都跑→同步)
           if (b.isOwner && me.alive) resolveBeam(b);   // 死亡后不再造成伤害（修 bug）
         }
         if (b.resolved) {
@@ -7831,7 +7834,6 @@
     function roarTerminal(origin, dir, col) {
       _ray.set(origin, dir); _ray.far = 400;
       var hits = _ray.intersectObjects(worldSolids, false);
-      laserPunch(origin, dir, 400);   // 能量束击穿沿途建筑/家具(留下贯穿洞)
       if (!hits.length) return;
       var pt = hits[0].point;
       var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
