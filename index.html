@@ -6494,6 +6494,32 @@
       }
       cache[name] = m; return m;
     }
+    // 几何体合并：把一个组里所有可见网格按材质并成少数网格(保留组本身，便于显隐/骨骼动画)，大幅降低 draw call。
+    function mergeGeos(geos) {
+      var total = 0, i;
+      for (i = 0; i < geos.length; i++) { if (geos[i].index) geos[i] = geos[i].toNonIndexed(); total += geos[i].attributes.position.count; }
+      var pos = new Float32Array(total * 3), norm = new Float32Array(total * 3), off = 0;
+      for (i = 0; i < geos.length; i++) { var a = geos[i].attributes; pos.set(a.position.array, off * 3); if (a.normal) norm.set(a.normal.array, off * 3); off += a.position.count; geos[i].dispose && geos[i].dispose(); }
+      var mg = new THREE.BufferGeometry();
+      mg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      mg.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+      return mg;
+    }
+    function mergeRigGroup(rootGrp) {
+      if (!rootGrp) return; rootGrp.updateMatrixWorld(true);
+      var inv = new THREE.Matrix4().copy(rootGrp.matrixWorld).invert();
+      var meshes = []; rootGrp.traverse(function (o) { if (o.isMesh && o.geometry && o.material && !(o.userData && o.userData.peerId)) meshes.push(o); });
+      if (meshes.length < 2) return;
+      var slots = [];
+      for (var i = 0; i < meshes.length; i++) { var o = meshes[i];
+        var rel = new THREE.Matrix4().copy(inv).multiply(o.matrixWorld);
+        var g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()); g.applyMatrix4(rel);
+        var s = null; for (var k = 0; k < slots.length; k++) if (slots[k].mat === o.material) { s = slots[k]; break; }
+        if (!s) { s = { mat:o.material, geos:[] }; slots.push(s); } s.geos.push(g);
+      }
+      for (var m = 0; m < meshes.length; m++) { if (meshes[m].parent) meshes[m].parent.remove(meshes[m]); }
+      for (var b = 0; b < slots.length; b++) { var mesh = new THREE.Mesh(mergeGeos(slots[b].geos), slots[b].mat); mesh.castShadow = true; rootGrp.add(mesh); }
+    }
     function buildHumanSeg(parent, parts, color, cache) {
       if (!parts) return;
       for (var i = 0; i < parts.length; i++) {
@@ -6517,7 +6543,7 @@
       var cache = {}, rig = new THREE.Group(); group.add(rig);
       function grp(y, parts, extra) { var g = new THREE.Group(); g.position.y = y; rig.add(g); buildHumanSeg(g, parts, color, cache); if (extra) extra.forEach(function (e){ buildHumanSeg(g, e, color, cache); }); return g; }
       var torsoG = grp(1.40, P.torso, [P.vest]);
-      grp(0.98, P.pelvis);
+      var pelvisG = grp(0.98, P.pelvis);
       var headG = grp(1.66, P.head);
       function limb(px, py, side, prox, mid, midY, distal, distY) {
         var pv = new THREE.Group(); pv.position.set(px, py, 0); rig.add(pv);
@@ -6531,10 +6557,11 @@
       var armR = limb( 0.24, 1.58,  1, P.upperArm, P.forearm, -0.30, P.hand, -0.57);
       var legL = limb(-0.11, 0.98, -1, P.thigh, P.shin, -0.46, P.foot, -0.90);
       var legR = limb( 0.11, 0.98,  1, P.thigh, P.shin, -0.46, P.foot, -0.90);
+      [torsoG, pelvisG, headG, armL.inner, armR.inner, legL.inner, legR.inner].forEach(mergeRigGroup);   // 合并几何体 → 降 draw call(修视角抽动/掉帧)
       var weaponHolder = new THREE.Group();
       weaponHolder.position.set(0.04, -0.55, -0.05); weaponHolder.rotation.x = -1.45; weaponHolder.scale.setScalar(1.05);
       armR.pivot.add(weaponHolder);
-      rig.scale.setScalar(0.92);   // 自然≈1.94高 → 1.78
+      rig.scale.setScalar(0.92);
       var hits = [
         hitProxy(headG, id, 'head', 0.24, 0.38, 0.24, 0.106),
         hitProxy(torsoG, id, 'body', 0.5, 0.576, 0.36, -0.079),
