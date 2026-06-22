@@ -5892,17 +5892,17 @@
     function townPut(group, x, y, z, ry, mode) {
       group.position.set(x, y, z); if (ry) group.rotation.y = ry;
       scene.add(group); mapMeshes.push(group);
-      if (mode === 'solid' || mode === 'cover') {
-        var box = new THREE.Box3().setFromObject(group);
-        if (!box.isEmpty()) {
-          solidBoxes.push(box);
-          var _col = null;
-          if (mode === 'cover') {
-            var sz = new THREE.Vector3(); box.getSize(sz); var ctr = new THREE.Vector3(); box.getCenter(ctr);
-            _col = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.3,sz.x), Math.max(0.3,sz.y), Math.max(0.3,sz.z)), _TOWN_INVIS);
-            _col.position.copy(ctr); scene.add(_col); mapMeshes.push(_col); worldSolids.push(_col);
-          }
-          if (typeof regDestruct === 'function') regDestruct(group, 'furn', _col, box);
+      var box = new THREE.Box3().setFromObject(group);
+      if (!box.isEmpty()) {
+        var sz = new THREE.Vector3(); box.getSize(sz);
+        var movement = (mode === 'solid' || mode === 'cover');                // 挡移动(原行为)
+        var blockable = (sz.y > 0.3 && Math.max(sz.x, sz.z) < 8);             // 有体积的物体挡子弹; 排除巨型散垃圾InstancedField与平贴地贴花
+        if (movement) solidBoxes.push(box);
+        if (blockable) {                                                      // 挡子弹: 隐形 collider 进 worldSolids
+          var ctr = new THREE.Vector3(); box.getCenter(ctr);
+          var _col = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.2,sz.x), Math.max(0.2,sz.y), Math.max(0.2,sz.z)), _TOWN_INVIS || new THREE.MeshBasicMaterial({ visible:false }));
+          _col.position.copy(ctr); scene.add(_col); mapMeshes.push(_col); worldSolids.push(_col);
+          if (typeof regDestruct === 'function') regDestruct(group, 'furn', _col, movement ? box : null);
         }
       }
       return group;
@@ -5974,7 +5974,7 @@
     }
     // ---- 室内陈设: 按楼层把家具铺进可进入楼房(全 decor 非碰撞, 避开中央楼梯井 x∈[cx±1.7], 内嵌不穿窗) ----
     function furnishRoom(M, room, wx, ex, z0, z1, y, cx, seed) {
-      function P(fn, x, z, ry, opts, yo) { if (fn) regFurn(townPut(fn(M, opts || {}), x, y + (yo || 0), z, ry, 'decor')); }
+      function P(fn, x, z, ry, opts, yo) { if (fn) townPut(fn(M, opts || {}), x, y + (yo || 0), z, ry, 'decor'); }
       var zc = (z0 + z1) / 2, L = Math.PI/2, R = -Math.PI/2;
       if (room === 'shop') {
         P(makeShelfUnit, wx, z0 + 1.0, L, { stock: 0.9 }); P(makeShelfUnit, wx, z0 + 2.6, L, {}); P(makeShelfUnit, wx, z1 - 1.0, L, {});
