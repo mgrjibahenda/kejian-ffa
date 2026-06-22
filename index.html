@@ -685,7 +685,24 @@
     var MAP_DATA = {};            // 由设计阶段批量生成的多层地图(下方注入)
     var MAP_LIST = [{ id:'basic', name:'基础竞技场' }];   // 极简：只保留基础地图
     var currentMap = 'basic', mapMeshes = [];
+    // ---- 档位4 地图家族：共享系统骨架（默认 no-op；basic 不注册任何 FX → 行为逐字节不变）----
+    var MAP_FX = {};            // { id: { onEnter(scene), onLeave(scene) } } 每图天空/雾/光/postFx/粒子的装/卸
+    var _activeMapFx = null;    // 当前生效的地图 FX（切图时用于 onLeave 卸载）
+    var _gt = 0;                // 全局已过时间累加（所有 shader uTime / 粒子统一驱动，避免各自 Clock 漂移）
+    var fxUniforms = [];        // 已注册的 uniforms 对象列表（含 uTime），每帧写入 _gt
+    var POST_PASSES = [];       // 额外全屏后期 ShaderMaterial 列表；空 = 走原 bloom 合成直出（basic 路径）
+    var activeParticles = [];   // 活动粒子系统：{ update(dt,t), dispose() }
+    function fxRestoreDefaults() {   // 复位渲染状态到 basic 默认（离开非基础图时调用）
+      scene.background = new THREE.Color(0x000000);
+      scene.fog = new THREE.Fog(0x000000, 55, 150);
+      if (bloom) { bloom.bright.uniforms.threshold.value = 0.85; bloom.bright.uniforms.soft.value = 0.45;
+        bloom.comp.uniforms.strength.value = 0.95; bloom.comp.uniforms.exposure.value = 1.0; }
+      if (renderer) { renderer.shadowMap.enabled = false; renderer.toneMappingExposure = 1.22; }
+    }
     function clearMap() {
+      if (_activeMapFx) { try { if (_activeMapFx.onLeave) _activeMapFx.onLeave(scene); } catch (e) { if (window.console) console.warn('MAP_FX onLeave 失败', e); } fxRestoreDefaults(); _activeMapFx = null; }
+      for (var pp = 0; pp < activeParticles.length; pp++) { try { activeParticles[pp].dispose(); } catch (e) {} }
+      activeParticles.length = 0; fxUniforms.length = 0; POST_PASSES.length = 0;
       for (var i = 0; i < mapMeshes.length; i++) { var m = mapMeshes[i]; scene.remove(m); if (m.geometry) m.geometry.dispose(); }
       mapMeshes.length = 0; worldSolids.length = 0; solidBoxes.length = 0; spawnPoints.length = 0;
     }
@@ -706,6 +723,7 @@
       if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]); else { id = 'basic'; buildBasicMap(); }
       buildRealm();
       currentMap = id;
+      if (MAP_FX[id] && MAP_FX[id].onEnter) { _activeMapFx = MAP_FX[id]; try { MAP_FX[id].onEnter(scene); } catch (e) { if (window.console) console.warn('MAP_FX onEnter 失败', id, e); _activeMapFx = null; } }
     }
     // 基础地图 = 最初的模样：朴素纯色 + 网格线 + 原始掩体布局
     function buildBasicMap() {
@@ -1682,6 +1700,7 @@
       if (!bloom) return;
       var w = window.innerWidth, h = window.innerHeight, hw = Math.max(1, w>>1), hh = Math.max(1, h>>1);
       bloom.rtScene.setSize(w, h); bloom.rtA.setSize(hw, hh); bloom.rtB.setSize(hw, hh); bloom.hw = hw; bloom.hh = hh;
+      if (bloom.rtP1) { bloom.rtP1.setSize(w, h); bloom.rtP2.setSize(w, h); }
     }
     function fsPass(mat, target) { bloom.quad.material = mat; renderer.setRenderTarget(target); renderer.render(bloom.fs, bloom.fc); }
     function renderScene() {
@@ -1698,7 +1717,26 @@
       }
       bloom.comp.uniforms.tScene.value = bloom.rtScene.texture; bloom.comp.uniforms.tBloom.value = src.texture;
       bloom.comp.uniforms.texel.value.set(1 / window.innerWidth, 1 / window.innerHeight);
-      renderer.setRenderTarget(null); bloom.quad.material = bloom.comp; renderer.render(bloom.fs, bloom.fc);   // 合成到屏幕
+      if (!POST_PASSES.length) {
+        renderer.setRenderTarget(null); bloom.quad.material = bloom.comp; renderer.render(bloom.fs, bloom.fc);   // 合成到屏幕（basic/默认路径，逐字节不变）
+      } else {
+        if (!bloom.rtP1) {
+          var popt = { type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
+          bloom.rtP1 = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, popt);
+          bloom.rtP2 = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, popt);
+        }
+        fsPass(bloom.comp, bloom.rtP1);                       // 先把 bloom 合成结果落到全屏 LDR 目标
+        var ps = bloom.rtP1, pd = bloom.rtP2;
+        for (var qi = 0; qi < POST_PASSES.length; qi++) {
+          var pmat = POST_PASSES[qi], plast = (qi === POST_PASSES.length - 1);
+          if (pmat.uniforms) {
+            if (pmat.uniforms.tDiffuse) pmat.uniforms.tDiffuse.value = ps.texture;
+            if (pmat.uniforms.texel) pmat.uniforms.texel.value.set(1 / window.innerWidth, 1 / window.innerHeight);
+          }
+          fsPass(pmat, plast ? null : pd);
+          var ptmp = ps; ps = pd; pd = ptmp;
+        }
+      }
     }
 
     // ------------------------------------------------------------------ 武器逻辑
@@ -3407,6 +3445,9 @@
     function animate() {
       requestAnimationFrame(animate);
       var dt = Math.min(clock ? clock.getDelta() : 0.016, 0.05);
+      _gt += dt;   // 全局时间累加：驱动地图 shader uTime 与环境粒子（空注册表时为 no-op，basic 无影响）
+      for (var _ui = 0; _ui < fxUniforms.length; _ui++) { var _uo = fxUniforms[_ui]; if (_uo && _uo.uTime) _uo.uTime.value = _gt; }
+      for (var _pi = 0; _pi < activeParticles.length; _pi++) { try { activeParticles[_pi].update(dt, _gt); } catch (e) {} }
 
       // 各种衰减（先衰减，本帧瞄准用衰减后的值）
       viewRecoil *= Math.exp(-dt * 12);
