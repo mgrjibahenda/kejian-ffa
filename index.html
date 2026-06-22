@@ -3921,6 +3921,56 @@
       return group;
     }
 
+    // ---- 可进入建筑生成器(空心多层, 窗洞可穿射, 门洞进入, 之字楼梯到顶+屋顶) ----
+    // 带窗洞的外墙: 沿 axis('x'墙体顺x走/'z'顺z走), fixed=另一轴坐标, a0..a1=墙跨度, nFloors层
+    //   每层每开间: sill(底1.0实心,挡走出/低射) + 窗洞(1.0~2.2空, 子弹与视线可穿) + lintel(2.2~3.0实心) + 立柱(实心)
+    //   doorBay>=0: 该开间在底层做整高门洞(无sill, 可走入)
+    function windowedWall(M, mat, axis, fixed, a0, a1, nFloors, doorBay) {
+      var fh = 3.0, t = 0.3, len = a1 - a0;
+      var nb = Math.max(1, Math.round(len / 3.4)), rb = len / nb, pw = 0.5, ww = rb - pw;
+      function box(c, y, h, l) { if (axis === 'x') mBox(c, y, fixed, l, h, t, mat); else mBox(fixed, y, c, t, h, l, mat); }
+      for (var f = 0; f < nFloors; f++) {
+        var yb = f * fh;
+        for (var bb = 0; bb < nb; bb++) {
+          var bc = a0 + (bb + 0.5) * rb, isDoor = (f === 0 && bb === doorBay);
+          if (!isDoor) box(bc, yb + 0.5, 1.0, ww);   // sill
+          box(bc, yb + 2.6, 0.8, ww);                // lintel
+        }
+        for (var p = 0; p <= nb; p++) box(a0 + p * rb, yb + 1.5, 3.0, pw);   // 立柱(含两端)
+      }
+    }
+    // 楼板(挖出楼梯井洞 [sx0,sx1]x[sz0,sz1]): 用洞四周最多4块板拼成, 板顶可站
+    function floorSlab(M, cx, cz, w, d, y, sx0, sx1, sz0, sz1) {
+      var ix0 = cx - w/2 + 0.15, ix1 = cx + w/2 - 0.15, iz0 = cz - d/2 + 0.15, iz1 = cz + d/2 - 0.15, t = 0.2, sl = M.concrete;
+      if (iz1 - sz1 > 0.2) mBox(cx, y - t/2, (sz1 + iz1)/2, ix1 - ix0, t, iz1 - sz1, sl);              // 洞北
+      if (sz0 - iz0 > 0.2) mBox(cx, y - t/2, (iz0 + sz0)/2, ix1 - ix0, t, sz0 - iz0, sl);              // 洞南
+      if (ix1 - sx1 > 0.2) mBox((sx1 + ix1)/2, y - t/2, (sz0 + sz1)/2, ix1 - sx1, t, sz1 - sz0, sl);  // 洞东
+      if (sx0 - ix0 > 0.2) mBox((ix0 + sx0)/2, y - t/2, (sz0 + sz1)/2, sx0 - ix0, t, sz1 - sz0, sl);  // 洞西
+    }
+    // 一段直梯(沿 z 方向 dz 上升), 薄踏板碰撞可站
+    function flightStairs(M, sx, sz0, dz, y0, y1) {
+      var rise = 0.5, run = 0.8, steps = Math.max(2, Math.round((y1 - y0) / rise));
+      for (var i = 1; i <= steps; i++) { var hy = y0 + (y1 - y0) * i / steps, cz = sz0 + dz * run * (i - 1); mBox(sx, hy - 0.1, cz, 2.4, 0.2, run + 0.12, M.concrete); }
+    }
+    function buildEnterableBuilding(M, b) {
+      var cx = b.cx, cz = b.cz, w = b.w, d = b.d, floors = b.floors || 3, mat = b.mat || M.brickA, fh = 3.0, H = floors * fh;
+      var faceX = b.faceX || -1, frontX = cx + faceX * w/2, backX = cx - faceX * w/2;
+      var ix1 = cx + w/2 - 0.3, iz0 = cz - d/2 + 0.3, iz1 = cz + d/2 - 0.3;
+      // 背街内角的楼梯井(5 x 5.5)
+      var shX0 = (faceX < 0) ? (ix1 - 5) : (cx - w/2 + 0.3), shX1 = shX0 + 5, shZ0 = iz0, shZ1 = iz0 + 5.5, shCx = (shX0 + shX1)/2;
+      // 四面窗墙: 前墙(临街,带门) / 后墙(带后门) / 两侧墙
+      windowedWall(M, mat, 'z', frontX, cz - d/2, cz + d/2, floors, 1);
+      windowedWall(M, mat, 'z', backX,  cz - d/2, cz + d/2, floors, 2);
+      windowedWall(M, mat, 'x', cz - d/2, cx - w/2, cx + w/2, floors, -1);
+      windowedWall(M, mat, 'x', cz + d/2, cx - w/2, cx + w/2, floors, -1);
+      // 楼板(2层~屋顶, 留楼梯井洞)
+      for (var f = 1; f <= floors; f++) floorSlab(M, cx, cz, w, d, f * fh, shX0, shX1, shZ0, shZ1);
+      // 之字楼梯(每层往返)
+      for (var s = 0; s < floors; s++) { var dir = (s % 2 === 0) ? 1 : -1, sz = (dir > 0) ? (shZ0 + 0.5) : (shZ1 - 0.5); flightStairs(M, shCx, sz, dir, s * fh, (s + 1) * fh); }
+      // 屋顶女儿墙
+      var par = makeRoofParapet(M, { w: d - 0.6, drains: 2 }); par.position.set(frontX, H, cz); par.rotation.y = (faceX < 0) ? -Math.PI/2 : Math.PI/2; scene.add(par); mapMeshes.push(par);
+    }
+
     MAP_BUILD['town'] = function buildTown() {
       var M = townMats();
       _TOWN_INVIS = fxOwn(new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false }));
@@ -3942,23 +3992,21 @@
       }
       sidewalk(7, 10.2); sidewalk(-10.2, -7);
 
-      // ---------- 楼房(主街两侧各3栋, 临街面贴密集 facade) ----------
-      var EAST = [ {cz:-19,w:14,d:14,h:14,seed:3,mat:M.brickA}, {cz:-1,w:14,d:12,h:10,seed:7,mat:M.plaster}, {cz:17,w:14,d:14,h:16,seed:11,mat:M.brickB} ];
-      var WEST = [ {cz:-17,w:14,d:16,h:12,seed:5,mat:M.brickB}, {cz:3,w:14,d:12,h:15,seed:9,mat:M.brickA}, {cz:21,w:14,d:12,h:9,seed:13,mat:M.plaster} ];
+      // ---------- 楼房(主街两侧各3栋, 可进入·多层3-4层·窗洞可穿射) ----------
+      var EAST = [ {cz:-19,w:14,d:14,floors:4,seed:3,mat:M.brickA}, {cz:-1,w:14,d:12,floors:3,seed:7,mat:M.plaster}, {cz:17,w:14,d:14,floors:4,seed:11,mat:M.brickB} ];
+      var WEST = [ {cz:-17,w:14,d:16,floors:3,seed:5,mat:M.brickB}, {cz:3,w:14,d:12,floors:4,seed:9,mat:M.brickA}, {cz:21,w:14,d:12,floors:3,seed:13,mat:M.plaster} ];
       function building(side, b) {
-        var cx = side > 0 ? (11 + b.w/2) : -(11 + b.w/2);
-        mBox(cx, b.h/2, b.cz, b.w, b.h, b.d, b.mat);                 // 主墙体(碰撞+挡弹)
-        // 屋顶女儿墙
-        var par = makeRoofParapet(M, { w: b.d, drains: 2 }); townPut(par, cx - side*(b.w/2), b.h, b.cz, side>0 ? -Math.PI/2 : Math.PI/2, 'decor');
-        // 临街面 facade(朝向街道: 东楼朝 -x, 西楼朝 +x)
-        var fac = makeBuildingFacade(M, b.d, b.h, { seed: b.seed, litRatio: 0.45 });
-        townPut(fac, cx - side*(b.w/2) - side*0.05, 0, b.cz, side>0 ? -Math.PI/2 : Math.PI/2, 'decor');
-        // 巷子侧(朝 +z 或 -z)挂空调/落水管/逃生梯/排气管
+        var cx = side > 0 ? (11 + b.w/2) : -(11 + b.w/2), faceX = side > 0 ? -1 : 1, H = b.floors * 3, frontX = cx + faceX * b.w/2;
+        buildEnterableBuilding(M, { cx:cx, cz:b.cz, w:b.w, d:b.d, floors:b.floors, mat:b.mat, seed:b.seed, faceX:faceX });
+        // 门头雨棚 + 发光招牌(临街)
+        townPut(makeAwning(M, { w:2.8, depth:1.2, color:(b.seed%2?'fabricRed':'fabricGreen') }), frontX - faceX*0.1, 2.55, b.cz - b.d*0.18, faceX<0?-Math.PI/2:Math.PI/2, 'decor');
+        townPut(makeShopSign(M, { w:4.2, h:0.7, neon:(b.seed%2?'neonPink':'neonCyan') }), frontX - faceX*0.16, 3.25, b.cz, faceX<0?-Math.PI/2:Math.PI/2, 'decor');
+        // 巷子侧设施
         var alleyZ = b.cz + b.d/2;
-        townPut(makeACUnit(M, { wall:true }), cx - side*2, 3.0, alleyZ + 0.05, 0, 'decor');
-        townPut(makeDrainpipe(M, { h: b.h - 1 }), cx - side*4, 0, alleyZ + 0.05, 0, 'decor');
-        townPut(makeFireEscape(M, { floors: Math.min(3, Math.floor(b.h/3)-1) }), cx + side*1, 0, alleyZ + 0.05, 0, 'decor');
-        townPut(makeVentPipe(M, { h: 0.9 }), cx, b.h, b.cz - b.d/2 + 1, 0, 'decor');
+        townPut(makeACUnit(M, { wall:true }), cx, 3.4, alleyZ + 0.06, 0, 'decor');
+        townPut(makeDrainpipe(M, { h: H-1 }), cx - faceX*4, 0, alleyZ + 0.06, 0, 'decor');
+        townPut(makeFireEscape(M, { floors: Math.min(3, b.floors-1) }), cx + faceX*3, 0, alleyZ + 0.06, 0, 'decor');
+        townPut(makeVentPipe(M, { h: 0.9 }), cx + faceX*2, H, b.cz - b.d/2 + 1.2, 0, 'decor');
       }
       for (i = 0; i < EAST.length; i++) building(1, EAST[i]);
       for (i = 0; i < WEST.length; i++) building(-1, WEST[i]);
@@ -5164,6 +5212,7 @@
       else if (kind === 'hole')                fireBlackHole(w);   // 黑洞炮
       else if (kind === 'tsunami')             fireTsunami(w);     // 排山倒海手
       else                                     fireHitscan(w);     // 普通武器 + 超级机枪
+      if (superActive && !reduced) { camera.getWorldDirection(_fwd); spawnMuzzleDischarge(_fwd, w.col, !!w.isXian, !!w.auto); }   // 超武/仙器枪口迸发(仙器更炸)
 
       updateAmmoHud();
       if (superActive && !cheatInfinite) { if (superAmmo <= 0) dropSuper(); }   // 弹药打光 → 失去
@@ -5258,6 +5307,24 @@
         _mflash.multiplyScalar(0.9).add(camera.position);
         spawnGlow(_mflash.clone(), 0xfff1c2, 0.8, 0.07);
       }
+    }
+
+    // 超级武器/仙器开火：枪口能量迸发(主色光球 + 白热核心 + 朝向能量环 + 星屑)。仙器更炸；
+    // 全自动(超级机枪)只留一小簇火光，避免糊屏遮挡自己武器的威力。
+    function spawnMuzzleDischarge(dir, col, grand, auto) {
+      if (reduced) return;
+      var pt = camera.position.clone().addScaledVector(dir, grand ? 1.15 : 0.95);
+      spawnGlow(pt, col, auto ? 0.15 : (grand ? 0.42 : 0.28), auto ? 0.05 : 0.1);
+      if (auto) return;
+      spawnGlow(pt, 0xffffff, grand ? 0.2 : 0.13, 0.07);
+      var rings = grand ? [0.3, 0.46] : [0.26];
+      rings.forEach(function (rr) {
+        var ring = new THREE.Mesh(new THREE.TorusGeometry(rr, grand ? 0.045 : 0.035, 8, 32), addMat(col, 0.85));
+        ring.position.copy(pt); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir); ring.scale.setScalar(0.25);
+        scene.add(ring); fx.push({ obj:ring, ttl:grand ? 0.42 : 0.3, life:0, fade:true, maxOp:0.85, expandFrom:0.25, expandTo:1, ease:true });
+      });
+      var n = grand ? 12 : 6;
+      for (var s = 0; s < n; s++) spawnStarSpark(pt, dir, col);
     }
 
     function showHitmarker(isHead) {
