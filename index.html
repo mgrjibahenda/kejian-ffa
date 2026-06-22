@@ -304,7 +304,6 @@
     <div id="botleft">
       <div id="hpwrap"><div id="hpbar"></div></div>
       <div id="hpnum">HP 100</div>
-      <div id="wepname">—</div>
     </div>
 
     <div id="botright">
@@ -372,7 +371,7 @@
 
       <!-- 创建面板（房主：房间码 + 模式 + 地图 + 开始） -->
       <div id="createPanel" hidden>
-        <div class="codebox">房间码 <span id="roomCodeShow">—</span><small>发给同学一起进</small></div>
+        <div class="codebox">房间码 <span id="roomCodeShow">—</span></div>
         <label>模式</label><div id="modeSel" class="seg"></div>
         <div id="mapSection" hidden><label>地图</label><div id="mapSel" class="seg"></div></div>
         <div class="row2"><button id="startBtn" type="button" class="bigbtn">开始</button><button type="button" class="bigbtn ghost backBtn">返回</button></div>
@@ -384,7 +383,7 @@
         <button id="joinBtn" type="submit">进入战场</button>
       </form>
 
-      <div class="libstatus">
+      <div class="libstatus" style="display:none">
         <span><span class="dot" id="dotThree"></span>Three.js</span>
         <span><span class="dot" id="dotPeer"></span>PeerJS</span>
         <span><span class="dot" id="dotWebgl"></span>WebGL</span>
@@ -466,10 +465,10 @@
       mega:   { name:'非常多超级武器', interval:15000, double:0.50, triple:0.10, xian:0.05 }
     };
     var MODE_LIST = [
-      { id:'basic',  name:'基础武器',       desc:'不刷超级武器' },
-      { id:'normal', name:'普通',           desc:'30秒 1个 · 5%仙器' },
-      { id:'more',   name:'更多超级武器',   desc:'20秒 · 30%出2个 · 5%仙器' },
-      { id:'mega',   name:'非常多超级武器', desc:'15秒 · 50%出2个/10%出3个 · 5%仙器' }
+      { id:'basic',  name:'基础武器' },
+      { id:'normal', name:'普通' },
+      { id:'more',   name:'更多超级武器' },
+      { id:'mega',   name:'非常多超级武器' }
     ];
     var roomMode = 'normal', roomMap = 'basic';   // 房主选择(开局广播)
     var MAX_PICKUPS = 6;                            // 地图上同时存在的拾取物上限
@@ -607,9 +606,9 @@
 
       // 还原最初的平光：与第一版完全一致的天光 + 方向光，颜色观感回到当时
       var hemi = new THREE.HemisphereLight(0xbfe3ff, 0x2a3340, 0.95);
-      scene.add(hemi);
+      scene.add(hemi); hemiLight = hemi;
       var key = new THREE.DirectionalLight(0xffffff, 0.65);
-      key.position.set(20, 40, 12); scene.add(key);
+      key.position.set(20, 40, 12); scene.add(key); keyLight = key;
 
       buildMap('basic');
       initBloom();
@@ -687,7 +686,9 @@
     var currentMap = 'basic', mapMeshes = [];
     // ---- 档位4 地图家族：共享系统骨架（默认 no-op；basic 不注册任何 FX → 行为逐字节不变）----
     var MAP_FX = {};            // { id: { onEnter(scene), onLeave(scene) } } 每图天空/雾/光/postFx/粒子的装/卸
+    var MAP_BUILD = {};         // { id: fn() } 代码构建地图（复杂图不走数据化 buildMapFromData）
     var _activeMapFx = null;    // 当前生效的地图 FX（切图时用于 onLeave 卸载）
+    var hemiLight = null, keyLight = null;   // 全局光照引用（供每图 onEnter 调色、onLeave 复位）
     var _gt = 0;                // 全局已过时间累加（所有 shader uTime / 粒子统一驱动，避免各自 Clock 漂移）
     var fxUniforms = [];        // 已注册的 uniforms 对象列表（含 uTime），每帧写入 _gt
     var POST_PASSES = [];       // 额外全屏后期 ShaderMaterial 列表；空 = 走原 bloom 合成直出（basic 路径）
@@ -698,6 +699,8 @@
       if (bloom) { bloom.bright.uniforms.threshold.value = 0.85; bloom.bright.uniforms.soft.value = 0.45;
         bloom.comp.uniforms.strength.value = 0.95; bloom.comp.uniforms.exposure.value = 1.0; }
       if (renderer) { renderer.shadowMap.enabled = false; renderer.toneMappingExposure = 1.22; }
+      if (hemiLight) { hemiLight.color.setHex(0xbfe3ff); hemiLight.groundColor.setHex(0x2a3340); hemiLight.intensity = 0.95; }
+      if (keyLight) { keyLight.color.setHex(0xffffff); keyLight.intensity = 0.65; keyLight.position.set(20, 40, 12); }
     }
     function clearMap() {
       if (_activeMapFx) { try { if (_activeMapFx.onLeave) _activeMapFx.onLeave(scene); } catch (e) { if (window.console) console.warn('MAP_FX onLeave 失败', e); } fxRestoreDefaults(); _activeMapFx = null; }
@@ -720,7 +723,9 @@
     }
     function buildMap(id) {
       clearMap();
-      if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]); else { id = 'basic'; buildBasicMap(); }
+      if (id !== 'basic' && MAP_BUILD[id]) MAP_BUILD[id]();
+      else if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]);
+      else { id = 'basic'; buildBasicMap(); }
       buildRealm();
       currentMap = id;
       if (MAP_FX[id] && MAP_FX[id].onEnter) { _activeMapFx = MAP_FX[id]; try { MAP_FX[id].onEnter(scene); } catch (e) { if (window.console) console.warn('MAP_FX onEnter 失败', id, e); _activeMapFx = null; } }
@@ -2725,35 +2730,23 @@
       var mag = (w.melee || cheatInfinite) ? '∞' : w.mag;
       document.getElementById('ammo').innerHTML = amt + '<span class="res"> / ' + mag + '</span>';
     }
-    function weaponDesc(w) {
-      if (w.kind === 'star')    return '蓄力 · 贯穿一切 · 碰到即死';
-      if (w.kind === 'hole')    return '发射黑洞 · 吸入即死';
-      if (w.kind === 'realm')   return '命中第一人 → 拖入秘境 1v1';
-      if (w.kind === 'tsunami') return '一次性 · 滔天巨浪 · 卷入即死';
-      if (w.kind === 'roar')    return '✦仙器 蓄力2s · 半地图直径激光 · 持续1s';
-      if (w.kind === 'blade')   return '✦仙器 左键蓄势猛劈 · 1/4地图圆内全灭 · 冷却3s';
-      return (w.auto ? '全自动' : '单发') + ' · 伤害' + w.dmg + (w.pellets>1?('×'+w.pellets):'') + '（爆头×' + HEAD_MULT + '）';
-    }
     function updateWeaponHud() {
       var w = activeWeapon();
       var slots;
-      if (mechaWorn) {   // 机甲模式：基础武器全部消失，只剩机甲武器
+      if (mechaWorn) {   // 机甲模式：基础武器全部消失，只剩机甲武器(图标，不显名字)
         var god = (superKind === 'godmecha');
-        var mname = god ? (mechaWeapon === 1 ? '爆地' : '熔炮') : '机甲手炮';
-        document.getElementById('wepname').innerHTML = esc(mname) + ' <small>' + (god ? '终焉机神' : '超级机甲') + (cheatMode ? ' · 按 X 退出机甲' : '') + '</small>';
-        if (god) slots = '<div class="slot' + (mechaWeapon===0?' active':'') + ' super">✦ 熔炮</div><div class="slot' + (mechaWeapon===1?' active':'') + ' super">✦ 爆地</div>';
-        else slots = '<div class="slot active super">★ 机甲手炮</div>';
+        if (god) slots = '<div class="slot' + (mechaWeapon===0?' active':'') + ' super">✦</div><div class="slot' + (mechaWeapon===1?' active':'') + ' super">✦</div>';
+        else slots = '<div class="slot active super">★</div>';
         document.getElementById('slots').innerHTML = slots; updateAmmoHud(); return;
       }
-      document.getElementById('wepname').innerHTML = esc(w.name) + ' <small>' + esc(weaponDesc(w)) + '</small>';
       if (cheatMode) {
-        // 测试模式：下方显示全部超级武器/仙器，滚轮切换，高亮当前
+        // 测试模式(开发)：下方显示全部超级武器/仙器，滚轮切换，高亮当前
         slots = ALL_SUPER_KINDS.map(function (kk) {
           var on = superActive && superKind === kk, xian = SUPERS[kk].isXian;
           return '<div class="slot' + (on?' active':'') + (xian?' super':'') + '">' + (xian?'✦':'★') + esc(SUPERS[kk].name) + '</div>';
         }).join('');
       } else if (superActive) {
-        slots = '<div class="slot active super">' + (w.isXian?'✦':'★') + ' ' + esc(w.name) + '</div>';
+        slots = '<div class="slot active super">' + (w.isXian?'✦':'★') + '</div>';   // 保持神秘：超级武器/仙器不显示名字
       } else {
         slots = WEAPONS.map(function (ww, i) {
           return '<div class="slot' + (i===weaponIndex?' active':'') + '"><b>' + (i+1) + '</b>' + esc(ww.name) + '</div>';
