@@ -158,8 +158,8 @@ const ev = (page, fn, ...a) => page.evaluate(fn, ...a);
   check('崩星炮→出现可见轨迹', beamN > 0, `beams=${beamN}`);
   await sleep(900); // 等过 0.7s 蓄力 → 结算
   const sent = await ev(page, ()=>window.__test.sentHits());
-  const killed = sent.some(h => h.to==='v1' && h.dmg>=9999);
-  check('崩星炮→0.7s 后贯穿秒杀(上报9999)', killed, JSON.stringify(sent));
+  const killed = sent.some(h => h.to==='v1' && h.dmg===2000);
+  check('等离子炮→0.7s 后贯穿命中(上报2000)', killed, JSON.stringify(sent));
   await ev(page, ()=>window.__test.drop());
 
   // ---------- 5) 秘境枪：持枪者进入秘境(200血/高射速)，对手死亡→回主场 ----------
