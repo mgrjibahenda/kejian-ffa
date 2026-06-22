@@ -693,6 +693,8 @@
     var fxUniforms = [];        // 已注册的 uniforms 对象列表（含 uTime），每帧写入 _gt
     var POST_PASSES = [];       // 额外全屏后期 ShaderMaterial 列表；空 = 走原 bloom 合成直出（basic 路径）
     var activeParticles = [];   // 活动粒子系统：{ update(dt,t), dispose() }
+    var _mapDisposables = [];   // 本图创建的材质/贴图/RT，切图时统一 dispose（防显存泄漏）
+    function fxOwn(d) { if (d) _mapDisposables.push(d); return d; }   // 登记可释放资源并原样返回
     function fxRestoreDefaults() {   // 复位渲染状态到 basic 默认（离开非基础图时调用）
       scene.background = new THREE.Color(0x000000);
       scene.fog = new THREE.Fog(0x000000, 55, 150);
@@ -705,7 +707,8 @@
     function clearMap() {
       if (_activeMapFx) { try { if (_activeMapFx.onLeave) _activeMapFx.onLeave(scene); } catch (e) { if (window.console) console.warn('MAP_FX onLeave 失败', e); } fxRestoreDefaults(); _activeMapFx = null; }
       for (var pp = 0; pp < activeParticles.length; pp++) { try { activeParticles[pp].dispose(); } catch (e) {} }
-      activeParticles.length = 0; fxUniforms.length = 0; POST_PASSES.length = 0;
+      for (var dz = 0; dz < _mapDisposables.length; dz++) { try { if (_mapDisposables[dz] && _mapDisposables[dz].dispose) _mapDisposables[dz].dispose(); } catch (e) {} }
+      activeParticles.length = 0; _mapDisposables.length = 0; fxUniforms.length = 0; POST_PASSES.length = 0;
       for (var i = 0; i < mapMeshes.length; i++) { var m = mapMeshes[i]; scene.remove(m); if (m.geometry) m.geometry.dispose(); }
       mapMeshes.length = 0; worldSolids.length = 0; solidBoxes.length = 0; spawnPoints.length = 0;
     }
@@ -778,6 +781,173 @@
       var cm = new THREE.MeshStandardMaterial({ color:0x6b5234, roughness:0.8, metalness:0.1 });
       mBox(rcx, 1.1, rcz, 2.2, 2.2, 2.2, cm); mBox(rcx-7, 1, rcz+5, 2, 2, 2, cm); mBox(rcx+7, 1, rcz-5, 2, 2, 2, cm);
     }
+
+    // ============================================================ 档位4 · 共享地图工具 + 首图 magmacore
+    function mCyl(cx, cy, cz, r, h, mat, collide, seg) {   // 通用圆柱图元（碰撞走 AABB，顶面可落脚/出生）
+      var m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg || 20), mat);
+      m.position.set(cx, cy, cz); m.castShadow = true; m.receiveShadow = true;
+      return mAdd(m, true, collide !== false);
+    }
+    // 从地面到 y1 的实心台阶（每级≤STEP_H 可攀爬），顶级(i=0)在 (topX,topZ) 紧贴平台，沿 -(dx,dz) 退向地面
+    function makeStairs(topX, topZ, dx, dz, y1, w, mat) {
+      var rise = 0.55, run = 1.3, steps = Math.max(1, Math.ceil(y1 / rise));
+      for (var i = 0; i < steps; i++) {
+        var hy = y1 * (steps - i) / steps, cx = topX - dx * run * i, cz = topZ - dz * run * i;
+        var sx = (dx !== 0) ? run + 0.2 : w, sz = (dz !== 0) ? run + 0.2 : w;
+        mBox(cx, hy / 2, cz, sx, hy, sz, mat);
+      }
+    }
+    // 程序化粒子池：caller 给 init(arr,n) 与 step(arr,n,dt,t)，登记进 activeParticles，切图自动 dispose
+    function makeParticles(opts) {
+      var n = opts.count, arr = new Float32Array(n * 3);
+      if (opts.init) opts.init(arr, n);
+      var geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      var mat = new THREE.PointsMaterial({ color: opts.color == null ? 0xffffff : opts.color, size: opts.size || 0.12,
+        sizeAttenuation: true, transparent: true, opacity: opts.opacity == null ? 0.85 : opts.opacity,
+        depthWrite: false, blending: opts.additive ? THREE.AdditiveBlending : THREE.NormalBlending, fog: opts.fog !== false });
+      var pts = new THREE.Points(geo, mat); pts.frustumCulled = false; scene.add(pts);
+      var sys = { points: pts,
+        update: function (dt, t) { if (opts.step) opts.step(arr, n, dt, t); geo.attributes.position.needsUpdate = true; },
+        dispose: function () { scene.remove(pts); geo.dispose(); mat.dispose(); } };
+      activeParticles.push(sys); return sys;
+    }
+    // 共享 GLSL 噪声（天穹 / 熔岩复用）
+    var GLSL_NOISE = [
+      'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }',
+      'float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+      '  float a=h21(i),b=h21(i+vec2(1.0,0.0)),c=h21(i+vec2(0.0,1.0)),d=h21(i+vec2(1.0,1.0));',
+      '  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }',
+      'float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*vnoise(p); p*=2.02; a*=0.5; } return s; }'
+    ].join('\n');
+    // 程序化天穹球（径向渐变 + fbm 翻滚云 + 余烬）；uTime 接全局 _gt
+    var SKY_VS = 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
+    var SKY_FS = GLSL_NOISE + '\n' + [
+      'varying vec3 vDir; uniform float uTime; uniform vec3 topCol, midCol, botCol; uniform float emberAmt;',
+      'void main(){',
+      '  float hh = clamp(vDir.y*0.5+0.5, 0.0, 1.0);',
+      '  vec3 col = mix(botCol, midCol, smoothstep(0.0,0.5,hh));',
+      '  col = mix(col, topCol, smoothstep(0.45,1.0,hh));',
+      '  vec2 uv = vec2(atan(vDir.z, vDir.x)*0.5, vDir.y*1.4);',
+      '  float cl = fbm(uv*3.0 + vec2(uTime*0.02, uTime*0.008));',
+      '  col += midCol * cl * 0.14 * (1.0 - hh);',
+      '  float e = fbm(uv*16.0 - vec2(0.0, uTime*0.16));',
+      '  float ember = smoothstep(0.84,0.93,e) * emberAmt * (0.25 + 0.75*(1.0-hh));',
+      '  col += vec3(1.0,0.5,0.16) * ember;',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}'
+    ].join('\n');
+    function makeSkyDome(opts) {
+      var u = { uTime:{value:0}, topCol:{value:new THREE.Color(opts.topCol)}, midCol:{value:new THREE.Color(opts.midCol)},
+        botCol:{value:new THREE.Color(opts.botCol)}, emberAmt:{value:opts.emberAmt == null ? 0.0 : opts.emberAmt} };
+      var mat = fxOwn(new THREE.ShaderMaterial({ uniforms:u, vertexShader:SKY_VS, fragmentShader:SKY_FS, side:THREE.BackSide, depthWrite:false, fog:false }));
+      var mesh = new THREE.Mesh(new THREE.SphereGeometry(opts.radius || 140, 32, 24), mat);
+      mesh.renderOrder = -1; mesh.frustumCulled = false; scene.add(mesh); mapMeshes.push(mesh);
+      fxUniforms.push(u); return { mesh:mesh, uniforms:u };
+    }
+    // 流动熔岩发光材质（贴熔岩河条，自发光被 bloom 拾取）
+    var MAGMA_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
+    var MAGMA_FS = GLSL_NOISE + '\n' + [
+      'varying vec2 vUv; uniform float uTime; uniform vec3 colHot, colDark;',
+      'void main(){',
+      '  vec2 uv = vUv * vec2(7.0, 2.0);',
+      '  float f = fbm(uv + vec2(0.0, uTime*0.22));',
+      '  float f2 = fbm(uv*2.0 - vec2(uTime*0.13, 0.0));',
+      '  float v = f*0.6 + f2*0.4;',
+      '  vec3 col = mix(colDark, colHot, smoothstep(0.32,0.72,v));',
+      '  col += colHot * smoothstep(0.7,0.96,v) * 0.9;',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}'
+    ].join('\n');
+    function makeMagmaMat(colHot, colDark) {
+      var u = { uTime:{value:0}, colHot:{value:new THREE.Color(colHot)}, colDark:{value:new THREE.Color(colDark)} };
+      var mat = fxOwn(new THREE.ShaderMaterial({ uniforms:u, vertexShader:MAGMA_VS, fragmentShader:MAGMA_FS }));
+      fxUniforms.push(u); return mat;
+    }
+
+    // ---- 首图：熔岩地心·钢铁工厂 ----
+    var MAGMA_THEME = { floor:0x241712, wall:0x3a2c24, metal:0x6a6f78, crate:0x332820, accentHot:0xff5a1e, accentDark:0x551203 };
+    MAP_BUILD['magmacore'] = function buildMagmacore() {
+      var T = MAGMA_THEME, WH = 7;
+      // 地面（暗岩）
+      var ft = texSet(makePanelPBR(512, 8, T.floor), 22); fxOwn(ft.map); fxOwn(ft.normalMap); fxOwn(ft.roughnessMap);
+      var floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), fxOwn(new THREE.MeshStandardMaterial({ map:ft.map, normalMap:ft.normalMap, roughnessMap:ft.roughnessMap, roughness:0.96, metalness:0.12, envMapIntensity:0.3 })));
+      floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; mAdd(floor, true, false);
+      // 四周墙（烧蚀钢）
+      var wt = texSet(makePanelPBR(512, 6, T.wall), 10, 1.4); fxOwn(wt.map); fxOwn(wt.normalMap); fxOwn(wt.roughnessMap);
+      var wallMat = fxOwn(new THREE.MeshStandardMaterial({ map:wt.map, normalMap:wt.normalMap, roughnessMap:wt.roughnessMap, roughness:0.82, metalness:0.25, envMapIntensity:0.4 }));
+      mBox(0, WH/2, 30, 60, WH, 1, wallMat); mBox(0, WH/2, -30, 60, WH, 1, wallMat);
+      mBox(30, WH/2, 0, 1, WH, 60, wallMat); mBox(-30, WH/2, 0, 1, WH, 60, wallMat);
+      // 共享材质
+      var metalMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.metal, roughness:0.42, metalness:0.62, envMapIntensity:0.7 }));
+      var crateMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.crate, roughness:0.7, metalness:0.35, envMapIntensity:0.4 }));
+      var accentMat = fxOwn(new THREE.MeshStandardMaterial({ color:T.accentHot, emissive:T.accentHot, emissiveIntensity:2.2, roughness:0.4, metalness:0.2 }));
+      var magmaMat = makeMagmaMat(T.accentHot, T.accentDark);
+      // 中央铸造炉核：三级圆台（每级≤STEP_H 可登）+ 炉柱 + 发光熔池
+      mCyl(0, 0.3, 0, 8, 0.6, metalMat, true, 28);
+      mCyl(0, 0.9, 0, 6, 0.6, metalMat, true, 26);
+      mCyl(0, 1.5, 0, 4.2, 0.6, metalMat, true, 24);
+      mCyl(0, 3.0, 0, 1.6, 3.0, metalMat, true, 18);
+      var molten = new THREE.Mesh(new THREE.CylinderGeometry(1.95, 1.95, 0.5, 22), accentMat); molten.position.set(0, 4.6, 0); mAdd(molten, true, false);
+      // 四角桁架塔：角柱 + 抬高平台(可上) + 塔顶遮蔽 + 内侧上塔楼梯 + 顶灯
+      var towers = [[18,18],[-18,18],[18,-18],[-18,-18]];
+      for (var ti = 0; ti < towers.length; ti++) {
+        var tx = towers[ti][0], tz = towers[ti][1], sgnx = (tx > 0 ? -1 : 1);
+        for (var c = 0; c < 4; c++) { var px = tx + ((c & 1) ? 2 : -2), pz = tz + ((c & 2) ? 2 : -2); mCyl(px, 2.75, pz, 0.35, 5.5, metalMat, true, 12); }
+        mBox(tx, 2.4, tz, 5.4, 0.4, 5.4, metalMat);            // L1 平台 top≈2.6
+        var roof = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.3, 5.4), crateMat); roof.position.set(tx, 5.45, tz); mAdd(roof, true, false);
+        makeStairs(tx + sgnx * 2.7, tz, -sgnx, 0, 2.6, 2.4, crateMat);   // 内侧地面→平台
+        var beacon = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), accentMat); beacon.position.set(tx, 5.75, tz); mAdd(beacon, true, false);
+      }
+      // 两条贯穿熔岩河（z=±6）+ 河岸矮墙(掩体) + 三处钢桥
+      var channels = [6, -6];
+      for (var ci = 0; ci < channels.length; ci++) {
+        var cz = channels[ci];
+        var riv = new THREE.Mesh(new THREE.BoxGeometry(56, 0.25, 4), magmaMat); riv.position.set(0, 0.13, cz); mAdd(riv, true, false);
+        mBox(0, 0.4, cz + 2.4, 56, 0.8, 0.4, metalMat); mBox(0, 0.4, cz - 2.4, 56, 0.8, 0.4, metalMat);
+        var bridges = [-16, 0, 16];
+        for (var bi = 0; bi < bridges.length; bi++) mBox(bridges[bi], 0.35, cz, 5, 0.5, 5.4, metalMat);
+      }
+      // 停摆传送带（掩体）+ 滚轴 + 警示灯
+      var convs = [[12, 0], [-12, 0], [20, 12], [-20, -12]];
+      for (var vi = 0; vi < convs.length; vi++) {
+        var bx = convs[vi][0], bz = convs[vi][1];
+        mBox(bx, 0.65, bz, 6, 1.1, 1.4, crateMat);
+        mCyl(bx - 2.8, 0.65, bz, 0.7, 1.5, metalMat, true, 12); mCyl(bx + 2.8, 0.65, bz, 0.7, 1.5, metalMat, true, 12);
+        var warn = new THREE.Mesh(new THREE.BoxGeometry(6, 0.12, 0.12), accentMat); warn.position.set(bx, 1.22, bz); mAdd(warn, true, false);
+      }
+      // 蒸汽喷口（地面环 + 熔孔）
+      var vents = [[8, 14], [-8, -14], [14, -8], [-14, 8], [0, 20], [0, -20]];
+      for (var si = 0; si < vents.length; si++) {
+        var vx = vents[si][0], vz2 = vents[si][1];
+        mCyl(vx, 0.3, vz2, 1.2, 0.6, metalMat, true, 14);
+        var hole = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.12, 14), accentMat); hole.position.set(vx, 0.62, vz2); mAdd(hole, true, false);
+      }
+      // 散落掩体箱
+      var crates = [[22, 2], [-22, -2], [3, 22], [-3, -22], [24, -16], [-24, 16]];
+      for (var qi = 0; qi < crates.length; qi++) { var s = 1.6 + (qi % 2) * 0.8; mBox(crates[qi][0], s/2, crates[qi][1], s, s, s, crateMat); }
+      // 出生点（贴四角/四边、远离中心与熔岩河，自动落到最高面）
+      var sp = [[24,24],[-24,24],[24,-24],[-24,-24],[26,0],[-26,0],[0,26],[0,-26],[12,24],[-12,-24]];
+      spawnPoints = sp.map(function (p) { return new THREE.Vector3(p[0], highestSurfaceAt(p[0], p[1]) + EYE, p[1]); });
+    };
+    MAP_FX['magmacore'] = { onEnter: function (scene) {
+      scene.background = new THREE.Color(0x1a0d0a);
+      scene.fog = new THREE.FogExp2(0x3a1206, 0.018);
+      if (hemiLight) { hemiLight.color.setHex(0x5a2a14); hemiLight.groundColor.setHex(0xff5a1e); hemiLight.intensity = 0.62; }
+      if (keyLight) { keyLight.color.setHex(0xff7a2a); keyLight.intensity = 1.05; keyLight.position.set(-22, 38, 16); }
+      if (bloom) { bloom.bright.uniforms.threshold.value = 0.6; bloom.comp.uniforms.strength.value = 1.1; bloom.comp.uniforms.exposure.value = 1.05; }
+      makeSkyDome({ radius:150, topCol:0x140a08, midCol:0x5a1e08, botCol:0xff5a1e, emberAmt:0.7 });
+      var pl1 = new THREE.PointLight(0xff5a1e, 1.4, 24, 2); pl1.position.set(0, 5, 0); scene.add(pl1); mapMeshes.push(pl1);
+      var pl2 = new THREE.PointLight(0xff7a2a, 1.0, 22, 2); pl2.position.set(0, 1.6, 6); scene.add(pl2); mapMeshes.push(pl2);
+      var pl3 = new THREE.PointLight(0xff7a2a, 1.0, 22, 2); pl3.position.set(0, 1.6, -6); scene.add(pl3); mapMeshes.push(pl3);
+      makeParticles({ count:300, color:0xff7a2a, size:0.16, opacity:0.9, additive:true,
+        init:function(arr,n){ for(var i=0;i<n;i++){ var k=i*3; arr[k]=Math.random()*60-30; arr[k+1]=Math.random()*18; arr[k+2]=Math.random()*60-30; } },
+        step:function(arr,n,dt,t){ for(var i=0;i<n;i++){ var k=i*3; arr[k+1]+=dt*(1.1+(i%9)*0.12); arr[k]+=Math.sin(t*0.5+i)*dt*0.25; arr[k+2]+=Math.cos(t*0.4+i)*dt*0.25; if(arr[k+1]>18){ arr[k+1]=0.1; arr[k]=Math.random()*60-30; arr[k+2]=Math.random()*60-30; } } } });
+      makeParticles({ count:140, color:0x66492f, size:0.1, opacity:0.5, additive:false,
+        init:function(arr,n){ for(var i=0;i<n;i++){ var k=i*3; arr[k]=Math.random()*60-30; arr[k+1]=Math.random()*9; arr[k+2]=Math.random()*60-30; } },
+        step:function(arr,n,dt,t){ for(var i=0;i<n;i++){ var k=i*3; arr[k]+=Math.sin(t*0.2+i)*dt*0.4; arr[k+2]+=Math.cos(t*0.15+i)*dt*0.4; arr[k+1]+=dt*0.2; if(arr[k+1]>9){ arr[k+1]=0; } } } });
+    } };
+    if (!MAP_LIST.some(function (m) { return m.id === 'magmacore'; })) MAP_LIST.push({ id:'magmacore', name:'熔岩地心·钢铁工厂' });
 
     function randomSpawn() {
       var s = spawnPoints[Math.floor(Math.random()*spawnPoints.length)];
