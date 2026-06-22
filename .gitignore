@@ -18,3 +18,8 @@ Thumbs.db
 gen_*.*
 check_*.*
 tmp_*.*
+apply_*.*
+blade_*
+*_new.json
+*_shot.png
+*_val.txt
