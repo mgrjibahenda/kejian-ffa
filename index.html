@@ -7514,7 +7514,7 @@
     }
 
     // 普通 hitscan（含超级机枪）：逐颗弹丸射线 + 部位伤害 + 上报
-    var lastShotBroadcast = 0;
+    var lastShotBroadcast = 0, _lastBulletHit = null;
     function fireHitscan(w) {
       var spreadMul = 1 - adsAmt * 0.65;
       var hitsThisShot = {};               // pid -> { dmg, head }
@@ -7536,12 +7536,14 @@
         camera.getWorldDirection(_fwd);
         netSend({ type:'shot', from:me.id, col:w.col,
           mx:camera.position.x + _fwd.x*0.6, my:camera.position.y + _fwd.y*0.6 - 0.12, mz:camera.position.z + _fwd.z*0.6,
-          ex:camera.position.x + _fwd.x*48, ey:camera.position.y + _fwd.y*48, ez:camera.position.z + _fwd.z*48 });
+          ex:camera.position.x + _fwd.x*48, ey:camera.position.y + _fwd.y*48, ez:camera.position.z + _fwd.z*48, bh:_lastBulletHit });
+        _lastBulletHit = null;
       }
     }
     function spawnRemoteShot(msg) {
       spawnTracer(new THREE.Vector3(msg.mx, msg.my, msg.mz), new THREE.Vector3(msg.ex, msg.ey, msg.ez), msg.col || 0xffe6a0);
       spawnGlow(new THREE.Vector3(msg.mx, msg.my, msg.mz), msg.col || 0xffd9a0, 0.55, 0.06);   // 远端枪口闪光
+      if (msg.bh && typeof bulletMark === 'function') bulletMark(new THREE.Vector3(msg.bh.x, msg.bh.y, msg.bh.z), new THREE.Vector3(msg.bh.nx, msg.bh.ny, msg.bh.nz));   // 同步对方造成的弹孔
     }
 
     var _ray = new THREE.Raycaster();
@@ -7579,7 +7581,7 @@
           spawnGlow(end, hcol, isHead ? 0.62 : 0.5, 0.18);
         } else {
           spawnGlow(end, 0xffe6a0, 0.35, 0.15);  // 命中墙体/掩体
-          if (h.object.userData && h.object.userData.dx) { var _bn = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize() : _dir.clone().negate(); bulletMark(end, _bn); }
+          if (h.object.userData && h.object.userData.dx) { var _bn = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize() : _dir.clone().negate(); bulletMark(end, _bn); _lastBulletHit = { x:end.x, y:end.y, z:end.z, nx:_bn.x, ny:_bn.y, nz:_bn.z }; }
         }
         if (superActive) spawnSuperHit(end, w.col, !!w.auto);   // 超武命中：主色能量迸裂
       } else {
@@ -8116,7 +8118,7 @@
       var p = g.mesh.position.clone(); scene.remove(g.mesh); g.mesh.geometry.dispose(); g.mesh.material.dispose();
       var R = g.big ? MELT_R : GREN_R;
       spawnExplosion(p, g.col, R); explosionSound(g.big);
-      shatterRadius(p.x, p.z, R, 'explode');   // 榴弹/熔炮 AoE 炸碎建筑/家具
+      if (g.isOwner) { shatterRadius(p.x, p.z, R, 'explode'); netSend({ type:'destruct', from:me.id, mode:'explode', x:p.x, z:p.z, r:R }); }   // owner权威摧毁+广播→各端同步
       if (g.isOwner && me.alive) {   // 发动者权威结算 AoE（自己免疫）
         for (var id in remotes) {
           var r = remotes[id]; if (!r.alive) continue;
@@ -8684,6 +8686,10 @@
           break;
         case 'slam':                  // 青龙偃月刀劈砍：地震 + 圈内处死
           spawnSlam(msg);
+          shatterRadius(msg.x, msg.z, msg.r || BLADE_KILL_R, 'explode');   // 同步摧毁(接收端同样炸碎范围内建筑/家具)
+          break;
+        case 'destruct':              // 摧毁同步: 触发方广播, 各端用相同(x,z,r,mode)应用(注册表确定性→毁同样的段)
+          shatterRadius(msg.x, msg.z, msg.r, msg.mode || 'explode', (msg.mode === 'suck') ? new THREE.Vector3(msg.x, 1, msg.z) : ((msg.mode === 'sweep') ? { x:msg.sx||1, z:msg.sz||0 } : null));
           break;
         case 'shot':                  // 别人开了一枪：渲染其枪口闪光 + 弹道
           spawnRemoteShot(msg);
