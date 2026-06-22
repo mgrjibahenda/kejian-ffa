@@ -3939,13 +3939,12 @@
         for (var p = 0; p <= nb; p++) box(a0 + p * rb, yb + 1.5, 3.0, pw);   // 立柱(含两端)
       }
     }
-    // 楼板(挖出楼梯井洞 [sx0,sx1]x[sz0,sz1]): 用洞四周最多4块板拼成, 板顶可站
-    function floorSlab(M, cx, cz, w, d, y, sx0, sx1, sz0, sz1) {
-      var ix0 = cx - w/2 + 0.15, ix1 = cx + w/2 - 0.15, iz0 = cz - d/2 + 0.15, iz1 = cz + d/2 - 0.15, t = 0.2, sl = M.concrete;
-      if (iz1 - sz1 > 0.2) mBox(cx, y - t/2, (sz1 + iz1)/2, ix1 - ix0, t, iz1 - sz1, sl);              // 洞北
-      if (sz0 - iz0 > 0.2) mBox(cx, y - t/2, (iz0 + sz0)/2, ix1 - ix0, t, sz0 - iz0, sl);              // 洞南
-      if (ix1 - sx1 > 0.2) mBox((sx1 + ix1)/2, y - t/2, (sz0 + sz1)/2, ix1 - sx1, t, sz1 - sz0, sl);  // 洞东
-      if (sx0 - ix0 > 0.2) mBox((ix0 + sx0)/2, y - t/2, (sz0 + sz1)/2, sx0 - ix0, t, sz1 - sz0, sl);  // 洞西
+    // 楼板(中央留楼梯井 x∈[cx-laneH,cx+laneH], 两侧成板, 板顶可站)
+    function floorSlabSplit(M, cx, cz, w, d, y, laneH) {
+      var ix0 = cx - w/2 + 0.15, ix1 = cx + w/2 - 0.15, iz0 = cz - d/2 + 0.15, iz1 = cz + d/2 - 0.15, t = 0.2, sl = M.concrete, dz = iz1 - iz0;
+      var wW = (cx - laneH) - ix0, eW = ix1 - (cx + laneH);
+      if (wW > 0.3) mBox((ix0 + cx - laneH)/2, y - t/2, cz, wW, t, dz, sl);   // 西板
+      if (eW > 0.3) mBox((cx + laneH + ix1)/2, y - t/2, cz, eW, t, dz, sl);   // 东板
     }
     // 一段直梯(沿 z 方向 dz 上升), 薄踏板碰撞可站
     function flightStairs(M, sx, sz0, dz, y0, y1) {
@@ -3957,16 +3956,17 @@
       var faceX = b.faceX || -1, frontX = cx + faceX * w/2, backX = cx - faceX * w/2;
       var ix1 = cx + w/2 - 0.3, iz0 = cz - d/2 + 0.3, iz1 = cz + d/2 - 0.3;
       // 背街内角的楼梯井(5 x 5.5)
-      var shX0 = (faceX < 0) ? (ix1 - 5) : (cx - w/2 + 0.3), shX1 = shX0 + 5, shZ0 = cz - 2.75, shZ1 = cz + 2.75, shCx = (shX0 + shX1)/2;
+      var laneH = 1.5;   // 中央楼梯井半宽
       // 四面窗墙: 前墙(临街,带门) / 后墙(带后门) / 两侧墙
       windowedWall(M, mat, 'z', frontX, cz - d/2, cz + d/2, floors, 1);
       windowedWall(M, mat, 'z', backX,  cz - d/2, cz + d/2, floors, 2);
       windowedWall(M, mat, 'x', cz - d/2, cx - w/2, cx + w/2, floors, -1);
       windowedWall(M, mat, 'x', cz + d/2, cx - w/2, cx + w/2, floors, -1);
-      // 楼板(2层~屋顶, 留楼梯井洞)
-      for (var f = 1; f <= floors; f++) floorSlab(M, cx, cz, w, d, f * fh, shX0, shX1, shZ0, shZ1);
-      // 之字楼梯(每层往返)
-      for (var s = 0; s < floors; s++) { var dir = (s % 2 === 0) ? 1 : -1, sz = (dir > 0) ? (shZ0 + 0.5) : (shZ1 - 0.5); flightStairs(M, shCx, sz, dir, s * fh, (s + 1) * fh); }
+      // 楼板(2层~屋顶, 中央留楼梯井, 两侧成板)
+      for (var f = 1; f <= floors; f++) floorSlabSplit(M, cx, cz, w, d, f * fh, laneH);
+      // 中央连续直梯(单向+z, 每级0.5, 走到某层高度即侧跨出梯井上该层)
+      var stepN = Math.round(H / 0.5), srun = Math.min(H, d - 2) / stepN, zS = cz - (stepN * srun) / 2;
+      for (var st = 1; st <= stepN; st++) mBox(cx, st * 0.5 - 0.1, zS + srun * (st - 1), 2.8, 0.2, srun + 0.16, M.concrete);
       // 屋顶女儿墙
       var par = makeRoofParapet(M, { w: d - 0.6, drains: 2 }); par.position.set(frontX, H, cz); par.rotation.y = (faceX < 0) ? -Math.PI/2 : Math.PI/2; scene.add(par); mapMeshes.push(par);
     }
