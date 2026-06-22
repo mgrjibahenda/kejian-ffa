@@ -3957,7 +3957,7 @@
       var faceX = b.faceX || -1, frontX = cx + faceX * w/2, backX = cx - faceX * w/2;
       var ix1 = cx + w/2 - 0.3, iz0 = cz - d/2 + 0.3, iz1 = cz + d/2 - 0.3;
       // 背街内角的楼梯井(5 x 5.5)
-      var shX0 = (faceX < 0) ? (ix1 - 5) : (cx - w/2 + 0.3), shX1 = shX0 + 5, shZ0 = iz0, shZ1 = iz0 + 5.5, shCx = (shX0 + shX1)/2;
+      var shX0 = (faceX < 0) ? (ix1 - 5) : (cx - w/2 + 0.3), shX1 = shX0 + 5, shZ0 = cz - 2.75, shZ1 = cz + 2.75, shCx = (shX0 + shX1)/2;
       // 四面窗墙: 前墙(临街,带门) / 后墙(带后门) / 两侧墙
       windowedWall(M, mat, 'z', frontX, cz - d/2, cz + d/2, floors, 1);
       windowedWall(M, mat, 'z', backX,  cz - d/2, cz + d/2, floors, 2);
@@ -5286,6 +5286,7 @@
         } else {
           spawnGlow(end, 0xffe6a0, 0.35, 0.15);  // 命中墙体/掩体
         }
+        if (superActive) spawnSuperHit(end, w.col, !!w.auto);   // 超武命中：主色能量迸裂
       } else {
         end = camera.position.clone().addScaledVector(_dir, w.range);
       }
@@ -5325,6 +5326,18 @@
       });
       var n = grand ? 12 : 6;
       for (var s = 0; s < n; s++) spawnStarSpark(pt, dir, col);
+    }
+
+    // 超级武器命中：主色能量迸裂(光球 + 朝向相机的能量环 + 回溅星屑)，让超武命中更有冲击感。
+    // 全自动(超级机枪)只放大一团彩光，避免高频命中糊屏。
+    function spawnSuperHit(pos, col, auto) {
+      if (reduced) return;
+      spawnGlow(pos, col, auto ? 0.4 : 0.6, auto ? 0.12 : 0.18);
+      if (auto) return;
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.05, 8, 28), addMat(col, 0.85));
+      ring.position.copy(pos); ring.lookAt(camera.position); ring.scale.setScalar(0.1);
+      scene.add(ring); fx.push({ obj:ring, ttl:0.38, life:0, fade:true, maxOp:0.85, expandFrom:0.1, expandTo:1, ease:true });
+      for (var s = 0; s < 9; s++) spawnStarSpark(pos, _dir.clone().negate(), col);
     }
 
     function showHitmarker(isHead) {
