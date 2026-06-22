@@ -711,7 +711,7 @@
       activeParticles.length = 0; _mapDisposables.length = 0; fxUniforms.length = 0; POST_PASSES.length = 0;
       for (var i = 0; i < mapMeshes.length; i++) { var m = mapMeshes[i]; scene.remove(m); if (m.geometry) m.geometry.dispose(); }
       mapMeshes.length = 0; worldSolids.length = 0; solidBoxes.length = 0; spawnPoints.length = 0;
-      if (typeof destructibles !== 'undefined') { destructibles.length = 0; _decals.length = 0; for (var _di = 0; _di < debris.length; _di++) { scene.remove(debris[_di].mesh); if (debris[_di].mesh.geometry) debris[_di].mesh.geometry.dispose(); } debris.length = 0; }
+      if (typeof destructibles !== 'undefined') { destructibles.length = 0; _decals.length = 0; for (var _di = 0; _di < debris.length; _di++) { scene.remove(debris[_di].mesh); if (debris[_di].mesh.geometry) debris[_di].mesh.geometry.dispose(); } debris.length = 0; townBuildings.length = 0; _collapseQ.length = 0; }
     }
     function mAdd(m, ray, collide) { scene.add(m); mapMeshes.push(m); if (ray !== false) worldSolids.push(m); if (collide) solidBoxes.push(new THREE.Box3().setFromObject(m)); return m; }
     function mBox(cx, cy, cz, sx, sy, sz, mat, collide) {
@@ -5930,8 +5930,8 @@
     function floorSlabSplit(M, cx, cz, w, d, y, laneH) {
       var ix0 = cx - w/2 + 0.15, ix1 = cx + w/2 - 0.15, iz0 = cz - d/2 + 0.15, iz1 = cz + d/2 - 0.15, t = 0.2, sl = M.concrete, dz = iz1 - iz0;
       var wW = (cx - laneH) - ix0, eW = ix1 - (cx + laneH);
-      if (wW > 0.3) mBox((ix0 + cx - laneH)/2, y - t/2, cz, wW, t, dz, sl);   // 西板
-      if (eW > 0.3) mBox((cx + laneH + ix1)/2, y - t/2, cz, eW, t, dz, sl);   // 东板
+      if (wW > 0.3) { var mw = mBox((ix0 + cx - laneH)/2, y - t/2, cz, wW, t, dz, sl); if (typeof regDestruct === 'function') regDestruct(mw, 'furn', mw, solidBoxes[solidBoxes.length-1]); }   // 西板
+      if (eW > 0.3) { var me2 = mBox((cx + laneH + ix1)/2, y - t/2, cz, eW, t, dz, sl); if (typeof regDestruct === 'function') regDestruct(me2, 'furn', me2, solidBoxes[solidBoxes.length-1]); }   // 东板
     }
     // 一段直梯(沿 z 方向 dz 上升), 薄踏板碰撞可站
     function flightStairs(M, sx, sz0, dz, y0, y1) {
@@ -5956,6 +5956,7 @@
       for (var st = 1; st <= stepN; st++) mBox(cx, st * 0.5 - 0.1, zS + srun * (st - 1), 2.8, 0.2, srun + 0.16, M.concrete);
       // 屋顶女儿墙
       var par = makeRoofParapet(M, { w: d - 0.6, drains: 2 }); par.position.set(frontX, H, cz); par.rotation.y = (faceX < 0) ? -Math.PI/2 : Math.PI/2; scene.add(par); mapMeshes.push(par);
+      if (typeof regBuilding === 'function') regBuilding(cx, cz, w, d, floors);
     }
 
     // 家具登记为可破坏(AoE/激光按 box; 大件加隐形 collider 进 worldSolids 让子弹也能命中留弹孔)
@@ -6158,6 +6159,7 @@
       // ---------- 出生点(沿街分散, 远离彼此) ----------
       var sp = [[0,-27],[0,27],[8.6,-20],[-8.6,-20],[8.6,20],[-8.6,20],[8.6,2],[-8.6,2],[0,-10],[0,12]];
       spawnPoints = sp.map(function (p) { return new THREE.Vector3(p[0], curbY(p[0]) + EYE, p[1]); });
+      if (typeof finalizeBuildings === 'function') finalizeBuildings();   // 记录各楼原始底层墙数(用于连锁倒塌判定)
     };
 
     MAP_FX['town'] = { onEnter: function (scene) {
@@ -6762,6 +6764,35 @@
     var destructibles = [];                 // { obj, kind:'wall'|'furn', collider, solidBox, gone }
     var _decals = [], _DECAL_MAX = 150, _destRay = new THREE.Ray();
     var debris = [], _DEBRIS_MAX = 260;     // 持久碎片(落地静止保留, 可再被激光/海啸/黑洞/爆炸影响)
+    // ---- 建筑连锁倒塌: 某楼底层墙被毁到阈值→上层结构失支撑→按高度延迟逐层塌成下落碎片 ----
+    var townBuildings = [], _collapseQ = [];
+    function regBuilding(cx, cz, w, d, floors) { townBuildings.push({ cx:cx, cz:cz, w:w, d:d, floors:floors, gwOrig:-1, collapsing:false }); }
+    function _inFoot(b, x, z) { return Math.abs(x - b.cx) <= b.w/2 + 0.6 && Math.abs(z - b.cz) <= b.d/2 + 0.6; }
+    function _groundWalls(b) { var n = 0; for (var i = 0; i < destructibles.length; i++) { var r = destructibles[i]; if (r.gone || r.kind !== 'wall') continue; if (r.cy < 3.0 && _inFoot(b, r.cx, r.cz)) n++; } return n; }
+    function finalizeBuildings() { for (var i = 0; i < townBuildings.length; i++) townBuildings[i].gwOrig = _groundWalls(townBuildings[i]); }
+    function checkCollapse(x, z) {
+      for (var i = 0; i < townBuildings.length; i++) {
+        var b = townBuildings[i]; if (b.collapsing || b.gwOrig < 5 || !_inFoot(b, x, z)) continue;
+        if (_groundWalls(b) < b.gwOrig * 0.4) collapseBuilding(b);
+      }
+    }
+    function collapseBuilding(b) {
+      b.collapsing = true;
+      try { if (typeof showNotice === 'function') showNotice('🏚️ 楼塌了！'); } catch (e) {}
+      try { if (typeof shake !== 'undefined') shake = Math.min((shake||0) + 0.4, 0.5); } catch (e) {}
+      var t0 = now();
+      for (var i = 0; i < destructibles.length; i++) {
+        var r = destructibles[i]; if (r.gone || !_inFoot(b, r.cx, r.cz)) continue;
+        _collapseQ.push({ rec:r, at: t0 + Math.max(0, r.cy - 1) * 75 + Math.random() * 90 });   // 越高越晚塌→连锁
+      }
+    }
+    function _processCollapse() {
+      if (!_collapseQ.length) return;
+      var t = now();
+      for (var q = _collapseQ.length - 1; q >= 0; q--) {
+        if (t >= _collapseQ[q].at) { var rec = _collapseQ[q].rec; _collapseQ.splice(q, 1); if (rec && !rec.gone) shatterRecord(rec, 'explode'); }
+      }
+    }
     function regDestruct(obj, kind, collider, solidBox) {
       var box = new THREE.Box3().setFromObject(obj), ctr = new THREE.Vector3(); box.getCenter(ctr);
       var rec = { obj:obj, kind:kind, collider:(collider||null), solidBox:(solidBox||null), box:box, cx:ctr.x, cy:ctr.y, cz:ctr.z, gone:false };
@@ -6800,6 +6831,7 @@
     }
     function _killDebris(d) { if (!d) return; scene.remove(d.mesh); if (d.mesh.geometry) d.mesh.geometry.dispose(); }
     function updateDebris(dt) {
+      _processCollapse();
       for (var i = debris.length - 1; i >= 0; i--) {
         var d = debris[i], p = d.mesh.position;
         if (d.settled) continue;
@@ -6842,6 +6874,7 @@
         if (dx*dx + dz*dz <= R2) { if (shatterRecord(rec, mode, param)) n++; }
       }
       for (var j = 0; j < debris.length; j++) { var d2 = debris[j]; if (!d2.settled) continue; var ex = d2.mesh.position.x - x, ez = d2.mesh.position.z - z; if (ex*ex + ez*ez <= R2) _launchDebris(d2, mode, param); }
+      if (n > 0) checkCollapse(x, z);
       return n;
     }
     // 子弹命中可破坏物 → 弹孔贴花 + 命中处小尘
@@ -9357,7 +9390,7 @@
           fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; },
           addDummy:function(k){ addDummy(k); }, dummyHp:function(id){ var r=remotes[id]; return r?r.hp:null; }, camY:function(){ return camera.position.y; },
           roarSfx:function(){ return roarSfxN; },
-          destructInfo:function(){ var g=0,st=0; for(var i=0;i<destructibles.length;i++) if(destructibles[i].gone) g++; for(var j=0;j<debris.length;j++) if(debris[j].settled) st++; return { total:destructibles.length, gone:g, alive:destructibles.length-g, decals:_decals.length, debris:debris.length, settled:st }; },
+          destructInfo:function(){ var g=0,st=0,cb=0; for(var i=0;i<destructibles.length;i++) if(destructibles[i].gone) g++; for(var j=0;j<debris.length;j++) if(debris[j].settled) st++; for(var k=0;k<townBuildings.length;k++) if(townBuildings[k].collapsing) cb++; return { total:destructibles.length, gone:g, alive:destructibles.length-g, decals:_decals.length, debris:debris.length, settled:st, collapseQ:_collapseQ.length, collapsing:cb }; },
           shatterAt:function(x,z,r,mode){ var pm = mode==='suck' ? new THREE.Vector3(x,1.0,z) : (mode==='sweep' ? {x:1,z:0} : null); return shatterRadius(x,z,r||6,mode||'explode',pm); },
           laserAt:function(ox,oz,dx,dz,oy){ return laserPunch(new THREE.Vector3(ox,(oy==null?1.5:oy),oz), new THREE.Vector3(dx,0,dz).normalize(), 80); }
         };
