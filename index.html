@@ -462,14 +462,18 @@
       basic:  { name:'基础武器',       interval:0,     double:0,    triple:0,    xian:0 },
       normal: { name:'普通',           interval:30000, double:0,    triple:0,    xian:0.05 },
       more:   { name:'更多超级武器',   interval:20000, double:0.30, triple:0,    xian:0.05 },
-      mega:   { name:'非常多超级武器', interval:15000, double:0.50, triple:0.10, xian:0.05 }
+      mega:   { name:'非常多超级武器', interval:15000, double:0.50, triple:0.10, xian:0.05 },
+      // 僵尸生存：50关合作守宅。不刷地图超级武器(interval:0)，武器全部从休息商店购买。
+      zombie: { name:'僵尸生存',       interval:0,     double:0,    triple:0,    xian:0, isZombie:true, forceMap:'zombie_house' }
     };
     var MODE_LIST = [
       { id:'basic',  name:'基础武器' },
       { id:'normal', name:'普通' },
       { id:'more',   name:'更多超级武器' },
-      { id:'mega',   name:'非常多超级武器' }
+      { id:'mega',   name:'非常多超级武器' },
+      { id:'zombie', name:'🧟 僵尸生存', desc:'50关合作守宅·商店经济' }
     ];
+    function isZombieMode() { return !!(MODES[roomMode] && MODES[roomMode].isZombie); }
     var roomMode = 'normal', roomMap = 'basic';   // 房主选择(开局广播)
     var MAX_PICKUPS = 6;                            // 地图上同时存在的拾取物上限
     var SUPERS = {
@@ -682,8 +686,9 @@
     // 竞技场：地面 + 四周围墙 + 若干掩体（箱子/柱子）+ 多个出生点
     // ---- 地图系统：基础图(最初的模样) + 数据化多层地图，房主选择、全房同步加载 ----
     var MAP_DATA = {};            // 由设计阶段批量生成的多层地图(下方注入)
-    var MAP_LIST = [{ id:'basic', name:'基础竞技场' }];   // 极简：只保留基础地图
+    var MAP_LIST = [{ id:'basic', name:'基础竞技场' }];   // 极简：只保留基础地图(僵尸图不入选单, 由模式强制)
     var currentMap = 'basic', mapMeshes = [];
+    var zSpawnRing = [];   // 僵尸模式：丛林边缘的僵尸出生环(buildZombieHouse 填充, M2 使用)
     // ---- 档位4 地图家族：共享系统骨架（默认 no-op；basic 不注册任何 FX → 行为逐字节不变）----
     var MAP_FX = {};            // { id: { onEnter(scene), onLeave(scene) } } 每图天空/雾/光/postFx/粒子的装/卸
     var MAP_BUILD = {};         // { id: fn() } 代码构建地图（复杂图不走数据化 buildMapFromData）
@@ -727,7 +732,7 @@
     }
     function buildMap(id) {
       clearMap();
-      if (id !== 'basic' && MAP_BUILD[id]) { MAP_BUILD[id](); if (id === 'town') bakeTownStatic(); }
+      if (id !== 'basic' && MAP_BUILD[id]) { MAP_BUILD[id](); if (id === 'town' || id === 'zombie_house') bakeTownStatic(); }
       else if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]);
       else { id = 'basic'; buildBasicMap(); }
       buildRealm();
@@ -6946,17 +6951,31 @@
       if (_decals.length >= _DECAL_MAX) { var old = _decals.shift(); scene.remove(old); _arrDel(mapMeshes, old); if (old.geometry) old.geometry.dispose(); if (old.material) old.material.dispose(); }
       if (!reduced) { var g = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffae4a, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false })); g.position.copy(point).addScaledVector(normal,0.1); g.scale.setScalar(R*2.4); scene.add(g); fx.push({ obj:g, life:0, ttl:0.35, fade:true, maxOp:0.8, expandFrom:R*2.4, expandTo:R*3.6 }); }
     }
-    function laserPunch(origin, dir, len, holeR) {
+    // 激光击穿: 按"束半径"扫过一整片(非单条射线)——细激光打统一直径圆洞, 粗光柱整片吞掉(干净开口=激光直径), 沿途触发整楼连锁倒塌
+    function laserPunch(origin, dir, len, beamR) {
+      beamR = beamR || 0.32;
       _destRay.origin.copy(origin); _destRay.direction.copy(dir);
-      var hitN = 0, pt = new THREE.Vector3(), R = holeR || 0.32;
-      for (var i = 0; i < destructibles.length && hitN < 40; i++) {
+      var hitN = 0, lim = 90, pt = new THREE.Vector3(), infl = new THREE.Box3();
+      for (var i = 0; i < destructibles.length && hitN < lim; i++) {
         var rec = destructibles[i]; if (rec.gone || !rec.box) continue;
-        if (_destRay.intersectBox(rec.box, pt) && origin.distanceTo(pt) <= len) {
-          if (rec.kind === 'wall') { punchHole(rec, pt.clone(), R); hitN++; }
-          else { if (shatterRecord(rec, 'explode')) hitN++; }
+        infl.copy(rec.box); infl.expandByScalar(beamR);                                       // 把束半径计入→粗光束扫一整片
+        if (_destRay.intersectBox(infl, pt) && origin.distanceTo(pt) <= len) {
+          if (rec.kind === 'wall') {
+            var w = rec.obj.userData && rec.obj.userData.wall, bm = w ? Math.min(w.W, w.H) : 0;
+            if (w && beamR * 2 < bm * 0.9) { punchHole(rec, pt.clone(), beamR); hitN++; }     // 激光比该墙带窄→统一直径圆洞(每次都一样大)
+            else { rec.hp = 1; if (shatterRecord(rec, 'explode')) hitN++; }                   // 激光比墙带宽→整段吞掉(干净开口=激光直径)
+          } else { if (shatterRecord(rec, 'explode')) hitN++; }
         }
       }
-      for (var j = 0; j < debris.length; j++) { var d3 = debris[j]; if (!d3.settled) continue; var b3 = new THREE.Box3().setFromObject(d3.mesh); if (_destRay.intersectBox(b3, pt) && origin.distanceTo(pt) <= len) _launchDebris(d3, 'explode', null); }
+      for (var j = 0; j < debris.length; j++) { var d3 = debris[j]; if (!d3.settled) continue; var b3 = new THREE.Box3().setFromObject(d3.mesh); b3.expandByScalar(beamR); if (_destRay.intersectBox(b3, pt) && origin.distanceTo(pt) <= len) _launchDebris(d3, 'explode', null); }
+      if (hitN > 0) {
+        var wide = beamR >= 3.5;                                                              // 崩星咆哮级粗光柱
+        for (var t = 4; t <= Math.min(len, 56); t += 7) {
+          var sx = origin.x + dir.x * t, sz = origin.z + dir.z * t;
+          if (wide) { for (var bi = 0; bi < townBuildings.length; bi++) { var bb = townBuildings[bi]; if (!bb.collapsing && bb.gwOrig >= 5 && _inFoot(bb, sx, sz)) collapseBuilding(bb); } }   // 至高仙器: 光柱扫过的整楼直接坍塌(平楼)
+          else checkCollapse(sx, sz);                                                          // 普通激光: 削够30%才连锁塌
+        }
+      }
       return hitN;
     }
 
@@ -6971,7 +6990,7 @@
       } catch (e) { actx = null; }
     }
     // ===== 真实音效(加载 /sounds 下的 .ogg) — CC0/CC-BY 资源,见 sounds/CREDITS.txt =====
-    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg', gun_pistol:'sounds/gun_pistol.ogg', gun_auto:'sounds/gun_auto.ogg', gun_rifle:'sounds/gun_rifle.ogg', gun_shotgun:'sounds/gun_shotgun.ogg', explosion:'sounds/explosion.ogg', wave:'sounds/wave_crash.ogg' };
+    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg', explosion:'sounds/explosion.ogg', wave:'sounds/wave_crash.ogg' };
     var SFX_CLIPS = {};
     function loadSfx() {
       if (!actx || loadSfx._done) return; loadSfx._done = true;
@@ -7016,10 +7035,7 @@
       return f;
     }
     // 每把枪给一套截然不同的声音性格(层数/频段/时长/信号特征都不同)，不再千篇一律
-    var GUN_CLIP = { pistol:'gun_pistol', smg:'gun_auto', rifle:'gun_rifle', shotgun:'gun_shotgun', sniper:'gun_rifle', super_mg:'gun_auto' };
     function shootSound(w) {
-      var gc = GUN_CLIP[w.id];
-      if (gc && SFX_CLIPS[gc]) { playClip(gc, { vol:(w.id==='shotgun'?0.7:w.id==='sniper'?0.7:w.auto?0.42:0.55), rate:0.95 + Math.random()*0.1 }); return; }   // 真实枪声
       if (!actx || muted) return;
       var t = actx.currentTime;
       // 噪声爆破
@@ -7822,13 +7838,13 @@
         var b = beams[i];
         if (!b.resolved && now() >= b.fireAt) {
           b.resolved = true; b.deadAt = now() + b.persist;
-          b.thick = addBeamCyl(b.col, b.kind==='roar' ? Math.min(b.radius, 4.4) : Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光(崩星更粗)
+          b.thick = addBeamCyl(b.col, b.kind==='roar' ? Math.min(b.radius, 6.8) : Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光(崩星更粗)
           orientCyl(b.thick, b.origin, b.dir, b.len);
           if (b.radius > 4) { b.field = addBeamCyl(b.col, b.radius, b.len, 0.12); orientCyl(b.field, b.origin, b.dir, b.len); }  // 大范围淡光场(不白屏)
           if (b.kind === 'roar') {
-            b.whitecore = addBeamCyl(0xffffff, 1.7, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
-            b.corona = addBeamCyl(b.col, 7.2, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
-            b.flow = addBeamCyl(b.col, 4.4, b.len, 0.55); b.flow.material.map = beamFlowTex; b.flow.material.needsUpdate = true; orientCyl(b.flow, b.origin, b.dir, b.len);   // 滚动能量流
+            b.whitecore = addBeamCyl(0xffffff, 3.0, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
+            b.corona = addBeamCyl(b.col, 11.5, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
+            b.flow = addBeamCyl(b.col, 6.8, b.len, 0.55); b.flow.material.map = beamFlowTex; b.flow.material.needsUpdate = true; orientCyl(b.flow, b.origin, b.dir, b.len);   // 滚动能量流
             roarBlastSound(); shake = Math.min(shake + 0.4, 0.45); spawnRoarBlast(b.origin, b.dir, b.col);
             roarTerminal(b.origin, b.dir, b.col);   // 落点：爆团 + 灼痕
             if (b.starOrb) { scene.remove(b.starOrb); b.starOrb.material.dispose(); b.starOrb = null; }   // 星核塌缩完→轰出
@@ -7840,7 +7856,7 @@
             fireMuzzle();
             if (b.kind !== 'roar') shake = Math.min(shake + 0.22, 0.4);   // roar 已有更强的全场震屏
           }
-          laserPunch(b.origin, b.dir, b.len, Math.min(b.radius || 0.5, 1.6));   // 所有能量束击穿建筑/家具; 洞径=激光束半径(各端 beam 都跑→同步)
+          laserPunch(b.origin, b.dir, b.len, b.kind === 'roar' ? Math.min(b.radius, 4.4) : Math.min(b.radius, 2.6));   // 击穿建筑/家具: 扫一整片(=可见亮核半径; 崩星更粗→威力更强), 各端 beam 都跑→同步
           if (b.isOwner && me.alive) resolveBeam(b);   // 死亡后不再造成伤害（修 bug）
         }
         if (b.resolved) {
@@ -9476,7 +9492,7 @@
             return { calls:renderer.info.render.calls, tris:renderer.info.render.triangles, geos:renderer.info.memory.geometries, textures:renderer.info.memory.textures, sceneMeshes:meshes, instanced:inst, sceneTris:Math.round(tris), solids:worldSolids.length, mapMeshes:(typeof mapMeshes!=='undefined'?mapMeshes.length:-1), destruct:destructibles.length }; },
           destructInfo:function(){ var g=0,st=0,cb=0; for(var i=0;i<destructibles.length;i++) if(destructibles[i].gone) g++; for(var j=0;j<debris.length;j++) if(debris[j].settled) st++; for(var k=0;k<townBuildings.length;k++) if(townBuildings[k].collapsing) cb++; return { total:destructibles.length, gone:g, alive:destructibles.length-g, decals:_decals.length, debris:debris.length, settled:st, collapseQ:_collapseQ.length, collapsing:cb }; },
           shatterAt:function(x,z,r,mode){ var pm = mode==='suck' ? new THREE.Vector3(x,1.0,z) : (mode==='sweep' ? {x:1,z:0} : null); return shatterRadius(x,z,r||6,mode||'explode',pm); },
-          laserAt:function(ox,oz,dx,dz,oy){ return laserPunch(new THREE.Vector3(ox,(oy==null?1.5:oy),oz), new THREE.Vector3(dx,0,dz).normalize(), 80); }
+          laserAt:function(ox,oz,dx,dz,oy,beamR){ return laserPunch(new THREE.Vector3(ox,(oy==null?1.5:oy),oz), new THREE.Vector3(dx,0,dz).normalize(), 80, beamR); }
         };
         animate();
       } catch (err) {
