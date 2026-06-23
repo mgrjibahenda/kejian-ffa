@@ -394,6 +394,11 @@
   <!-- ====== 第三方库：本地 vendor，普通 script 标签，运行时零外部 CDN 依赖 ====== -->
   <script src="./vendor/three.min.js"></script>
   <script src="./vendor/peerjs.min.js"></script>
+  <!-- 真实 glTF 资产管线(僵尸/怪物真实模型+动画)：UMD 全局加载器(挂到 THREE 上) + 独立 ZAssets 模块。
+       顺序必须在 three 之后；ZAssets 自包含、不依赖游戏闭包，玩法层可选接入 window.ZAssets。 -->
+  <script src="./vendor/GLTFLoader.js"></script>
+  <script src="./vendor/SkeletonUtils.js"></script>
+  <script src="./vendor/zassets.js"></script>
 
   <!-- ====== 库存在性检查（失败时明确报出是哪一个库） ====== -->
   <script>
@@ -7899,7 +7904,7 @@
     }
     function addBeamCyl(col, r, len, op) {
       var m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 24),
-        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:op, blending:THREE.AdditiveBlending, depthWrite:false }));
+        new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:op, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
       scene.add(m); return m;
     }
     function pointRayDist(p, origin, dir) {
@@ -7917,7 +7922,7 @@
     // 沿激光轴线铺一串发光广告牌（永远朝相机），保证从任意角度——包括正对枪线、站在弹道上——都能看见弹道
     function buildBeamGlows(b) {
       b.dots = [];
-      var count = 30, spacing = 2.0, base = Math.max(0.7, Math.min(b.radius, 3.2) * 0.95);
+      var count = 30, spacing = 2.0, base = Math.max(0.7, Math.min(b.radius, b.kind==='roar'?13:3.2) * 0.95);
       for (var i = 0; i < count; i++) {
         var s = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:b.col, transparent:true, opacity:0,
           blending:THREE.AdditiveBlending, depthWrite:false }));
@@ -8085,18 +8090,53 @@
         x:origin.x, y:origin.y, z:origin.z, dx:_bf.x, dy:_bf.y, dz:_bf.z };   // 3D方向: 朝准星(可上天)
       spawnBlackHole(msg); netSend(msg);
     }
+    // 吸积盘贴图：内沿白热→橙→品红→暗 的径向渐变 + 多普勒亮边 + 湍流条纹
+    function makeAccretionTex() {
+      var s = 256, c = document.createElement('canvas'); c.width = c.height = s;
+      var x = c.getContext('2d'), cx = s/2, cy = s/2;
+      x.clearRect(0,0,s,s);
+      var rg = x.createRadialGradient(cx, cy, s*0.14, cx, cy, s*0.5);
+      rg.addColorStop(0.00, 'rgba(255,255,255,0)');
+      rg.addColorStop(0.16, 'rgba(255,255,255,0.95)');
+      rg.addColorStop(0.30, 'rgba(255,226,150,0.92)');
+      rg.addColorStop(0.50, 'rgba(255,140,55,0.82)');
+      rg.addColorStop(0.72, 'rgba(220,70,205,0.55)');
+      rg.addColorStop(1.00, 'rgba(120,40,180,0)');
+      x.fillStyle = rg; x.beginPath(); x.arc(cx,cy,s*0.5,0,Math.PI*2); x.fill();
+      x.globalCompositeOperation = 'lighter';               // 多普勒：一侧更亮
+      var lg = x.createLinearGradient(0,0,s,0);
+      lg.addColorStop(0, 'rgba(255,255,255,0.32)'); lg.addColorStop(0.5,'rgba(255,255,255,0)'); lg.addColorStop(1,'rgba(80,0,120,0)');
+      x.fillStyle = lg; x.beginPath(); x.arc(cx,cy,s*0.5,0,Math.PI*2); x.fill();
+      for (var i=0;i<26;i++){                               // 湍流弧条
+        var a0 = Math.random()*Math.PI*2, rr = s*(0.17 + 0.3*Math.random());
+        x.strokeStyle = 'rgba(255,224,190,'+(0.03+0.05*Math.random()).toFixed(3)+')'; x.lineWidth = 1.2+Math.random();
+        x.beginPath(); x.arc(cx,cy, rr, a0, a0+0.6+Math.random()*0.8); x.stroke();
+      }
+      x.globalCompositeOperation = 'source-over';
+      var t = new THREE.CanvasTexture(c); t.center.set(0.5,0.5); t.needsUpdate = true; return t;
+    }
     function makeBlackHoleMesh() {
-      var g = new THREE.Group();
-      var core = new THREE.Mesh(new THREE.SphereGeometry(0.9, 20, 16),
-        new THREE.MeshBasicMaterial({ color:0x000000 }));
+      var g = new THREE.Group(), TILT = -Math.PI/2 + 0.32, ROLL = 0.2;
+      // 事件视界：纯黑球(bloom 不会点亮，保持黑色剪影)
+      var core = new THREE.Mesh(new THREE.SphereGeometry(0.8, 30, 22), new THREE.MeshBasicMaterial({ color:0x000000 }));
       g.add(core);
-      var ring = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.16, 10, 32),
-        new THREE.MeshBasicMaterial({ color:0xb14dff, transparent:true, opacity:0.9,
-          blending:THREE.AdditiveBlending, depthWrite:false }));
-      g.add(ring); g.userData.ring = ring;
-      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9b59ff,
-        transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
-      glow.scale.setScalar(4.5); g.add(glow);
+      // 吸积盘：自发光径向渐变盘，贴图旋转 = 物质绕转
+      var tex = makeAccretionTex();
+      var disk = new THREE.Mesh(new THREE.RingGeometry(1.05, 3.4, 110, 4),
+        new THREE.MeshBasicMaterial({ map:tex, transparent:true, side:THREE.DoubleSide, blending:THREE.AdditiveBlending, depthWrite:false }));
+      disk.rotation.x = TILT; disk.rotation.z = ROLL;
+      g.add(disk); g.userData.disk = disk; g.userData.diskTex = tex;
+      // 盘内一条更亮的内热环
+      var inner = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.10, 12, 90),
+        new THREE.MeshBasicMaterial({ color:0xffd28a, transparent:true, opacity:0.85, blending:THREE.AdditiveBlending, depthWrite:false }));
+      inner.rotation.x = TILT; inner.rotation.z = ROLL; g.add(inner); g.userData.ring = inner;
+      // 爱因斯坦环：恒面向相机的亮环，勾出黑洞剪影(透镜效果)
+      var einstein = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.05, 14, 96),
+        new THREE.MeshBasicMaterial({ color:0xffeccc, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false }));
+      g.add(einstein); g.userData.einstein = einstein;
+      // 透镜光晕
+      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x8a4dff, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false }));
+      glow.scale.setScalar(6.2); g.add(glow);
       return g;
     }
     function spawnBlackHole(msg) {
@@ -8120,7 +8160,11 @@
         var uy = bh.start.y + bh.dir.y * HOLE_SPEED * travel;                                              // 3D 轨迹高度(朝准星)
         var px = Math.max(-28, Math.min(28, ux)), pz = Math.max(-28, Math.min(28, uz)), py = Math.max(0.9, Math.min(60, uy));   // 不入地(y>=0.9), 可上天
         bh.mesh.position.set(px, py, pz);
-        if (!reduced) { bh.mesh.rotation.y += dt * 3; if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 5; }
+        if (!reduced) {
+          if (bh.mesh.userData.diskTex) bh.mesh.userData.diskTex.rotation += dt * 0.8;        // 吸积盘绕转
+          if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 1.1;
+          if (bh.mesh.userData.einstein) { var _ein = bh.mesh.userData.einstein; _ein.quaternion.copy(camera.quaternion); _ein.material.opacity = 0.7 + 0.22 * Math.sin(now() * 0.006); }
+        }
         var fade = el > HOLE_TRAVEL + HOLE_HOLD - 0.5 ? Math.max(0.2, (HOLE_TRAVEL + HOLE_HOLD - el) / 0.5) : 1;
         bh.mesh.scale.setScalar(fade * HOLE_SCALE);
         shatterRadius(px, pz, HOLE_SUCK_R, 'suck', new THREE.Vector3(px, py, pz), 4);   // 黑洞吸入并瓦解附近家具/建筑
@@ -8140,6 +8184,7 @@
     }
     function disposeBlackHole(bh) {
       scene.remove(bh.mesh);
+      if (bh.mesh.userData.diskTex) bh.mesh.userData.diskTex.dispose();
       bh.mesh.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
     }
     function disposeTsunami(ts) {
