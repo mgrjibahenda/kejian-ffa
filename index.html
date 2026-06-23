@@ -7750,6 +7750,7 @@
 
       _ray.set(camera.position, _dir); _ray.far = w.range;
       var targets = worldSolids.concat(remoteHitMeshes());
+      if (isZombieMode() && zSeq) targets = targets.concat(zombieHitMeshes());   // 僵尸命中体(仅僵尸模式, 非僵尸模式零开销)
       var hits = _ray.intersectObjects(targets, false);
 
       // 枪口位置（用于拖尾起点，略低于相机以贴近 viewmodel）
@@ -8980,6 +8981,273 @@
       else hitSound();
     }
 
+    // ============================================================ 僵尸模式 · 实体 + AI (M2)
+    // 自成体系(不混入 remotes), 仅在 isZombieMode() 下激活; 命中经 sendHit 拦截, fireHitscan 零改动。
+    // 外观=程序化占位 makeZombieMesh(盒+球); 若运行时存在 window.ZAssets.makeZombie 可选采用真实模型(不依赖)。
+    var zombies = {};          // id -> 僵尸实例
+    var zSeq = 0, zGold = 0;   // 自增序号 / 金币
+    var zProjectiles = [];     // 喷毒尸酸液弹
+    var zDoors = [];           // 房子门洞(僵尸先奔门再追人)
+    var zRunning = false, zNextSpawnAt = 0;   // M2 简易常驻刷怪(M3 换 50 关波次机器)
+    var Z_ATTACK_R = 1.7, Z_ATTACK_CD = 850;  // 近战触发半径 / 攻击冷却(ms)
+    var Z_FIELD_CAP = 26;                      // 场上存活上限(性能护栏)
+    // 变异僵尸表(base hp/gold 为 1 关基准, M3 按波次放大)
+    var ZTYPES = {
+      walker:   { name:'行尸',   col:0x5f7a45, head:0x9fb070, scale:1.00, girth:1.00, hp:60,  speed:2.0, dmg:12, gold:12, behave:'melee' },
+      runner:   { name:'奔尸',   col:0x7a8a3a, head:0xb4c060, scale:0.95, girth:0.82, hp:42,  speed:4.5, dmg:9,  gold:16, behave:'melee' },
+      crawler:  { name:'爬行尸', col:0x4a6038, head:0x88a060, scale:0.70, girth:1.15, hp:30,  speed:3.1, dmg:7,  gold:13, behave:'melee' },
+      brute:    { name:'巨尸',   col:0x39482e, head:0x6a8050, scale:1.70, girth:1.55, hp:520, speed:1.3, dmg:38, gold:55, behave:'melee' },
+      spitter:  { name:'喷毒尸', col:0x8aa02a, head:0xc8e050, scale:1.05, girth:1.30, hp:90,  speed:1.7, dmg:14, gold:30, behave:'spit',   range:18, atkCd:1900 },
+      bomber:   { name:'自爆尸', col:0x8a3a2a, head:0xd07040, glow:0xff5522, scale:1.05, girth:1.25, hp:70, speed:2.7, dmg:55, gold:34, behave:'bomb', boomR:5.5 },
+      screamer: { name:'尖啸尸', col:0x6a5a7a, head:0xb49ad8, glow:0x9a6cff, scale:1.00, girth:0.90, hp:120, speed:1.6, dmg:8, gold:42, behave:'scream', summonCd:6500, keepR:9 }
+    };
+
+    // 程序化僵尸网格(占位)。返回 { root, torso, head, armL, armR, legL, legR }; ZAssets 模型则 rig 为 false。
+    function makeZombieMesh(type) {
+      var T = ZTYPES[type] || ZTYPES.walker;
+      if (window.ZAssets && window.ZAssets.ready && typeof window.ZAssets.makeZombie === 'function') {
+        try { var ext = window.ZAssets.makeZombie(type); if (ext && ext.isObject3D) { return { root: ext, rig:false }; } } catch (e) {}
+      }
+      var root = new THREE.Group();
+      var g = T.girth || 1, dim = new THREE.Color(T.col).multiplyScalar(0.62).getHex();
+      var skin = new THREE.MeshStandardMaterial({ color:T.col, roughness:1.0, metalness:0.0, envMapIntensity:0.2 });
+      var dark = new THREE.MeshStandardMaterial({ color:dim, roughness:1.0, metalness:0.0, envMapIntensity:0.2 });
+      var headMat = new THREE.MeshStandardMaterial({ color:T.head, roughness:0.92, metalness:0.0,
+        emissive:(T.glow||0x000000), emissiveIntensity:(T.glow?0.55:0) });
+      function box(w,h,d,mat,y,z){ var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.set(0,y,z||0); m.castShadow=true; root.add(m); return m; }
+      function limb(px,py,w,h,d,mat){ var pv=new THREE.Group(); pv.position.set(px,py,0);
+        var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat); m.position.y=-h/2; m.castShadow=true; pv.add(m); root.add(pv); return pv; }
+      var torso = box(0.55*g, 0.66, 0.32*g, skin, 1.05);            // 躯干
+      if (T.behave === 'bomb' || T.behave === 'spit') box(0.5*g, 0.34, 0.4*g, headMat, 0.92);   // 鼓胀发光腹部
+      box(0.13, 0.14, 0.13, headMat, 1.50);                         // 脖
+      var head = box(0.46, 0.42, 0.42, headMat, 1.74); head.scale.set(1, 1.04, 1);
+      var armL = limb(-0.36*g, 1.34, 0.14, 0.62, 0.16, dark);
+      var armR = limb( 0.36*g, 1.34, 0.14, 0.62, 0.16, dark);
+      var legL = limb(-0.15*g, 0.74, 0.18, 0.78, 0.20, skin);
+      var legR = limb( 0.15*g, 0.74, 0.18, 0.78, 0.20, skin);
+      root.scale.setScalar(T.scale || 1);
+      return { root:root, torso:torso, head:head, armL:armL, armR:armR, legL:legL, legR:legR };
+    }
+
+    function zEnsureDoors() { zDoors = [ { x:-8, z:-3.2 }, { x:8, z:0 } ]; }   // 与 buildZombieHouse 门洞一致(正门/后门)
+    function zCountAlive() { var n = 0; for (var id in zombies) if (zombies[id].alive) n++; return n; }
+
+    function spawnZombie(type, pos) {
+      var T = ZTYPES[type] || ZTYPES.walker;
+      zSeq++; var id = 'z-' + zSeq;
+      var built = makeZombieMesh(type);
+      var grp = built.root; grp.position.set(pos.x, 0, pos.z); scene.add(grp);
+      // 不可见命中体(头/身), userData 带 zid+part → 命中检测与外观解耦(将来换真实模型仍可命中)
+      var hitMat = new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false });
+      var sc = T.scale || 1, g = T.girth || 1;
+      var bodyHit = new THREE.Mesh(new THREE.BoxGeometry(0.7*g*sc, 1.3*sc, 0.5*g*sc), hitMat);
+      bodyHit.position.y = 1.0*sc; bodyHit.userData = { zid:id, part:'body' }; grp.add(bodyHit);
+      var headHit = new THREE.Mesh(new THREE.SphereGeometry(0.3*sc, 8, 6), hitMat);
+      headHit.position.y = 1.74*sc; headHit.userData = { zid:id, part:'head' }; grp.add(headHit);
+      var rnd = (typeof zState !== 'undefined' && zState) ? zState.round : 1;
+      var hpScale = 1 + (rnd - 1) * 0.18;   // M3 会接管波次曲线; M2 给个温和递增
+      var z = {
+        id:id, type:type, T:T, group:grp, rig:built.rig === false ? null : built,
+        head:built.head, armL:built.armL, armR:built.armR, legL:built.legL, legR:built.legR,
+        hitMeshes:[bodyHit, headHit],
+        hp: Math.round(T.hp * hpScale), maxHp: Math.round(T.hp * hpScale),
+        speed: T.speed * (0.9 + Math.random()*0.2), dmg:T.dmg, gold:T.gold, behave:T.behave,
+        alive:true, lastX:pos.x, lastZ:pos.z, lurch:Math.random()*6.28,
+        atkAt:0, deadAt:0, deathT:0, leanZ:0
+      };
+      zombies[id] = z;
+      return z;
+    }
+    function zSpawnFromRing(type) {
+      var base = zSpawnRing.length ? zSpawnRing[(Math.random()*zSpawnRing.length)|0] : { x:30, z:0 };
+      return spawnZombie(type, { x:base.x + (Math.random()-0.5)*4, z:base.z + (Math.random()-0.5)*4 });
+    }
+    function zombieHitMeshes() {
+      var arr = [];
+      for (var id in zombies) { var z = zombies[id]; if (z.alive) { arr.push(z.hitMeshes[0]); arr.push(z.hitMeshes[1]); } }
+      return arr;
+    }
+    function hitZombie(z, dmg, head) {
+      if (!z || !z.alive) return;
+      z.hp = Math.max(0, z.hp - dmg);
+      var gp = z.group.position; spawnDamageNumber(gp.x, gp.y + 2.0*(z.T.scale||1), gp.z, dmg, !!head);
+      if (z.hp <= 0) killZombie(z, true); else hitSound();
+    }
+    function killZombie(z, byPlayer) {
+      if (!z.alive) return;
+      z.alive = false; z.deadAt = now();
+      for (var i = 0; i < z.hitMeshes.length; i++) z.hitMeshes[i].userData = {};   // 死后不再可命中
+      deathSound(); showHitmarker(false);
+      if (byPlayer) { var amt = z.gold|0; zGold += amt; var gp = z.group.position; zGoldPop(gp.x, gp.y + 2.4*(z.T.scale||1), gp.z, amt); if (typeof zUpdateHud === 'function') zUpdateHud(); }
+      if (z.behave === 'bomb') zExplode(z.group.position.clone(), z.T.boomR || 5, z.dmg);   // 自爆尸死亡也炸
+    }
+    function zGoldPop(x, y, z, amt) {
+      var cv = document.createElement('canvas'); cv.width = 160; cv.height = 72; var c = cv.getContext('2d');
+      c.font = 'bold 40px system-ui,"Microsoft YaHei",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      var txt = '+' + amt; c.lineWidth = 7; c.strokeStyle = 'rgba(0,0,0,.9)'; c.strokeText(txt, 80, 38);
+      c.fillStyle = '#ffd34d'; c.fillText(txt, 80, 38);
+      var tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false, depthWrite:false }));
+      sp.position.set(x, y, z); sp.scale.set(1.0, 0.45, 1); sp.renderOrder = 12; scene.add(sp);
+      fx.push({ obj:sp, ttl:0.95, life:0, fade:true, maxOp:1, rise:1.9, ownMap:true });
+    }
+
+    // ---- AI 辅助 ----
+    function zNearestPlayer(x, z) {
+      var best = null;
+      if (me.alive) { var dx = playerPos.x - x, dz = playerPos.z - z; best = { id:me.id, x:playerPos.x, z:playerPos.z, d2:dx*dx+dz*dz }; }
+      for (var id in remotes) { var r = remotes[id]; if (!r.alive || r.isDummy || r.isZombie) continue;
+        var px = r.group.position.x, pz = r.group.position.z, ex = px - x, ez = pz - z, e2 = ex*ex + ez*ez;
+        if (!best || e2 < best.d2) best = { id:id, x:px, z:pz, d2:e2 }; }
+      return best;
+    }
+    function zInsideHouse(x, z) { return Math.abs(x) < 7.6 && Math.abs(z) < 7.6; }
+    function zNearestDoor(x, z) {
+      var best = null, bd = 1e9; for (var i = 0; i < zDoors.length; i++) { var d = zDoors[i], dx = d.x-x, dz = d.z-z, e = dx*dx+dz*dz; if (e < bd) { bd = e; best = d; } } return best;
+    }
+    function zCollide(x, z, R) {
+      R = R || 0.42;
+      for (var i = 0; i < solidBoxes.length; i++) { var b = solidBoxes[i];
+        if (x > b.min.x - R && x < b.max.x + R && z > b.min.z - R && z < b.max.z + R && b.max.y > 0.55 && b.min.y < 1.8) return true; }
+      return false;
+    }
+    function zDamagePlayer(targetId, dmg) {
+      if (targetId === me.id) { if (me.alive) applyDamage(dmg, 'zombie', 'zombie', false); }
+      else netSend({ type:'zhit', from:me.id, to:targetId, dmg:dmg });   // 联机: 通知该玩家受伤(M6 完善)
+    }
+    function zExplode(pos, R, dmg) {
+      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff6a2a, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+      glow.position.copy(pos); glow.position.y = 1.0; glow.scale.setScalar(R*1.6); scene.add(glow);
+      fx.push({ obj:glow, ttl:0.4, life:0, fade:true, maxOp:0.95, expandFrom:R*0.6, expandTo:R*1.8, ownMap:true });
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(R, 0.35, 8, 40), new THREE.MeshBasicMaterial({ color:0xffae5a, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false }));
+      ring.rotation.x = -Math.PI/2; ring.position.set(pos.x, 0.15, pos.z); ring.scale.setScalar(0.1); scene.add(ring);
+      fx.push({ obj:ring, ttl:0.5, life:0, fade:true, maxOp:0.9, expandFrom:0.1, expandTo:1, ease:true, ownMap:true });
+      shake = Math.min(shake + 0.05, 0.12);
+      var d0 = playerPos.distanceTo(pos); if (me.alive && d0 < R) zDamagePlayer(me.id, Math.round(dmg * (1 - d0/R*0.6)));
+    }
+    function zSpit(z, tgt) {
+      var gp = z.group.position;
+      var origin = new THREE.Vector3(gp.x, 1.4*(z.T.scale||1), gp.z);
+      var dest = new THREE.Vector3(tgt.x, 1.2, tgt.z);
+      var glob = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), new THREE.MeshStandardMaterial({ color:0xb6e83a, emissive:0x6a9a12, emissiveIntensity:0.8, roughness:0.5 }));
+      glob.position.copy(origin); scene.add(glob);
+      var dir = dest.clone().sub(origin); dir.normalize();
+      zProjectiles.push({ obj:glob, pos:origin.clone(), vel:dir.multiplyScalar(20), gravity:5, dmg:z.dmg, ttl:2.5, life:0, targetId:tgt.id });
+    }
+    function zUpdateProjectiles(dt) {
+      for (var i = zProjectiles.length - 1; i >= 0; i--) {
+        var p = zProjectiles[i]; p.life += dt;
+        p.vel.y -= p.gravity * dt;
+        p.pos.addScaledVector(p.vel, dt); p.obj.position.copy(p.pos);
+        var hitPlayer = (me.alive && playerPos.distanceTo(p.pos) < 1.2);
+        if (p.pos.y <= 0.2 || hitPlayer || p.life > p.ttl) {
+          if (hitPlayer) zDamagePlayer(me.id, p.dmg);
+          spawnGlow(p.pos.clone(), 0xb6e83a, 0.8, 0.18);   // 酸液飞溅
+          scene.remove(p.obj); if (p.obj.geometry) p.obj.geometry.dispose(); if (p.obj.material) p.obj.material.dispose();
+          zProjectiles.splice(i, 1);
+        }
+      }
+    }
+
+    function updateZombies(dt) {
+      var t = now();
+      for (var id in zombies) {
+        var z = zombies[id];
+        if (!z.alive) {                                   // 倒地 → 缓慢侧倒 → 清除
+          z.deathT = Math.min(1, z.deathT + dt * 2.6);
+          z.group.rotation.z = z.deathT * 1.5;
+          z.group.position.y = -z.deathT * 0.35;
+          if (t - z.deadAt > 2400) { scene.remove(z.group); z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[id]; }
+          continue;
+        }
+        var zx = z.group.position.x, zz = z.group.position.z;
+        var tgt = zNearestPlayer(zx, zz);
+        if (tgt) {
+          var pdx = tgt.x - zx, pdz = tgt.z - zz, pdist = Math.sqrt(pdx*pdx + pdz*pdz);
+          var standOff = (z.behave === 'spit') ? (z.T.range || 16) * 0.85 : (z.behave === 'scream') ? (z.T.keepR || 9) : 0;
+          var wantMove = pdist > Math.max(standOff, Z_ATTACK_R * 0.8);
+          if (wantMove) {
+            var wx = tgt.x, wz = tgt.z;   // waypoint: 内外不同则先奔最近门
+            if (zInsideHouse(zx, zz) !== zInsideHouse(tgt.x, tgt.z)) { var dr = zNearestDoor(zx, zz); if (dr) { wx = dr.x; wz = dr.z; } }
+            var dx = wx - zx, dz = wz - zz, d = Math.sqrt(dx*dx + dz*dz) || 1; dx /= d; dz /= d;
+            var R = 0.42 * (z.T.scale || 1), step = z.speed * dt;
+            var nx = zx + dx*step, nz = zz + dz*step;
+            if (!zCollide(nx, zz, R)) zx = nx; else if (!zCollide(zx + dx*step*0.5, zz, R)) zx += dx*step*0.5;
+            if (!zCollide(zx, nz, R)) zz = nz; else if (!zCollide(zx, zz + dz*step*0.5, R)) zz += dz*step*0.5;
+            z.group.position.x = zx; z.group.position.z = zz;
+          }
+          z.group.position.y = 0;
+          var fy = Math.atan2(-(tgt.x - zx), -(tgt.z - zz));   // rig 正面朝 -z
+          var ddy = fy - z.group.rotation.y; while (ddy > Math.PI) ddy -= Math.PI*2; while (ddy < -Math.PI) ddy += Math.PI*2;
+          z.group.rotation.y += ddy * Math.min(1, dt*7);
+          if (z.behave === 'bomb') {
+            if (pdist < Z_ATTACK_R + 0.3) { killZombie(z, false); continue; }   // 贴脸自爆
+          } else if (z.behave === 'spit') {
+            if (pdist <= (z.T.range || 16) && t >= z.atkAt) { z.atkAt = t + (z.T.atkCd || 1900); z.swingAt = t; zSpit(z, tgt); }
+          } else if (z.behave === 'scream') {
+            if (t >= (z.summonAt || 0) && zCountAlive() < Z_FIELD_CAP - 2) { z.summonAt = t + (z.T.summonCd || 6500); zScream(z); }
+            if (pdist < Z_ATTACK_R && t >= z.atkAt) { z.atkAt = t + Z_ATTACK_CD; z.swingAt = t; zDamagePlayer(tgt.id, z.dmg); }
+          } else {   // melee
+            if (pdist < Z_ATTACK_R + (z.T.scale-1)*0.5 && t >= z.atkAt) { z.atkAt = t + Z_ATTACK_CD; z.swingAt = t; zDamagePlayer(tgt.id, z.dmg); }
+          }
+        }
+        poseZombie(z, dt);
+      }
+      zUpdateProjectiles(dt);
+    }
+    function zScream(z) {
+      var gp = z.group.position;
+      spawnGlow(new THREE.Vector3(gp.x, 1.6, gp.z), 0x9a6cff, 1.4, 0.25);
+      shake = Math.min(shake + 0.03, 0.1);
+      for (var i = 0; i < 2; i++) { var a = Math.random()*6.28, rr = 1.6 + Math.random()*1.2;
+        spawnZombie('walker', { x: gp.x + Math.cos(a)*rr, z: gp.z + Math.sin(a)*rr }); }
+    }
+    function poseZombie(z, dt) {
+      if (!z.rig) return;   // 真实模型: 动画由 ZAssets/Mixer 负责(不归本会话)
+      if (!z.alive) {
+        z.legL.rotation.x = z.legR.rotation.x = 0.3; z.armL.rotation.x = z.armR.rotation.x = 0.4; return;
+      }
+      var nx = z.group.position.x, nz = z.group.position.z;
+      var inv = 1 / Math.max(dt, 0.001);
+      var speed = Math.sqrt((nx-z.lastX)*(nx-z.lastX) + (nz-z.lastZ)*(nz-z.lastZ)) * inv;
+      z.lastX = nx; z.lastZ = nz;
+      z.lurch += dt * (2.4 + Math.min(speed, 4) * 0.8);
+      var s = Math.sin(z.lurch);
+      z.legL.rotation.x = s * 0.5; z.legR.rotation.x = -s * 0.5;
+      var swing = (z.swingAt && now() - z.swingAt < 240) ? (1 - (now() - z.swingAt) / 240) : 0;
+      z.armL.rotation.x = 1.55 + Math.sin(z.lurch*1.3)*0.12 + swing*0.9;   // 双臂前伸抓挠(+x 朝 -z 前方)
+      z.armR.rotation.x = 1.55 + Math.cos(z.lurch*1.1)*0.12 + swing*1.0;
+      z.group.rotation.z = Math.sin(z.lurch*0.5) * 0.05;   // 微驼背摇晃
+    }
+    function zClearAll() {
+      for (var id in zombies) { var z = zombies[id]; scene.remove(z.group);
+        z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); }
+      zombies = {};
+      for (var i = 0; i < zProjectiles.length; i++) { scene.remove(zProjectiles[i].obj); }
+      zProjectiles.length = 0;
+    }
+    // M2 简易刷怪(保持场上一定数量, 类型随机偏基础); M3 用 50 关波次机器替换。
+    function zPickTypeM2() {
+      var r = Math.random();
+      if (r < 0.50) return 'walker';
+      if (r < 0.68) return 'runner';
+      if (r < 0.80) return 'crawler';
+      if (r < 0.88) return 'spitter';
+      if (r < 0.94) return 'bomber';
+      if (r < 0.98) return 'screamer';
+      return 'brute';
+    }
+    function zInit() { zClearAll(); zGold = 0; zEnsureDoors(); zRunning = true; zNextSpawnAt = now() + 1500; }
+    function zStop() { zRunning = false; zClearAll(); }
+    function zTick(dt) {
+      if (!zRunning) return;
+      var t = now();
+      if (t >= zNextSpawnAt && zCountAlive() < 8 && Object.keys(zombies).length < Z_FIELD_CAP) {
+        zSpawnFromRing(zPickTypeM2());
+        zNextSpawnAt = t + 1400;
+      }
+    }
+
     // 约 18Hz 广播自身状态（99 = 持超级武器）
     function sendState() {
       if (!joined || !myPeer) return;
@@ -9646,7 +9914,7 @@
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
           fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; },
           addDummy:function(k){ addDummy(k); }, dummyHp:function(id){ var r=remotes[id]; return r?r.hp:null; }, camY:function(){ return camera.position.y; },
-          roarSfx:function(){ return roarSfxN; },
+          roarSfx:function(){ return roarSfxN; }, beamViz:function(){ if(!beams.length) return null; var b=beams[beams.length-1]; return { kind:b.kind, radius:b.radius, killR:Math.round((b.radius+0.55)*10)/10, dotBase:(b.dots&&b.dots[2]?Math.round(b.dots[2].userData.base*10)/10:null), thickR:(b.thick&&b.thick.geometry?b.thick.geometry.parameters.radiusTop:null), fieldR:(b.field&&b.field.geometry?Math.round(b.field.geometry.parameters.radiusTop*10)/10:null), fieldDbl:(b.field?(b.field.material.side===THREE.DoubleSide):null), fieldOp:(b.field?Math.round(b.field.material.opacity*100)/100:null) }; }, hideGun:function(){ if(typeof viewGun!=='undefined'&&viewGun) viewGun.visible=false; },
           perf:function(){ var meshes=0, tris=0, inst=0; scene.traverse(function(o){ if(o.isMesh){ meshes++; if(o.isInstancedMesh) inst++; var g=o.geometry; var n=g&&g.index?g.index.count/3:(g&&g.attributes&&g.attributes.position?g.attributes.position.count/3:0); tris+=n*(o.isInstancedMesh?(o.count||1):1); } });
             return { calls:renderer.info.render.calls, tris:renderer.info.render.triangles, geos:renderer.info.memory.geometries, textures:renderer.info.memory.textures, sceneMeshes:meshes, instanced:inst, sceneTris:Math.round(tris), solids:worldSolids.length, mapMeshes:(typeof mapMeshes!=='undefined'?mapMeshes.length:-1), destruct:destructibles.length }; },
           destructInfo:function(){ var g=0,st=0,cb=0; for(var i=0;i<destructibles.length;i++) if(destructibles[i].gone) g++; for(var j=0;j<debris.length;j++) if(debris[j].settled) st++; for(var k=0;k<townBuildings.length;k++) if(townBuildings[k].collapsing) cb++; return { total:destructibles.length, gone:g, alive:destructibles.length-g, decals:_decals.length, debris:debris.length, settled:st, collapseQ:_collapseQ.length, collapsing:cb }; },
