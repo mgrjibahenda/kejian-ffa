@@ -293,7 +293,7 @@
         <button type="button" data-dummy="mecha">超级机甲</button>
         <button type="button" data-dummy="godmecha">终焉机神</button>
       </div>
-      <div class="dp-hint">机甲模式中按 <b>X</b> 退出 · 滚轮/数字键切换全部武器</div>
+      <div class="dp-hint">机甲无法退出(只有死亡才失去) · 滚轮/数字键切换全部武器</div>
     </div>
 
     <div id="scorebox">
@@ -727,12 +727,24 @@
     }
     function buildMap(id) {
       clearMap();
-      if (id !== 'basic' && MAP_BUILD[id]) MAP_BUILD[id]();
+      if (id !== 'basic' && MAP_BUILD[id]) { MAP_BUILD[id](); if (id === 'town') bakeTownStatic(); }
       else if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]);
       else { id = 'basic'; buildBasicMap(); }
       buildRealm();
       currentMap = id;
       if (MAP_FX[id] && MAP_FX[id].onEnter) { _activeMapFx = MAP_FX[id]; try { MAP_FX[id].onEnter(scene); } catch (e) { if (window.console) console.warn('MAP_FX onEnter 失败', id, e); _activeMapFx = null; } }
+    }
+    // 性能: 把每个静态装饰/家具组的内部 mesh 按材质合并成 1~少数个 → 大幅降 draw call/帧率↑
+    //   墙体(需逐面 punchHole)与隐形碰撞体(scene 层独立, 非组子级)不受影响; 整组仍可被摧毁移除
+    function bakeTownStatic() {
+      for (var i = 0; i < mapMeshes.length; i++) {
+        var g = mapMeshes[i];
+        if (!g || !g.isObject3D || g.isMesh) continue;           // 仅合并多 mesh 的 Group(物件/家具)
+        var meshN = 0, hasWall = false;
+        g.traverse(function (o) { if (o.isMesh) { meshN++; if (o.userData && o.userData.wall) hasWall = true; } });
+        if (hasWall || meshN < 2) continue;                      // 墙逐面留独立; 单 mesh 无需合并
+        mergeRigGroup(g);                                        // 复用人物的按材质合并(烘焙世界变换, 整组保留)
+      }
     }
     // 基础地图 = 最初的模样：朴素纯色 + 网格线 + 原始掩体布局
     function buildBasicMap() {
@@ -6959,7 +6971,7 @@
       } catch (e) { actx = null; }
     }
     // ===== 真实音效(加载 /sounds 下的 .ogg) — CC0/CC-BY 资源,见 sounds/CREDITS.txt =====
-    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg', hurt:'sounds/hurt.ogg', hurt_breath:'sounds/hurt_breath.ogg' };
+    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg' };
     var SFX_CLIPS = {};
     function loadSfx() {
       if (!actx || loadSfx._done) return; loadSfx._done = true;
@@ -7060,8 +7072,7 @@
         o.connect(g); g.connect(masterGain); o.start(t + i*0.06); o.stop(t + i*0.06 + 0.2);
       });
     }
-    function hurtSound() {       // 自己被击中：真实痛哼 + 闷哼
-      playClip('hurt', { vol:0.55 });
+    function hurtSound() {       // 自己被击中：闷哼
       if (!actx || muted) return; var t = actx.currentTime;
       var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(220, t);
       o.frequency.exponentialRampToValueAtTime(110, t+0.12);
@@ -7247,8 +7258,6 @@
         keys[e.code] = true;
         if (e.code === 'KeyR') startReload();
         if (e.code === 'KeyM') { muted = !muted; }
-        // 开发者模式(67)：X 退出机甲（正常模式不能脱）
-        if (cheatMode && mechaWorn && e.code === 'KeyX') { dropSuper(); return; }
         // 测试模式：6/7/8/9/0 切换超级武器（再按同键补满弹药）
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
         if (e.code.indexOf('Digit') === 0) {
@@ -7804,13 +7813,13 @@
         var b = beams[i];
         if (!b.resolved && now() >= b.fireAt) {
           b.resolved = true; b.deadAt = now() + b.persist;
-          b.thick = addBeamCyl(b.col, Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光
+          b.thick = addBeamCyl(b.col, b.kind==='roar' ? Math.min(b.radius, 4.4) : Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光(崩星更粗)
           orientCyl(b.thick, b.origin, b.dir, b.len);
           if (b.radius > 4) { b.field = addBeamCyl(b.col, b.radius, b.len, 0.12); orientCyl(b.field, b.origin, b.dir, b.len); }  // 大范围淡光场(不白屏)
           if (b.kind === 'roar') {
-            b.whitecore = addBeamCyl(0xffffff, 0.95, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
-            b.corona = addBeamCyl(b.col, 4.6, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
-            b.flow = addBeamCyl(b.col, 2.5, b.len, 0.55); b.flow.material.map = beamFlowTex; b.flow.material.needsUpdate = true; orientCyl(b.flow, b.origin, b.dir, b.len);   // 滚动能量流
+            b.whitecore = addBeamCyl(0xffffff, 1.7, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
+            b.corona = addBeamCyl(b.col, 7.2, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
+            b.flow = addBeamCyl(b.col, 4.4, b.len, 0.55); b.flow.material.map = beamFlowTex; b.flow.material.needsUpdate = true; orientCyl(b.flow, b.origin, b.dir, b.len);   // 滚动能量流
             roarBlastSound(); shake = Math.min(shake + 0.4, 0.45); spawnRoarBlast(b.origin, b.dir, b.col);
             roarTerminal(b.origin, b.dir, b.col);   // 落点：爆团 + 灼痕
             if (b.starOrb) { scene.remove(b.starOrb); b.starOrb.material.dispose(); b.starOrb = null; }   // 星核塌缩完→轰出
@@ -8418,7 +8427,8 @@
       if (inRealm || !me.alive) return;     // 已在秘境 / 已死亡：忽略（避免被拖入第二个秘境）
       inRealm = true; realmOpponent = opponentId; realmEnteredAt = now();
       var keepMecha = mechaWorn;   // 穿着机甲被拉进秘境 → 机甲留在身上(保留血量/武器)
-      if (!keepMecha) dropSuper();
+      var keepRealmGun = !mechaWorn && superActive && superKind === 'realm';   // 秘境炮：留在手中,只耗弹
+      if (!keepMecha && !keepRealmGun) dropSuper();
       ads = false; tumbleUntil = 0; tumbleKiller = null;
       playerPos.copy(myPos); vy = 0;
       yaw = asHolder ? -Math.PI/2 : Math.PI/2; pitch = 0;   // 面朝对手
@@ -9298,7 +9308,6 @@
         }
         // 残血心跳
         if (me.alive && me.hp < 30 && now() - lastHeartAt > 850) { lastHeartAt = now(); heartbeatSound(); }
-        if (me.alive && me.hp < 35 && now() - lastBreathAt > 4000) { lastBreathAt = now(); playClip('hurt_breath', { vol:0.5 }); }
         // 秘境兜底：超过 60s 没分出胜负 → 自动结束，避免卡死
         if (inRealm && now() - realmEnteredAt > 60000) exitRealm(false);
 
@@ -9446,6 +9455,8 @@
           fireNow:function(){ tryFire(); }, grenadeCount:function(){ return grenades.length; },
           addDummy:function(k){ addDummy(k); }, dummyHp:function(id){ var r=remotes[id]; return r?r.hp:null; }, camY:function(){ return camera.position.y; },
           roarSfx:function(){ return roarSfxN; },
+          perf:function(){ var meshes=0, tris=0, inst=0; scene.traverse(function(o){ if(o.isMesh){ meshes++; if(o.isInstancedMesh) inst++; var g=o.geometry; var n=g&&g.index?g.index.count/3:(g&&g.attributes&&g.attributes.position?g.attributes.position.count/3:0); tris+=n*(o.isInstancedMesh?(o.count||1):1); } });
+            return { calls:renderer.info.render.calls, tris:renderer.info.render.triangles, geos:renderer.info.memory.geometries, textures:renderer.info.memory.textures, sceneMeshes:meshes, instanced:inst, sceneTris:Math.round(tris), solids:worldSolids.length, mapMeshes:(typeof mapMeshes!=='undefined'?mapMeshes.length:-1), destruct:destructibles.length }; },
           destructInfo:function(){ var g=0,st=0,cb=0; for(var i=0;i<destructibles.length;i++) if(destructibles[i].gone) g++; for(var j=0;j<debris.length;j++) if(debris[j].settled) st++; for(var k=0;k<townBuildings.length;k++) if(townBuildings[k].collapsing) cb++; return { total:destructibles.length, gone:g, alive:destructibles.length-g, decals:_decals.length, debris:debris.length, settled:st, collapseQ:_collapseQ.length, collapsing:cb }; },
           shatterAt:function(x,z,r,mode){ var pm = mode==='suck' ? new THREE.Vector3(x,1.0,z) : (mode==='sweep' ? {x:1,z:0} : null); return shatterRadius(x,z,r||6,mode||'explode',pm); },
           laserAt:function(ox,oz,dx,dz,oy){ return laserPunch(new THREE.Vector3(ox,(oy==null?1.5:oy),oz), new THREE.Vector3(dx,0,dz).normalize(), 80); }
