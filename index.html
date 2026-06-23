@@ -6971,7 +6971,7 @@
       } catch (e) { actx = null; }
     }
     // ===== 真实音效(加载 /sounds 下的 .ogg) — CC0/CC-BY 资源,见 sounds/CREDITS.txt =====
-    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg' };
+    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg', gun_pistol:'sounds/gun_pistol.ogg', gun_auto:'sounds/gun_auto.ogg', gun_rifle:'sounds/gun_rifle.ogg', gun_shotgun:'sounds/gun_shotgun.ogg', explosion:'sounds/explosion.ogg', wave:'sounds/wave_crash.ogg' };
     var SFX_CLIPS = {};
     function loadSfx() {
       if (!actx || loadSfx._done) return; loadSfx._done = true;
@@ -7016,7 +7016,10 @@
       return f;
     }
     // 每把枪给一套截然不同的声音性格(层数/频段/时长/信号特征都不同)，不再千篇一律
+    var GUN_CLIP = { pistol:'gun_pistol', smg:'gun_auto', rifle:'gun_rifle', shotgun:'gun_shotgun', sniper:'gun_rifle', super_mg:'gun_auto' };
     function shootSound(w) {
+      var gc = GUN_CLIP[w.id];
+      if (gc && SFX_CLIPS[gc]) { playClip(gc, { vol:(w.id==='shotgun'?0.7:w.id==='sniper'?0.7:w.auto?0.42:0.55), rate:0.95 + Math.random()*0.1 }); return; }   // 真实枪声
       if (!actx || muted) return;
       var t = actx.currentTime;
       // 噪声爆破
@@ -7120,7 +7123,8 @@
     }
     // 崩星咆哮炮·专属：雷霆轰出 + 持续咆哮余韵
     function roarBlastSound() {
-      playClip('laser_fire', { vol:0.7 });
+      playClip('laser_fire', { vol:0.78 });
+      playClip('explosion', { vol:0.72, rate:0.58 });
       playClip('plasma_loop', { loop:true, dur:1.5, vol:0.62, fadeIn:0.04, fadeOut:0.35 });   // 1.5s 等离子光柱真实音
       if (!actx || muted) return; var t = actx.currentTime;
       var sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(95, t); sub.frequency.exponentialRampToValueAtTime(28, t+0.7);
@@ -8064,7 +8068,7 @@
       var mesh = makeTsunamiMesh();
       scene.add(mesh);
       tsunamis.push({ tid:msg.tid, owner:msg.owner, start:new THREE.Vector3(msg.x, 0, msg.z), dir:dir, mesh:mesh, spawnAt:now() });
-      deathSound();
+      if (SFX_CLIPS.wave) playClip('wave', { vol:0.95 }); else deathSound();   // 滔天巨浪真实音
       if (msg.owner !== me.id) showNotice('🌊 排山倒海！快躲开巨浪！');
     }
     function updateTsunamis(dt) {
@@ -8192,6 +8196,7 @@
       var dme = playerPos.distanceTo(p); if (dme < R*2.2) shake = Math.min(shake + 0.35*(1 - dme/(R*2.2)), 0.45);
     }
     function spawnExplosion(p, col, R) {
+      playClip('explosion', { vol:Math.min(1, (R||6)/8) * 0.85, rate:0.82 + Math.random()*0.2 });
       var flash = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
       flash.position.copy(p); flash.scale.setScalar(R*0.6); scene.add(flash); fx.push({ obj:flash, ttl:0.3, life:0, fade:true, maxOp:1, expandFrom:R*0.6, expandTo:R*1.5 });
       var ball = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
