@@ -9064,13 +9064,28 @@
           if (msg.target === me.id) zReviveMe();
           else { var rr = remotes[msg.target]; if (rr) { rr.alive = true; rr.labelDirty = true; } }
           break;
+        case 'zsync':   // 客户端: 主机僵尸快照
+          if (zIsClient()) zApplySync(msg);
+          break;
+        case 'zhit':    // 主机: 客户端上报的僵尸伤害, 权威结算(击杀金币回传给该客户端)
+          if (isHost) { var zh = zombies[msg.zid]; if (zh) hitZombie(zh, msg.dmg, msg.head, msg.from); }
+          break;
+        case 'zkill':   // 主机回传: 我击杀僵尸所得金币
+          if (msg.to === me.id) { zGold += (msg.gold || 0); if (typeof zUpdateHud === 'function') zUpdateHud(); }
+          break;
       }
     }
 
     function sendHit(victimId, dmg, weaponId, head) {
       if (TEST) lastSentHits.push({ to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
       var zt = zombies[victimId];
-      if (zt) { hitZombie(zt, dmg, head); return; }   // 僵尸: 本地结算(主机权威/单机), 不走玩家命中网络
+      if (zt) {
+        if (zIsClient()) {   // 客户端: 上报伤害给主机(权威), 本地只飘个伤害数字反馈
+          netSend({ type:'zhit', from:me.id, zid:victimId, dmg:dmg, head:!!head });
+          var gp = zt.group.position; spawnDamageNumber(gp.x, gp.y + 2.0*(zt.T.scale||1), gp.z, dmg, !!head);
+        } else hitZombie(zt, dmg, head, true);   // 主机/单机: 本地权威结算(本机击杀→本地金币)
+        return;
+      }
       var dr = remotes[victimId];
       if (dr) { var gp = dr.group.position; spawnDamageNumber(gp.x, gp.y + (dr.mecha ? 2.8 : 2.0), gp.z, dmg, dmg >= 200); }   // 头顶飘伤害数字
       if (dr && dr.isDummy) { hitDummy(dr, dmg); return; }   // 假人：本地结算，不联机
@@ -9155,9 +9170,9 @@
     function zEnsureDoors() { zDoors = [ { x:-6.8, z:-3.2 }, { x:6.8, z:0 } ]; }
     function zCountAlive() { var n = 0; for (var id in zombies) if (zombies[id].alive) n++; return n; }
 
-    function spawnZombie(type, pos) {
+    function spawnZombie(type, pos, forceId) {
       var T = ZTYPES[type] || ZTYPES.walker;
-      zSeq++; var id = 'z-' + zSeq;
+      var id = forceId || ('z-' + (++zSeq));   // forceId: 客户端按主机同步的id建渲染体
       var built = makeZombieMesh(type);
       var grp = built.root; grp.position.set(pos.x, 0, pos.z); scene.add(grp);
       // 不可见命中体(头/身), userData 带 zid+part → 命中检测与外观解耦(将来换真实模型仍可命中)
@@ -9190,18 +9205,23 @@
       for (var id in zombies) { var z = zombies[id]; if (z.alive) { arr.push(z.hitMeshes[0]); arr.push(z.hitMeshes[1]); } }
       return arr;
     }
-    function hitZombie(z, dmg, head) {
+    // killer: true/我=本机击杀(本地加金币); 字符串peerId=远端击杀(主机权威→zkill回传金币); false/空=环境(无金币)
+    function hitZombie(z, dmg, head, killer) {
       if (!z || !z.alive) return;
       z.hp = Math.max(0, z.hp - dmg);
       var gp = z.group.position; spawnDamageNumber(gp.x, gp.y + 2.0*(z.T.scale||1), gp.z, dmg, !!head);
-      if (z.hp <= 0) killZombie(z, true); else hitSound();
+      if (z.hp <= 0) killZombie(z, killer == null ? true : killer); else hitSound();
     }
-    function killZombie(z, byPlayer) {
+    function zAwardGold(killer, amt, pos) {
+      if (killer === true || killer === me.id) { zGold += amt; if (pos) zGoldPop(pos.x, pos.y + 2.4, pos.z, amt); if (typeof zUpdateHud === 'function') zUpdateHud(); }
+      else if (typeof killer === 'string' && isHost) { netSend({ type:'zkill', from:me.id, to:killer, gold:amt }); }   // 主机把金币回传给击杀的客户端
+    }
+    function killZombie(z, killer) {
       if (!z.alive) return;
       z.alive = false; z.deadAt = now();
       for (var i = 0; i < z.hitMeshes.length; i++) z.hitMeshes[i].userData = {};   // 死后不再可命中
       deathSound(); showHitmarker(false);
-      if (byPlayer) { var amt = z.gold|0; zGold += amt; var gp = z.group.position; zGoldPop(gp.x, gp.y + 2.4*(z.T.scale||1), gp.z, amt); if (typeof zUpdateHud === 'function') zUpdateHud(); }
+      if (killer) zAwardGold(killer, z.gold|0, z.group.position);
       if (z.behave === 'bomb') zExplode(z.group.position.clone(), z.T.boomR || 5, z.dmg);   // 自爆尸死亡也炸
     }
     function zGoldPop(x, y, z, amt) {
@@ -9283,6 +9303,7 @@
           if (t - z.deadAt > 2400) { scene.remove(z.group); z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[id]; }
           continue;
         }
+        if (!zIsClient()) {   // AI/移动/攻击仅主机(或单机)权威; 客户端只渲染主机同步的位置
         var zx = z.group.position.x, zz = z.group.position.z;
         var tgt = zNearestPlayer(zx, zz);
         if (tgt) {
@@ -9313,6 +9334,7 @@
           } else {   // melee
             if (pdist < Z_ATTACK_R + (z.T.scale-1)*0.5 && t >= z.atkAt) { z.atkAt = t + Z_ATTACK_CD; z.swingAt = t; zDamagePlayer(tgt.id, z.dmg); }
           }
+        }
         }
         poseZombie(z, dt);
       }
@@ -9645,6 +9667,34 @@
       _zspc.set(tgt.x, tgt.y + 3.2, tgt.z + 5.5);
       camera.position.lerp(_zspc, Math.min(1, dt * 3));
       camera.lookAt(tgt.x, tgt.y + 1.4, tgt.z);
+    }
+
+    // ===================== M6b 合作联机: 主机权威模拟+广播, 客户端渲染+上报 =====================
+    var _zForceClient = false, _zSyncAt = 0;
+    function zIsClient() { return _zForceClient || (joined && !isHost && !!(hostConn && hostConn.open)); }
+    function zBroadcast() {   // 主机 ~12Hz 广播全体僵尸快照 + 波次状态
+      if (!isHost || !zState) return;
+      var t = now(); if (t - _zSyncAt < 80) return; _zSyncAt = t;
+      var arr = [];
+      for (var id in zombies) { var z = zombies[id], p = z.group.position;
+        arr.push([id, z.type, Math.round(p.x*100)/100, Math.round(p.z*100)/100, Math.round(z.group.rotation.y*100)/100, z.hp|0, z.alive?1:0]); }
+      netSend({ type:'zsync', from:me.id, round:zState.round, phase:zState.phase, budget:zState.budget, spawned:zState.spawned, z:arr });
+    }
+    function zApplySync(msg) {   // 客户端: 用主机快照对齐本地僵尸渲染 + HUD
+      if (!zState) zState = { phase:msg.phase, round:msg.round, budget:msg.budget, spawned:msg.spawned, restEndsAt:0, nextSpawnAt:0, bossPending:false };
+      else { zState.phase = msg.phase; zState.round = msg.round; zState.budget = msg.budget; zState.spawned = msg.spawned; }
+      zRunning = true; zEnsureHud();
+      var seen = {}, arr = msg.z || [], i;
+      for (i = 0; i < arr.length; i++) {
+        var s = arr[i], id = s[0]; seen[id] = 1;
+        var z = zombies[id];
+        if (!z) { z = spawnZombie(s[1], { x:s[2], z:s[3] }, id); if (!z) continue; }
+        z.group.position.x = s[2]; z.group.position.z = s[3]; z.group.rotation.y = s[4]; z.hp = s[5];
+        if (z.alive && s[6] !== 1) { z.alive = false; z.deadAt = now(); for (var k = 0; k < z.hitMeshes.length; k++) z.hitMeshes[k].userData = {}; }
+      }
+      for (var zid in zombies) { if (!seen[zid] && zombies[zid].alive) {
+        var zz = zombies[zid]; scene.remove(zz.group); zz.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[zid]; } }
+      zUpdateHud();
     }
 
     // 约 18Hz 广播自身状态（99 = 持超级武器）
@@ -10221,7 +10271,7 @@
       }
 
       updateRemotes(dt);
-      if (zRunning) { zTick(dt); updateZombies(dt); }   // 僵尸模式: 刷怪+AI(非僵尸模式 zRunning=false 零开销)
+      if (zRunning) { if (!zIsClient()) zTick(dt); updateZombies(dt); zBroadcast(); }   // 僵尸: 主机刷怪+AI并广播; 客户端只渲染(updateZombies内AI已按zIsClient旁路)
       if (joined && isZombieMode() && !me.alive && zSpectating && zState && zState.phase !== 'lost') zSpectateCam(dt);   // 死亡观战: 跟随活着的队友
       updateFx(dt);
       updateDebris(dt);
@@ -10353,6 +10403,10 @@
           zWeaponId:function(){ return activeWeapon().id; },
           addMate:function(id,x,z,alive){ var r=ensureRemote(id||'mate','队友',0x66ccff); if(r){ r.group.position.set(x||0,0,z||0); if(r.target)r.target.set(x||0,0,z||0); r.alive=(alive!==false); r.spawned=true; r.lastSeen=now(); } return r?r.id:null; },
           mateAlive:function(id){ var r=remotes[id]; return r?r.alive:null; },
+          // ---- M6b 联机同步自测钩子 ----
+          zForceClient:function(on){ _zForceClient = !!on; return zIsClient(); },
+          zSyncIn:function(msg){ zApplySync(msg); return zCountAlive(); },   // 直接喂一帧主机快照(客户端渲染)
+          zHostHit:function(zid,dmg,head,from){ var z=zombies[zid]; if(z) hitZombie(z,dmg,head,from); },   // 模拟主机处理客户端 zhit
           superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; },
           wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
