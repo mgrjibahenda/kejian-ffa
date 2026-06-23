@@ -7417,6 +7417,7 @@
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
         if (e.code.indexOf('Digit') === 0) {
           var n = parseInt(e.code.slice(5), 10);
+          if (zShop && zShop.open && n >= 1 && n <= 3) { zBuyItem(n - 1); return; }   // 僵尸休息商店: 1/2/3 购买
           if (n >= 1 && n <= 7) { selectWeapon(n - 1); }   // 1-5基础枪, 6超级武器, 7仙器
         }
         if (e.code === 'Space' && grounded) { vy = JUMP_V; grounded = false; }
@@ -9380,7 +9381,7 @@
       zState = { phase:'pregame', round:0, budget:0, spawned:0, restEndsAt:0, nextSpawnAt: now() + 2500, bossPending:false };
       zBanner('准备迎战…第一波即将来袭', '#d8f0e0'); zUpdateHud();
     }
-    function zStop() { zRunning = false; zState = null; zClearAll(); var h = document.getElementById('zhud'); if (h) h.style.display = 'none'; }
+    function zStop() { zRunning = false; zState = null; zClearAll(); if (typeof zCloseShop === 'function') zCloseShop(); zShop = null; var h = document.getElementById('zhud'); if (h) h.style.display = 'none'; }
     function zTick(dt) {
       if (!zRunning || !zState) return;
       var t = now();
@@ -9493,6 +9494,74 @@
         hitZombie(z, ZBAT.dmg, false); hitAny = true;
       }
       if (hitAny) showHitmarker(false);
+    }
+
+    // ===================== M5 休息商店: 随机3件, 概率随波次变好 =====================
+    var zShop = null;        // { open, items:[3], sold:[3] }
+    var zRevives = 0;        // 持有复活药剂数(M6 用)
+    // 目录: kind weapon/heal/revive/ammo; min=最低波次解锁; w(round)=权重(前期只基础, 后期更好)
+    var ZSHOP_ITEMS = [
+      { id:'w_pistol',  kind:'weapon', wid:'pistol',  name:'手枪',       price:250,  min:1,  ammo:36,  w:function(r){ return r<=6?1.4:0.5; } },
+      { id:'w_smg',     kind:'weapon', wid:'smg',     name:'冲锋枪',     price:600,  min:2,  ammo:120, w:function(r){ return 1.0; } },
+      { id:'w_shotgun', kind:'weapon', wid:'shotgun', name:'霰弹枪',     price:750,  min:3,  ammo:48,  w:function(r){ return 0.9; } },
+      { id:'w_rifle',   kind:'weapon', wid:'rifle',   name:'步枪',       price:1100, min:4,  ammo:100, w:function(r){ return 0.9; } },
+      { id:'w_sniper',  kind:'weapon', wid:'sniper',  name:'狙击枪',     price:1600, min:6,  ammo:30,  w:function(r){ return 0.7; } },
+      { id:'w_mg',      kind:'weapon', wid:'mg',      name:'超级机枪',   price:3800, min:9,  ammo:300, w:function(r){ return 0.55; } },
+      { id:'w_star',    kind:'weapon', wid:'star',    name:'等离子炮',   price:5200, min:12, ammo:10,  w:function(r){ return 0.45; } },
+      { id:'w_hole',    kind:'weapon', wid:'hole',    name:'黑洞炮',     price:5600, min:14, ammo:8,   w:function(r){ return 0.4; } },
+      { id:'w_tsunami', kind:'weapon', wid:'tsunami', name:'排山倒海手', price:6200, min:15, ammo:6,   w:function(r){ return 0.35; } },
+      { id:'w_blade',   kind:'weapon', wid:'blade',   name:'青龙偃月刀', price:7500, min:18, ammo:1,   w:function(r){ return 0.3; } },
+      { id:'w_roar',    kind:'weapon', wid:'roar',    name:'崩星咆哮炮', price:9500, min:22, ammo:10,  w:function(r){ return 0.3; } },
+      { id:'medkit',    kind:'heal',                  name:'医疗包(回满)', price:50, min:1,  w:function(r){ return 1.7; } },
+      { id:'revive',    kind:'revive',                name:'复活药剂',   price:1500, min:4,  w:function(r){ return 0.8; } },
+      { id:'a_bullet',  kind:'ammo', cat:'bullet',     amount:90, name:'子弹 ×90',   price:120,  min:1,  w:function(r){ return 1.4; } },
+      { id:'a_anti',    kind:'ammo', cat:'antimatter', amount:80, name:'反物质 ×80', price:480,  min:9,  w:function(r){ return 0.8; } },
+      { id:'a_neg',     kind:'ammo', cat:'negmatter',  amount:20, name:'负物质 ×20', price:1000, min:18, w:function(r){ return 0.7; } }
+    ];
+    function zShopOpen() { return !!(zShop && zShop.open); }
+    function zRollShop(round) {
+      var pool = ZSHOP_ITEMS.filter(function (it) { return round >= it.min; }), picks = [];
+      for (var k = 0; k < 3 && pool.length; k++) {
+        var tot = 0, i; for (i = 0; i < pool.length; i++) tot += Math.max(0.01, pool[i].w(round));
+        var r = Math.random() * tot, idx = 0;
+        for (i = 0; i < pool.length; i++) { r -= Math.max(0.01, pool[i].w(round)); if (r <= 0) { idx = i; break; } }
+        picks.push(pool[idx]); pool.splice(idx, 1);
+      }
+      return picks;
+    }
+    function zOpenShop() { zShop = { open:true, items: zRollShop(zState ? zState.round : 1), sold:[false,false,false] }; zRenderShop(); }
+    function zCloseShop() { if (zShop) zShop.open = false; var el = document.getElementById('zshop'); if (el) el.style.display = 'none'; }
+    function zBuyItem(slot) {
+      if (!zShop || !zShop.open) return;
+      var it = zShop.items[slot]; if (!it || zShop.sold[slot]) return;
+      if (zGold < it.price) { zBanner('金币不足!', '#ff8a6a'); return; }
+      zGold -= it.price;
+      if (it.kind === 'weapon') zGiveWeapon(it.wid, it.ammo || 0);
+      else if (it.kind === 'heal') { me.hp = maxHp; updateHpHud(); }
+      else if (it.kind === 'revive') { zRevives++; }
+      else if (it.kind === 'ammo') zAddAmmo(it.cat, it.amount);
+      zShop.sold[slot] = true; zUpdateHud(); zRenderShop();
+    }
+    function zRenderShop() {
+      var el = document.getElementById('zshop');
+      if (!el) {
+        var st = document.createElement('style'); st.id = 'zshop-style';
+        st.textContent = '#zshop{position:absolute;left:50%;bottom:72px;transform:translateX(-50%);z-index:8;display:flex;gap:12px;pointer-events:none;font:600 14px system-ui,"Microsoft YaHei",sans-serif;}' +
+          '#zshop .card{background:rgba(10,18,13,.88);border:1px solid rgba(120,200,140,.4);border-radius:12px;padding:10px 14px;min-width:118px;text-align:center;color:#d8f0e0;box-shadow:0 4px 18px rgba(0,0,0,.5);}' +
+          '#zshop .card .k{font-size:19px;color:#9fe0b0;font-weight:800}#zshop .card .n{margin:3px 0;color:#fff}#zshop .card .p{color:#ffd86b}' +
+          '#zshop .card.sold{opacity:.38;border-color:#556}#zshop .card.cant{border-color:#a55}#zshop .card.cant .p{color:#ff8a6a}' +
+          '#zshop .hint{align-self:center;color:#9fdfb0;font-size:12px;max-width:54px;line-height:1.3}';
+        document.head.appendChild(st);
+        el = document.createElement('div'); el.id = 'zshop'; (document.getElementById('hud') || document.body).appendChild(el);
+      }
+      if (!zShop) { el.style.display = 'none'; return; }
+      el.style.display = 'flex';
+      var html = '<div class="hint">🛒 休息商店<br>按 1/2/3 购买</div>';
+      for (var i = 0; i < zShop.items.length; i++) {
+        var it = zShop.items[i], sold = zShop.sold[i], cant = zGold < it.price;
+        html += '<div class="card' + (sold ? ' sold' : (cant ? ' cant' : '')) + '"><div class="k">[' + (i + 1) + ']</div><div class="n">' + it.name + '</div><div class="p">' + (sold ? '已购' : ('💰 ' + it.price)) + '</div></div>';
+      }
+      el.innerHTML = html;
     }
 
     // 约 18Hz 广播自身状态（99 = 持超级武器）
@@ -10184,6 +10253,14 @@
           zAddReserve:function(cat,n){ zAddAmmo(cat,n); return zReserve[cat]; },
           zForceReloadDone:function(){ if(reloadUntil) reloadUntil = now()-1; },
           zReloading:function(){ return now() < reloadUntil; },
+          // ---- M5 商店自测钩子 ----
+          zSetGold:function(n){ zGold = n; if(typeof zUpdateHud==='function') zUpdateHud(); if(typeof zRenderShop==='function'&&zShop) zRenderShop(); return zGold; },
+          zShopState:function(){ return zShop ? { open:zShop.open, gold:zGold, items:zShop.items.map(function(it){return {id:it.id,kind:it.kind,price:it.price};}), sold:zShop.sold.slice() } : null; },
+          zOpenShopT:function(){ zOpenShop(); return this.zShopState(); },
+          zCloseShopT:function(){ zCloseShop(); },
+          zBuy:function(slot){ zBuyItem(slot); return this.zShopState(); },
+          zRevives:function(){ return zRevives; },
+          zRollAt:function(round){ return zRollShop(round).map(function(it){return it.id;}); },
           superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; },
           wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
