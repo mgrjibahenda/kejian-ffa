@@ -37,3 +37,7 @@ hurt.ogg, hurt_breath.ogg
   死亡→zombie_death; 全部源 44.1kHz 立体声, ffmpeg→OGG(q5-6)。
 
 所有音效均为 CC0 或 CC-BY 授权,合法可商用。WAV 原文件经 ffmpeg 转为 OGG。
+
+execute_beam.ogg  (绝对处死之炮·连续死亡光柱音, 循环)
+  来自 "Laser Beam" (frosty ham) —— 许可: CC0 (公共领域)
+  https://opengameart.org/content/laser-beam
