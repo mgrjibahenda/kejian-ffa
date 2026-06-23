@@ -15,4 +15,25 @@ hurt.ogg, hurt_breath.ogg
   来自 "Hurt / Death sound effect for character"  —  许可: CC0 (公共领域)
   https://opengameart.org/content/hurt-death-sound-effect-for-character
 
+僵尸/怪物人声(合作僵尸生存模式) —— 均 CC0 公共领域:
+  zombie_groan1.ogg, zombie_groan2.ogg, zombie_groan3.ogg, zombie_attack1.ogg, zombie_attack2.ogg
+    来自 "Zombies sound pack"  https://opengameart.org/content/zombies-sound-pack
+  zombie_death.ogg
+    来自 "Zombie Pain"         https://opengameart.org/content/zombie-pain
+  zombie_growl1.ogg, zombie_growl2.ogg  (低沉巨兽吼, 适合巨尸/变异)
+    来自 "16 Monster Growls" (StarNinjas)  https://opengameart.org/content/16-monster-growls
+  zombie_horde.ogg  (15s 群尸低吟, 可作背景循环)
+    来自 "Zombie Moans" (darsycho)  https://opengameart.org/content/zombie-moans
+
+环境氛围(阴森夜丛林, 可循环) —— 均 CC0 公共领域:
+  ambient_forest_night.ogg  (从原 216s 剪 48s 段, 首尾 2s 淡入淡出)
+    来自 "Creepy Forest"      https://opengameart.org/content/creepy-forest-f
+  ambient_crickets.ogg
+    来自 "Crickets ambient noise, loopable"  https://opengameart.org/content/crickets-ambient-noise-loopable
+  ambient_horror.ogg  (波次紧张氛围铺底)
+    来自 "Ambient Horror"     https://opengameart.org/content/ambient-horror
+
+  建议接入(玩法/音频层): 僵尸 idle→groan1-3 随机; 锁定/攻击→attack1-2 + growl(巨尸);
+  死亡→zombie_death; 全部源 44.1kHz 立体声, ffmpeg→OGG(q5-6)。
+
 所有音效均为 CC0 或 CC-BY 授权,合法可商用。WAV 原文件经 ffmpeg 转为 OGG。
