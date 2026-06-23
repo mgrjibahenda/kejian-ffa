@@ -495,7 +495,7 @@
     var ALL_SUPER_KINDS = SUPER_KINDS.concat(XIAN_KINDS);        // 测试模式滚轮可切的全部
 
     // 仙器特效参数
-    var ROAR_CHARGE = 2000, ROAR_RADIUS = 16, ROAR_PERSIST = 1100;   // 崩星咆哮炮：蓄力2s、半地图直径、持续1.1s
+    var ROAR_CHARGE = 2000, ROAR_RADIUS = 16, ROAR_PERSIST = 1500;   // 崩星咆哮炮：蓄力2s、半地图直径、持续1.1s
     var BLADE_KILL_R = 14, BLADE_CD = 3000;                           // 青龙偃月刀：约 1/4 地图、3s 冷却
     var BLADE_RISE = 380, BLADE_LUNGE = 300, BLADE_SLAM = 300;        // 三段动画时长(ms)
     var BLADE_LUNGE_SPD = 38, BLADE_LUNGE_UP = 4.2;                   // 突进：又快又高的腾空一跃
@@ -6955,7 +6955,33 @@
       try {
         actx = new (window.AudioContext || window.webkitAudioContext)();
         masterGain = actx.createGain(); masterGain.gain.value = 0.5; masterGain.connect(actx.destination);
+        loadSfx();
       } catch (e) { actx = null; }
+    }
+    // ===== 真实音效(加载 /sounds 下的 .ogg) — CC0/CC-BY 资源,见 sounds/CREDITS.txt =====
+    var SFX_LIST = { plasma_loop:'sounds/plasma_loop.ogg', plasma_charge:'sounds/plasma_charge.ogg', laser_fire:'sounds/laser_fire.ogg', sword_swing:'sounds/sword_swing.ogg', hurt:'sounds/hurt.ogg', hurt_breath:'sounds/hurt_breath.ogg' };
+    var SFX_CLIPS = {};
+    function loadSfx() {
+      if (!actx || loadSfx._done) return; loadSfx._done = true;
+      Object.keys(SFX_LIST).forEach(function (k) {
+        fetch(SFX_LIST[k]).then(function (r) { return r.arrayBuffer(); })
+          .then(function (buf) { actx.decodeAudioData(buf, function (ab) { SFX_CLIPS[k] = ab; }, function () {}); })
+          .catch(function () {});
+      });
+    }
+    function playClip(name, opts) {
+      opts = opts || {};
+      if (!actx || muted) return null;
+      var ab = SFX_CLIPS[name]; if (!ab) return null;
+      var src = actx.createBufferSource(); src.buffer = ab;
+      if (opts.loop) src.loop = true;
+      if (opts.rate) src.playbackRate.value = opts.rate;
+      var g = actx.createGain(); var v = (opts.vol == null ? 1 : opts.vol);
+      var t = actx.currentTime;
+      if (opts.fadeIn) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + opts.fadeIn); } else g.gain.value = v;
+      src.connect(g); g.connect(masterGain); src.start(t);
+      if (opts.dur) { if (opts.fadeOut) { g.gain.setValueAtTime(v, Math.max(t, t + opts.dur - opts.fadeOut)); g.gain.exponentialRampToValueAtTime(0.0001, t + opts.dur); } src.stop(t + opts.dur + 0.03); }
+      return { src:src, gain:g };
     }
     function noiseBuffer(dur) {
       var n = Math.floor(actx.sampleRate * dur);
@@ -7034,14 +7060,15 @@
         o.connect(g); g.connect(masterGain); o.start(t + i*0.06); o.stop(t + i*0.06 + 0.2);
       });
     }
-    function hurtSound() {       // 自己被击中：闷哼
+    function hurtSound() {       // 自己被击中：真实痛哼 + 闷哼
+      playClip('hurt', { vol:0.55 });
       if (!actx || muted) return; var t = actx.currentTime;
       var o = actx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(220, t);
       o.frequency.exponentialRampToValueAtTime(110, t+0.12);
       var g = actx.createGain(); g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.14);
       o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.15);
     }
-    var lastStepAt = 0;
+    var lastStepAt = 0, lastBreathAt = 0;
     function footstepSound() {   // 脚步：低频短促"嗒"
       if (!actx || muted) return; var t = actx.currentTime;
       var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.06);
@@ -7082,6 +7109,8 @@
     }
     // 崩星咆哮炮·专属：雷霆轰出 + 持续咆哮余韵
     function roarBlastSound() {
+      playClip('laser_fire', { vol:0.7 });
+      playClip('plasma_loop', { loop:true, dur:1.5, vol:0.62, fadeIn:0.04, fadeOut:0.35 });   // 1.5s 等离子光柱真实音
       if (!actx || muted) return; var t = actx.currentTime;
       var sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(95, t); sub.frequency.exponentialRampToValueAtTime(28, t+0.7);
       var sg = actx.createGain(); sg.gain.setValueAtTime(0.85, t); sg.gain.exponentialRampToValueAtTime(0.001, t+0.85);
@@ -7114,7 +7143,8 @@
       g2.gain.exponentialRampToValueAtTime(big?0.42:0.26, t+d*0.9); g2.gain.exponentialRampToValueAtTime(0.0001, t+d+0.06);
       o.connect(g2); g2.connect(masterGain); o.start(t); o.stop(t+d+0.12);
     }
-    function bladeSwingSound() { // 挥刀：风声
+    function bladeSwingSound() { // 挥刀：真实挥砍声 + 风声
+      playClip('sword_swing', { vol:0.95 });
       if (!actx || muted) return; var t = actx.currentTime;
       var src = actx.createBufferSource(); src.buffer = noiseBuffer(0.5);
       var bp = actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(600, t); bp.frequency.exponentialRampToValueAtTime(2600, t+0.45);
@@ -7801,6 +7831,11 @@
             if (b.whitecore) { b.whitecore.material.opacity = Math.max(0, 0.95*k)*turb; var ws = 0.8 + 0.35*Math.abs(Math.sin(now()*0.04)); b.whitecore.scale.set(ws,1,ws); }
             if (b.corona) b.corona.material.opacity = Math.max(0, 0.2*k)*pulse;
             if (b.flow) { beamFlowTex.offset.y -= dt * 3.2; b.flow.material.opacity = Math.max(0, 0.55*k)*turb; }   // 能量沿炮线奔涌
+            var trem = 1 + (Math.sin(now()*0.085) + 0.6*Math.sin(now()*0.19)) * 0.075;   // 等离子光柱·高频颤动(径向)
+            if (b.thick)  b.thick.scale.set(trem, 1, trem);
+            if (b.corona) b.corona.scale.set(1 + (trem-1)*1.7, 1, 1 + (trem-1)*1.7);
+            if (b.flow)   b.flow.scale.set(trem, 1, trem);
+            if (b.whitecore) b.whitecore.position.addScaledVector(b.dir, Math.sin(now()*0.21)*0.0);
             for (var sp = 0; sp < 2; sp++) { var pp = b.origin.clone().addScaledVector(b.dir, 3 + Math.random()*(ROAR_RADIUS*4)); spawnStarSpark(pp, b.dir, b.col); }
             if (Math.random() < 0.4) { var p1 = b.origin.clone().addScaledVector(b.dir, 3 + Math.random()*55); spawnArc(p1, p1.clone().addScaledVector(b.dir, 2 + Math.random()*3), b.col); }
           }
@@ -9263,6 +9298,7 @@
         }
         // 残血心跳
         if (me.alive && me.hp < 30 && now() - lastHeartAt > 850) { lastHeartAt = now(); heartbeatSound(); }
+        if (me.alive && me.hp < 35 && now() - lastBreathAt > 4000) { lastBreathAt = now(); playClip('hurt_breath', { vol:0.5 }); }
         // 秘境兜底：超过 60s 没分出胜负 → 自动结束，避免卡死
         if (inRealm && now() - realmEnteredAt > 60000) exitRealm(false);
 

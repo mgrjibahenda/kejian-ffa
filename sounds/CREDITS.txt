@@ -1,0 +1,18 @@
+音效来源 / Sound effect credits
+================================
+
+plasma_loop.ogg, plasma_charge.ogg, laser_fire.ogg
+  来自 "Sci-Fi Sound Effects Library" — Little Robot Sound Factory
+  许可: CC-BY 3.0 (需署名)
+  https://www.littlerobotsoundfactory.com
+  https://opengameart.org/content/sci-fi-sound-effects-library
+
+sword_swing.ogg
+  来自 "RPG Sound Pack"  —  许可: CC0 (公共领域)
+  https://opengameart.org/content/rpg-sound-pack
+
+hurt.ogg, hurt_breath.ogg
+  来自 "Hurt / Death sound effect for character"  —  许可: CC0 (公共领域)
+  https://opengameart.org/content/hurt-death-sound-effect-for-character
+
+所有音效均为 CC0 或 CC-BY 授权,合法可商用。WAV 原文件经 ffmpeg 转为 OGG。
