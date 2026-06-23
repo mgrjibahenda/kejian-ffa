@@ -7557,10 +7557,15 @@
       aimCamera();   // 直接点击开火时，确保用最新的视角方向做射线检测
       if (superActive) { if (!cheatInfinite) superAmmo--; } else ammo[weaponIndex]--;
       fireCooldown = now() + (60000 / w.rpm) * fireRateMul;
-      shootSound(w);
-      viewRecoil = Math.min(viewRecoil + w.kick, 0.12);   // 视角向上的后坐力
-      gunKick = Math.min(gunKick + w.kick * 7 + 0.12, 1.3); // 枪械后坐（后顶 + 上抬）
-      if (kind !== 'roar') fireMuzzle();                  // 咆哮炮有自己的蓄力特效
+      // 蓄力炮(等离子/秘境/崩星咆哮)：点击只是【开始充能】——此刻不出声、不后坐、不闪光、不震屏；
+      // 这些反馈全部挪到真正发射(beam 结算, updateBeams)的那一刻，配合充能音效形成 点击静默→充能嗡鸣→开火轰鸣 的节奏。
+      var chargeCannon = superActive && (kind === 'star' || kind === 'realm' || kind === 'roar');
+      if (!chargeCannon) {
+        shootSound(w);
+        viewRecoil = Math.min(viewRecoil + w.kick, 0.12);   // 视角向上的后坐力
+        gunKick = Math.min(gunKick + w.kick * 7 + 0.12, 1.3); // 枪械后坐（后顶 + 上抬）
+        fireMuzzle();
+      }
 
       if (kind === 'star' || kind === 'realm' || kind === 'roar') fireBeam(kind, w);  // 等离子/秘境/崩星咆哮：激光
       else if (kind === 'hole')                fireBlackHole(w);   // 黑洞炮
@@ -7835,9 +7840,9 @@
           var k = (b.deadAt - now()) / b.persist;
           var pulse = (b.kind === 'roar' && !reduced) ? (0.7 + 0.3 * Math.abs(Math.sin(now()*0.02))) : 1;
           if (b.thin)  b.thin.material.opacity  = Math.max(0, 0.5 * k);
-          if (b.thick) b.thick.material.opacity = Math.max(0, 0.7 * k) * pulse;
-          if (b.field) b.field.material.opacity = Math.max(0, 0.13 * k) * pulse;
-          setBeamGlow(b, Math.max(0, 0.95 * k) * pulse, 1 + (1 - k) * 0.5);   // 发射：发光球最亮、随消散微微膨胀
+          if (b.thick) b.thick.material.opacity = Math.max(0, (b.kind==='roar'?0.7:0.5) * k) * pulse;
+          if (b.field) b.field.material.opacity = Math.max(0, (b.kind==='roar'?0.13:0.04) * k) * pulse;   // 等离子/秘境炮：收窄光辉,持枪者不晃眼
+          setBeamGlow(b, Math.max(0, (b.kind==='roar'?0.95:0.5) * k) * pulse, 1 + (1 - k) * 0.5);   // 等离子/秘境炮发光减弱
           if (b.muzzleOrb) b.muzzleOrb.material.opacity = Math.max(0, 0.9 * k);
           if (b.kind === 'roar' && !reduced) {   // 宇宙长枪：白核湍流明灭 + 能量流动 + 沿线星屑飞溅 + 偶发电弧
             var turb = 0.65 + 0.35 * Math.abs(Math.sin(now()*0.05) + 0.5*Math.sin(now()*0.013));
