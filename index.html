@@ -7833,6 +7833,13 @@
             roarTerminal(b.origin, b.dir, b.col);   // 落点：爆团 + 灼痕
             if (b.starOrb) { scene.remove(b.starOrb); b.starOrb.material.dispose(); b.starOrb = null; }   // 星核塌缩完→轰出
           } else deathSound();
+          // 真正发射这一刻才给【持炮者】后坐+枪口闪光+震屏(等离子/秘境)——点击时已不再有这些反馈
+          if (b.isOwner && me.alive) {
+            viewRecoil = Math.min(viewRecoil + 0.05, 0.12);
+            gunKick = Math.min(gunKick + 0.55, 1.3);
+            fireMuzzle();
+            if (b.kind !== 'roar') shake = Math.min(shake + 0.22, 0.4);   // roar 已有更强的全场震屏
+          }
           laserPunch(b.origin, b.dir, b.len, Math.min(b.radius || 0.5, 1.6));   // 所有能量束击穿建筑/家具; 洞径=激光束半径(各端 beam 都跑→同步)
           if (b.isOwner && me.alive) resolveBeam(b);   // 死亡后不再造成伤害（修 bug）
         }
