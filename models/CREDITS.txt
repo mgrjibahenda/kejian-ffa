@@ -1,0 +1,16 @@
+模型来源 / 3D model credits
+================================
+
+zmob_demon.glb, zmob_orc.glb, zmob_yeti.glb, zmob_ghost.glb, zmob_skull.glb
+  来自 "Ultimate Monsters" (Quaternius) —— 50 个带攻击/死亡/奔跑/行走骨骼动画的怪物
+  许可: CC0 (公共领域，可商用，无需署名)
+  https://quaternius.com/
+  https://poly.pizza/bundle/Ultimate-Monsters-Bundle-5oyGWAmOB6
+  用途: 合作僵尸生存模式的"变异僵尸"真实模型(经 vendor/zassets.js 的 GLTFLoader 载入 +
+        SkeletonUtils 克隆 + AnimationMixer 播放)。映射见 vendor/zassets.js 的 DEFS 表。
+
+Soldier.glb, RobotExpressive.glb
+  来自 three.js r137 官方示例资源 (mrdoob/three.js examples/models/gltf)
+  许可: 见 three.js 仓库 (MIT / 资源各自授权)
+
+所有模型均为 CC0 或开放授权,合法可商用。.glb 经 head -c 4 校验为 "glTF" 二进制。
