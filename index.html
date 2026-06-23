@@ -7412,6 +7412,7 @@
         if (e.code === 'Tab') { e.preventDefault(); if (!boardOpen) { boardOpen = true; renderFullBoard(); document.getElementById('fullboard').style.display = 'flex'; } return; }
         keys[e.code] = true;
         if (e.code === 'KeyR') startReload();
+        if (e.code === 'KeyE' && isZombieMode()) zTryRevive();   // 僵尸: 用复活药剂救起倒地队友
         if (e.code === 'KeyM') { muted = !muted; }
         // 测试模式：6/7/8/9/0 切换超级武器（再按同键补满弹药）
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
@@ -8687,9 +8688,10 @@
       deadUntil = now() + 3000;
       slamUntil = 0; slamImpactDone = true;   // 取消未落下的青龙刀，死后不再造成伤害
       chargeUntil = 0;                         // 取消蓄力动画
-      dropAllSupers();         // 死亡失去全部超级武器/仙器
       ads = false;
       deathSound();
+      if (isZombieMode()) { zOnPlayerDeath(byId); return; }   // 僵尸: 保留武器/观战待队友复活/不走FFA计分
+      dropAllSupers();         // 死亡失去全部超级武器/仙器
       // 广播击杀事件（由被击杀方广播，更新所有人的计分/击杀提示）
       netSend({ type:'kill', from:me.id, killer:byId, victim:me.id, weapon:weapon, head:!!head });
       updateKill(byId, me.id, weapon, !!head);
@@ -9054,6 +9056,14 @@
         case 'leave':
           removeRemote(msg.from); delete scores[msg.from]; updateScoreboard();
           break;
+        // ---- 僵尸合作: 被僵尸近战打伤 / 复活 ----
+        case 'zhurt':
+          if (msg.to === me.id && me.alive && isZombieMode()) applyDamage(msg.dmg || 0, 'zombie', 'zombie', false);
+          break;
+        case 'zrevive':
+          if (msg.target === me.id) zReviveMe();
+          else { var rr = remotes[msg.target]; if (rr) { rr.alive = true; rr.labelDirty = true; } }
+          break;
       }
     }
 
@@ -9226,7 +9236,7 @@
     }
     function zDamagePlayer(targetId, dmg) {
       if (targetId === me.id) { if (me.alive) applyDamage(dmg, 'zombie', 'zombie', false); }
-      else netSend({ type:'zhit', from:me.id, to:targetId, dmg:dmg });   // 联机: 通知该玩家受伤(M6 完善)
+      else netSend({ type:'zhurt', from:me.id, to:targetId, dmg:dmg });   // 联机: 主机权威, 通知该玩家受伤
     }
     function zExplode(pos, R, dmg) {
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff6a2a, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
@@ -9376,6 +9386,8 @@
     function zWin() { zState.phase = 'won'; zBanner('🏆 通关！50 波全数清空！', '#ffd86b'); zUpdateHud(); }
     function zInit() {
       zClearAll(); zGold = 0; zEnsureDoors(); zEnsureHud(); zRunning = true;
+      me.alive = true; me.hp = maxHp = 100; zSpectating = false; zRevives = 0;   // 开局/重开: 玩家满血复生
+      if (typeof zShowDeadOverlay === 'function') zShowDeadOverlay(false, false);
       zReserve = { bullet:0, antimatter:0, negmatter:0 };
       zGiveWeapon('bat');   // 开局只手持近战棒球棍, 更强武器从休息商店购买
       zState = { phase:'pregame', round:0, budget:0, spawned:0, restEndsAt:0, nextSpawnAt: now() + 2500, bossPending:false };
@@ -9562,6 +9574,77 @@
         html += '<div class="card' + (sold ? ' sold' : (cant ? ' cant' : '')) + '"><div class="k">[' + (i + 1) + ']</div><div class="n">' + it.name + '</div><div class="p">' + (sold ? '已购' : ('💰 ' + it.price)) + '</div></div>';
       }
       el.innerHTML = html;
+    }
+
+    // ===================== M6: 死亡观战 + 队友复活药剂救援 + 全员失守 =====================
+    var zSpectating = false, zSpectIdx = 0, zSavedWeapon = null, Z_REVIVE_RANGE = 2.8;
+    function zSnapshotWeapon() { return { bat:zBatActive, superActive:superActive, superKind:superKind, weaponIndex:weaponIndex, superAmmo:superAmmo, clip:ammo[weaponIndex] }; }
+    function zRestoreWeapon(s) {
+      if (!s) { zGiveWeapon('bat'); return; }
+      zBatActive = s.bat; superActive = s.superActive; superKind = s.superKind; weaponIndex = s.weaponIndex;
+      superAmmo = s.superAmmo; ammo[s.weaponIndex] = s.clip; mechaWorn = false; reloadUntil = 0;
+      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+    }
+    function zLivingTeammates() { var a = []; for (var id in remotes) { var r = remotes[id]; if (r && r.alive && !r.isZombie && !r.isDummy) a.push(r); } return a; }
+    function zOnPlayerDeath(byId) {
+      zSavedWeapon = zSnapshotWeapon();   // 记住死前武器(复活后恢复)
+      zSpectating = true; ads = false;
+      zBanner('你已倒下 — 等待队友用复活药剂救援', '#ff8a6a');
+      zShowDeadOverlay(true, false);
+      zCheckAllDead();
+    }
+    function zCheckAllDead() {
+      if (!zState) return false;
+      if (!me.alive && zLivingTeammates().length === 0) {   // 全员倒下 → 失守
+        zState.phase = 'lost';
+        zBanner('💀 全员失守…止步第 ' + zState.round + ' 波', '#ff5a5a');
+        zShowDeadOverlay(true, true);
+        return true;
+      }
+      return false;
+    }
+    // E 键: 活着的玩家用复活药剂救起最近的倒地队友
+    function zTryRevive() {
+      if (!isZombieMode() || !me.alive) return;
+      if (zRevives <= 0) { zBanner('需要复活药剂(休息商店购买)', '#ffd86b'); return; }
+      var best = null, bd = Z_REVIVE_RANGE * Z_REVIVE_RANGE;
+      for (var id in remotes) { var r = remotes[id]; if (!r || r.alive || r.isZombie || r.isDummy) continue;
+        var dx = r.group.position.x - playerPos.x, dz = r.group.position.z - playerPos.z, d2 = dx*dx + dz*dz;
+        if (d2 < bd) { bd = d2; best = r; } }
+      if (!best) { zBanner('附近没有倒地的队友', '#ffd86b'); return; }
+      zRevives--; best.alive = true; best.labelDirty = true;
+      netSend({ type:'zrevive', from:me.id, target:best.id });
+      zBanner('已用复活药剂救起队友!', '#9fe0b0'); updateAmmoHud();
+    }
+    // 我被队友复活(收到 zrevive 且 target===me)
+    function zReviveMe() {
+      if (me.alive) return;
+      me.alive = true; me.hp = 100; maxHp = 100; zSpectating = false;
+      vy = 0; lastDamageAt = now(); deadUntil = 0;
+      if (zState && zState.phase === 'lost') zState.phase = 'combat';   // 被救→继续作战
+      zRestoreWeapon(zSavedWeapon);   // 复活后保留死前武器
+      zShowDeadOverlay(false, false);
+      zBanner('复活! 重返战斗', '#9fe0b0'); updateHpHud();
+    }
+    function zShowDeadOverlay(on, lost) {
+      var el = document.getElementById('zdead');
+      if (!el) { el = document.createElement('div'); el.id = 'zdead';
+        el.style.cssText = 'position:absolute;inset:0;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;background:rgba(24,0,0,.34);color:#fff;font:700 30px system-ui,"Microsoft YaHei",sans-serif;text-align:center;text-shadow:0 2px 8px #000;';
+        (document.getElementById('hud') || document.body).appendChild(el);
+      }
+      el.innerHTML = lost ? ('💀 全员失守<br><span style="font-size:16px;color:#fbb">止步第 ' + (zState ? zState.round : 0) + ' 波 — 刷新页面重开</span>')
+        : '☠ 你已倒下<br><span style="font-size:16px;color:#fda">观战队友中 · 等待复活药剂救援</span>';
+      el.style.display = on ? 'flex' : 'none';
+    }
+    // 观战相机: 跟随一个活着的队友
+    var _zspc = new THREE.Vector3();
+    function zSpectateCam(dt) {
+      var mates = zLivingTeammates(); if (!mates.length) return;
+      if (zSpectIdx >= mates.length) zSpectIdx = 0;
+      var tgt = mates[zSpectIdx].group.position;
+      _zspc.set(tgt.x, tgt.y + 3.2, tgt.z + 5.5);
+      camera.position.lerp(_zspc, Math.min(1, dt * 3));
+      camera.lookAt(tgt.x, tgt.y + 1.4, tgt.z);
     }
 
     // 约 18Hz 广播自身状态（99 = 持超级武器）
@@ -10139,6 +10222,7 @@
 
       updateRemotes(dt);
       if (zRunning) { zTick(dt); updateZombies(dt); }   // 僵尸模式: 刷怪+AI(非僵尸模式 zRunning=false 零开销)
+      if (joined && isZombieMode() && !me.alive && zSpectating && zState && zState.phase !== 'lost') zSpectateCam(dt);   // 死亡观战: 跟随活着的队友
       updateFx(dt);
       updateDebris(dt);
       updateBeams(dt);          // 崩星/秘境 激光轨迹与结算
@@ -10261,6 +10345,14 @@
           zBuy:function(slot){ zBuyItem(slot); return this.zShopState(); },
           zRevives:function(){ return zRevives; },
           zRollAt:function(round){ return zRollShop(round).map(function(it){return it.id;}); },
+          // ---- M6 死亡/观战/复活 自测钩子 ----
+          zDead:function(){ return { alive:me.alive, spectating:zSpectating, phase:zState?zState.phase:null, revives:zRevives }; },
+          zKillMe:function(){ applyDamage(999999,'zombie','zombie',false); },
+          zSetRevives:function(n){ zRevives = n; updateAmmoHud(); return zRevives; },
+          zReviveTeammate:function(){ zTryRevive(); },
+          zWeaponId:function(){ return activeWeapon().id; },
+          addMate:function(id,x,z,alive){ var r=ensureRemote(id||'mate','队友',0x66ccff); if(r){ r.group.position.set(x||0,0,z||0); if(r.target)r.target.set(x||0,0,z||0); r.alive=(alive!==false); r.spawned=true; r.lastSeen=now(); } return r?r.id:null; },
+          mateAlive:function(id){ var r=remotes[id]; return r?r.alive:null; },
           superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; },
           wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
