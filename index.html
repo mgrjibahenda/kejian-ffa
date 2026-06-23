@@ -293,7 +293,10 @@
         <button type="button" data-dummy="mecha">超级机甲</button>
         <button type="button" data-dummy="godmecha">终焉机神</button>
       </div>
-      <div class="dp-hint">机甲无法退出(只有死亡才失去) · 滚轮/数字键切换全部武器</div>
+      <div class="dp-row" style="margin-top:6px;">
+        <button type="button" data-equip="execute" style="color:#00ffe0;border-color:#0a6;">☠ 绝对处死之炮</button>
+      </div>
+      <div class="dp-hint">机甲无法退出(只有死亡才失去) · 滚轮/数字键切换全部武器 · ☠按钮一键装绝对处死之炮</div>
     </div>
 
     <div id="scorebox">
@@ -7424,7 +7427,9 @@
       var dp = document.getElementById('devpanel');
       if (dp) dp.addEventListener('click', function (e) {
         var k = e.target && e.target.getAttribute('data-dummy');
-        if (k) { addDummy(k); if (document.pointerLockElement) {} }
+        if (k) { addDummy(k); return; }
+        var eq = e.target && e.target.getAttribute('data-equip');
+        if (eq && SUPERS[eq]) { if (!cheatMode) applyCheat(); cheatEquip(eq); }
       });
       testpw.addEventListener('keydown', function (e) {
         e.stopPropagation();   // 别让 6/7 等按键漏到游戏里
@@ -8800,8 +8805,8 @@
       if (cheatMode) {
         // 测试模式(开发)：下方显示全部超级武器/仙器，滚轮切换，高亮当前
         slots = ALL_SUPER_KINDS.map(function (kk) {
-          var on = superActive && superKind === kk, xian = SUPERS[kk].isXian;
-          return '<div class="slot' + (on?' active':'') + (xian?' super':'') + '">' + (xian?'✦':'★') + esc(SUPERS[kk].name) + '</div>';
+          var on = superActive && superKind === kk, xian = SUPERS[kk].isXian, absw = SUPERS[kk].isAbsolute;
+          return '<div class="slot' + (on?' active':'') + ((xian||absw)?' super':'') + '">' + (absw?'☠':xian?'✦':'★') + esc(SUPERS[kk].name) + '</div>';
         }).join('');
       } else {
         slots = WEAPONS.map(function (ww, i) {
