@@ -57,7 +57,33 @@
   var loaded = 0;
   var loader = new T.GLTFLoader();
 
+  // ---- 环境道具(静态, 无动画): 树/枯树/石/墓碑。多树包按命名拆成多个变体。 ----
+  var PROPS = {
+    deadtree: { file: 'zprop_deadtree.glb', split: 'DeadTree', hMin: 5.0, hMax: 8.5 },   // 5 棵枯树, 阴森林主体
+    tree:     { file: 'zprop_tree.glb',                        hMin: 4.5, hMax: 7.0 },   // 茂密暗树
+    rock:     { file: 'zprop_rock.glb',                        hMin: 0.7, hMax: 1.8 }    // 散石(铺地)
+  };
+  var propKeys = Object.keys(PROPS);
+  var propCache = {};    // kind -> [Object3D 变体]
+  var propLoaded = 0, propReadyCbs = [];
+
   function firstReady() { for (var i = 0; i < keys.length; i++) if (cache[keys[i]]) return keys[i]; return null; }
+  // 克隆并归一化一个静态道具源 → 居中(x,z)+落地(y0)+按目标高随机缩放, 返回裸 Object3D
+  function fitProp(src, hMin, hMax, yaw) {
+    var o = src.clone(true);
+    o.traverse(function (c) { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false; c.frustumCulled = true; } });
+    var box = new T.Box3().setFromObject(o);
+    var natH = (box.max.y - box.min.y) || 1;
+    o.position.x -= (box.min.x + box.max.x) / 2;
+    o.position.z -= (box.min.z + box.max.z) / 2;
+    o.position.y -= box.min.y;
+    var h = hMin + Math.random() * (hMax - hMin);
+    var outer = new T.Group();
+    outer.add(o);
+    outer.scale.setScalar(h / natH);
+    outer.rotation.y = (yaw == null ? Math.random() * Math.PI * 2 : yaw);
+    return outer;
+  }
 
   var API = {
     ready: false, error: null, list: Object.keys(TYPEMAP).filter(function (k) { return k !== '_default'; }),
@@ -94,6 +120,18 @@
       outer.userData.za = { mixer: mixer, play: play, variant: key, type: type };
       live.push({ root: outer, mixer: mixer, added: false });
       return outer;
+    },
+    // ---- 环境道具(地图用): 返回归一化好的裸 Object3D(静态)。kind ∈ deadtree|tree|rock|grave ----
+    propsReady: false,
+    propList: propKeys.slice(),
+    onPropsReady: function (cb) { if (typeof cb !== 'function') return; if (API.propsReady) cb(); else propReadyCbs.push(cb); },
+    makeProp: function (kind, yaw) {
+      var arr = propCache[kind];
+      if (!arr || !arr.length) { for (var k in propCache) { if (propCache[k].length) { arr = propCache[k]; kind = k; break; } } }
+      if (!arr || !arr.length) return null;
+      var src = arr[(Math.random() * arr.length) | 0];
+      var def = PROPS[kind] || { hMin: 4, hMax: 6 };
+      return fitProp(src, def.hMin, def.hMax, yaw);
     }
   };
   window.ZAssets = API;
@@ -122,5 +160,19 @@
       cache[key] = { scene: gltf.scene, names: names, natH: natH, minY: minY };
       done();
     }, undefined, function (err) { if (window.console) console.warn('[ZAssets] 载入失败 ' + key, err); done(); });
+  });
+
+  function propDone() { if (++propLoaded >= propKeys.length) { API.propsReady = true; for (var i = 0; i < propReadyCbs.length; i++) { try { propReadyCbs[i](); } catch (e) {} } propReadyCbs.length = 0; } }
+  propKeys.forEach(function (kind) {
+    var def = PROPS[kind];
+    loader.load(BASE + def.file, function (gltf) {
+      var variants = [];
+      if (def.split) {   // 多物体包(如 5 棵枯树): 按名字前缀拆成多个独立变体
+        gltf.scene.traverse(function (o) { if ((o.isMesh || o.isGroup) && o.name && o.name.indexOf(def.split) === 0) variants.push(o); });
+      }
+      if (!variants.length) variants = [gltf.scene];   // 单物体: 整个场景作为一个变体
+      propCache[kind] = variants;
+      propDone();
+    }, undefined, function (err) { if (window.console) console.warn('[ZAssets] 道具载入失败 ' + kind, err); propDone(); });
   });
 })();

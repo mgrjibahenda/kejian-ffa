@@ -6226,17 +6226,25 @@
       // 屋顶门廊雨棚(正面, 纯装饰)
       townPut(makeAwning(M, { w:4.2, depth:1.6, color:'fabricGray' }), -8.1, 2.6, 0, -Math.PI/2, 'decor');
 
-      // ---------- 丛林: 密集树木 + 灌木环绕(留出房子周围空地) ----------
+      // ---------- 丛林: 真实模型(枯树/暗树/散石); ZAssets 道具未就绪则退回程序化, 到位后自动重建一次 ----------
+      var _ZA = window.ZAssets, _real = !!(_ZA && _ZA.propsReady && typeof _ZA.makeProp === 'function');
       var nTrees = 64;
       for (i = 0; i < nTrees; i++) {
-        var a = rng()*Math.PI*2, rad = CLEAR + rng()*(HALF-CLEAR-3);
-        var th = 5 + rng()*4.5;
-        townPut(makeStreetTree(M, { h:th, seed:(i*7+3)|0, bare:(rng()<0.16) }), Math.cos(a)*rad, 0, Math.sin(a)*rad, rng()*Math.PI*2, 'decor');
+        var a = rng()*Math.PI*2, rad = CLEAR + rng()*(HALF-CLEAR-3), yw = rng()*Math.PI*2;
+        var th = 5 + rng()*4.5, bare = (rng()<0.16);   // 保持 rng 调用次数不变, 真/假分支位置一致
+        if (_real) townPut(_ZA.makeProp(rng()<0.72 ? 'deadtree' : 'tree', 0), Math.cos(a)*rad, 0, Math.sin(a)*rad, yw, 'decor');
+        else       townPut(makeStreetTree(M, { h:th, seed:(i*7+3)|0, bare:bare }), Math.cos(a)*rad, 0, Math.sin(a)*rad, yw, 'decor');
       }
       var nBush = 46;
       for (i = 0; i < nBush; i++) {
-        var a2 = rng()*Math.PI*2, rad2 = (CLEAR-2) + rng()*(HALF-CLEAR);
-        townPut(makeBush(M, { r:0.6+rng()*1.0, seed:(i*13+1)|0 }), Math.cos(a2)*rad2, 0, Math.sin(a2)*rad2, rng()*Math.PI*2, 'decor');
+        var a2 = rng()*Math.PI*2, rad2 = (CLEAR-2) + rng()*(HALF-CLEAR), yw2 = rng()*Math.PI*2, br = 0.6+rng()*1.0;
+        if (_real) townPut(_ZA.makeProp('rock', 0), Math.cos(a2)*rad2, 0, Math.sin(a2)*rad2, yw2, 'decor');
+        else       townPut(makeBush(M, { r:br, seed:(i*13+1)|0 }), Math.cos(a2)*rad2, 0, Math.sin(a2)*rad2, yw2, 'decor');
+      }
+      // 道具异步未就绪 → 载入完成后重建一次本图, 把程序化树换成真实模型(clearMap 清旧, 至多一次)
+      if (!_real && _ZA && _ZA.onPropsReady && !window.__zHouseReal) {
+        window.__zHouseReal = true;
+        _ZA.onPropsReady(function () { if (currentMap === 'zombie_house') { buildMap('zombie_house'); playerPos.copy(randomSpawn()); } });
       }
 
       // ---------- 几盏摇曳的提灯(暖点光, 给阴森丛林一点指引) ----------
