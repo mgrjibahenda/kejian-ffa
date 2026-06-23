@@ -576,8 +576,8 @@
     var slamUntil = 0, slamStart = 0, bladeReadyAt = 0, lastHeartAt = 0, burstSlam = false;   // 青龙偃月刀/爆地：挥砍锁定 / 冷却；心跳计时
 
     // 当前生效的武器/弹药（普通武器 or 超级武器）
-    function activeWeapon() { return superActive ? SUPERS[superKind] : WEAPONS[weaponIndex]; }
-    function activeAmmo()   { return superActive ? superAmmo : ammo[weaponIndex]; }
+    function activeWeapon() { if (zBatActive) return ZBAT; return superActive ? SUPERS[superKind] : WEAPONS[weaponIndex]; }
+    function activeAmmo()   { if (zBatActive) return Infinity; return superActive ? superAmmo : ammo[weaponIndex]; }
 
     var keys = {};
 
@@ -6536,7 +6536,7 @@
 
     function buildViewGun() {
       if (viewGun) camera.remove(viewGun);
-      viewGun = buildGunModel(activeWeapon(), mechaWorn ? mechaWeapon : 0);
+      viewGun = zBatActive ? zBuildBat() : buildGunModel(activeWeapon(), mechaWorn ? mechaWeapon : 0);
 
       // 枪口闪光（贴在枪管口，默认隐藏，开火时闪一下）
       gunMuzzle = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -7640,6 +7640,7 @@
         return;
       }
       if (mechaWorn) return;            // 超级机甲穿上：锁定(机甲无法退出)
+      if (isZombieMode()) return;       // 僵尸模式: 单武器槽, 不能切换(只能商店购买替换)
       if (i >= 0 && i <= 4 && !superActive && i === weaponIndex) return;
       if (i === 5 && weaponIndex === 5 && superActive) return;
       if (i === 6 && weaponIndex === 6 && superActive) return;
@@ -7657,6 +7658,7 @@
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
     }
     function startReload() {
+      if (isZombieMode()) { zStartReloadZ(); return; }   // 僵尸模式: 从储备弹换弹(枪/超武/仙器统一)
       if (superActive) return;          // 超级武器没有换弹
       var w = WEAPONS[weaponIndex];
       if (ammo[weaponIndex] >= w.mag) return;
@@ -7714,6 +7716,7 @@
     function tryFire() {
       if (!joined || paused || !me.alive) return;
       if (now() < slamUntil) return;                 // 青龙刀挥砍动画中：不能行动
+      if (zBatActive) { if (now() >= fireCooldown) zBatSwing(); return; }   // 僵尸模式: 棒球棍近战挥击
       var w = activeWeapon();
       var kind = superActive ? w.kind : null;
 
@@ -7737,7 +7740,7 @@
 
       if (now() < reloadUntil) return;
       if (now() < fireCooldown) return;
-      if (activeAmmo() <= 0) { if (!superActive) startReload(); return; }
+      if (activeAmmo() <= 0) { if (!superActive || isZombieMode()) startReload(); return; }
 
       aimCamera();   // 直接点击开火时，确保用最新的视角方向做射线检测
       if (superActive) { if (!cheatInfinite) superAmmo--; } else ammo[weaponIndex]--;
@@ -7760,7 +7763,7 @@
       if (superActive && !reduced) { camera.getWorldDirection(_fwd); spawnMuzzleDischarge(_fwd, w.col, !!w.isXian, !!w.auto); }   // 超武/仙器枪口迸发(仙器更炸)
 
       updateAmmoHud();
-      if (superActive && !cheatInfinite) { if (superAmmo <= 0) dropSuper(); }   // 弹药打光 → 失去
+      if (superActive && !cheatInfinite) { if (superAmmo <= 0) { if (isZombieMode()) startReload(); else dropSuper(); } }   // 僵尸模式: 打空不丢, 改从储备换弹
       else if (!superActive && ammo[weaponIndex] <= 0) startReload();
     }
 
@@ -8797,6 +8800,12 @@
     }
     function updateAmmoHud() {
       var w = activeWeapon();
+      if (isZombieMode() && !cheatInfinite) {     // 僵尸模式: 显示 弹匣 / 储备弹(分类)
+        if (zBatActive || (w && w.melee)) { document.getElementById('ammo').innerHTML = '🦯<span class="res"> 近战</span>'; return; }
+        var cat = zAmmoCat(w), clip = superActive ? superAmmo : ammo[weaponIndex];
+        document.getElementById('ammo').innerHTML = clip + '<span class="res"> / ' + (zReserve[cat] || 0) + ' ' + (ZAMMO_LABEL[cat] || '') + '</span>';
+        return;
+      }
       var amt = cheatInfinite ? '∞' : activeAmmo();
       var mag = (w.melee || cheatInfinite) ? '∞' : w.mag;
       document.getElementById('ammo').innerHTML = amt + '<span class="res"> / ' + mag + '</span>';
@@ -9366,6 +9375,8 @@
     function zWin() { zState.phase = 'won'; zBanner('🏆 通关！50 波全数清空！', '#ffd86b'); zUpdateHud(); }
     function zInit() {
       zClearAll(); zGold = 0; zEnsureDoors(); zEnsureHud(); zRunning = true;
+      zReserve = { bullet:0, antimatter:0, negmatter:0 };
+      zGiveWeapon('bat');   // 开局只手持近战棒球棍, 更强武器从休息商店购买
       zState = { phase:'pregame', round:0, budget:0, spawned:0, restEndsAt:0, nextSpawnAt: now() + 2500, bossPending:false };
       zBanner('准备迎战…第一波即将来袭', '#d8f0e0'); zUpdateHud();
     }
@@ -9418,6 +9429,70 @@
         else if (zState.phase === 'lost') { MID.innerHTML = '<span class="r">💀 失守</span>'; }
         else { MID.textContent = ''; }
       }
+    }
+
+    // ===================== M4: 棒球棍起手 + 单武器槽 + 三类有限弹药 =====================
+    // 仅僵尸模式生效(zBatActive / isZombieMode 旁路, FFA 零影响)。弹药: 基础枪=子弹, 超武=反物质, 仙器=负物质。
+    var zBatActive = false;
+    var zReserve = { bullet:0, antimatter:0, negmatter:0 };
+    var ZBAT = { id:'bat', name:'棒球棍', melee:true, dmg:55, rpm:130, mag:0, range:3.2, arc:0.55, col:0x9a7a4a, zoom:1.0, spread:0, pellets:1 };
+    var ZAMMO_LABEL = { bullet:'子弹', antimatter:'反物质', negmatter:'负物质' };
+    function zAmmoCat(w) { return (!w || w.melee) ? null : (w.isXian ? 'negmatter' : w.isSuper ? 'antimatter' : 'bullet'); }
+    function zSuperKeyOf(id) { if (SUPERS[id]) return id; for (var k in SUPERS) if (SUPERS[k].id === id) return k; return null; }
+    function zWeaponIdx(id) { for (var i = 0; i < WEAPONS.length; i++) if (WEAPONS[i].id === id) return i; return -1; }
+    function zBuildBat() {
+      var g = new THREE.Group();
+      var wood = new THREE.MeshStandardMaterial({ color:0x9a6f3a, roughness:0.65, metalness:0.05 });
+      var grip = new THREE.MeshStandardMaterial({ color:0x20201a, roughness:0.95 });
+      var barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.034, 0.66, 12), wood); barrel.rotation.x = Math.PI/2; barrel.position.set(0, 0, -0.34); g.add(barrel);
+      var knob = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.05, 10), wood); knob.rotation.x = Math.PI/2; knob.position.set(0, 0, 0.06); g.add(knob);
+      var handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.2, 10), grip); handle.rotation.x = Math.PI/2; handle.position.set(0, 0, -0.02); g.add(handle);
+      g.userData.muzzleZ = -0.66;
+      return g;
+    }
+    // 授予/替换玩家唯一武器(商店/开局调用)。ammoAmt: 附带储备弹(进对应储备池)。"买新武器旧武器消失"=单槽覆盖。
+    function zGiveWeapon(id, ammoAmt) {
+      mechaWorn = false; cheatInfinite = false; reloadUntil = 0; ads = false; fireCooldown = now() + 150;
+      if (typeof slot6Kind !== 'undefined') { slot6Kind = null; }   // 僵尸模式不用多格物品栏
+      if (id === 'bat') { zBatActive = true; superActive = false; superKind = null; }
+      else {
+        var sk = zSuperKeyOf(id);
+        if (sk) { zBatActive = false; superActive = true; superKind = sk; superAmmo = SUPERS[sk].mag; if (ammoAmt) zReserve[zAmmoCat(SUPERS[sk])] += ammoAmt; }
+        else { var idx = zWeaponIdx(id); if (idx < 0) return; zBatActive = false; superActive = false; superKind = null; weaponIndex = idx; ammo[idx] = WEAPONS[idx].mag; if (ammoAmt) zReserve.bullet += ammoAmt; }
+      }
+      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+    }
+    function zAddAmmo(cat, amt) { if (zReserve[cat] != null) { zReserve[cat] += amt; updateAmmoHud(); } }
+    function zStartReloadZ() {
+      var w = activeWeapon(); var cat = zAmmoCat(w); if (!cat) return;
+      var clip = superActive ? superAmmo : ammo[weaponIndex];
+      if (clip >= w.mag) return;
+      if ((zReserve[cat] || 0) <= 0) return;        // 无储备弹 → 不能换
+      if (now() < reloadUntil) return;
+      reloadDur = (w.reload || 1.4) * 1000; reloadUntil = now() + reloadDur; reloadSound();
+    }
+    function zFinishReloadZ() {
+      var w = activeWeapon(); var cat = zAmmoCat(w); reloadUntil = 0; if (!cat) return;
+      var clip = superActive ? superAmmo : ammo[weaponIndex];
+      var take = Math.min(w.mag - clip, zReserve[cat] || 0); if (take < 0) take = 0;
+      zReserve[cat] -= take;
+      if (superActive) superAmmo += take; else ammo[weaponIndex] += take;
+      updateAmmoHud();
+    }
+    // 棒球棍挥击: 前方扇形内的僵尸受伤(近战), 复用 hitZombie
+    function zBatSwing() {
+      fireCooldown = now() + (60000 / ZBAT.rpm);
+      viewRecoil = Math.min(viewRecoil + 0.03, 0.12); gunKick = Math.min(gunKick + 0.7, 1.3);
+      if (typeof swingSound === 'function') { try { swingSound(); } catch (e) {} }
+      camera.getWorldDirection(_fwd); _fwd.y = 0; if (_fwd.lengthSq() < 1e-6) _fwd.set(0,0,-1); _fwd.normalize();
+      var hitAny = false;
+      for (var id in zombies) { var z = zombies[id]; if (!z.alive) continue;
+        var dx = z.group.position.x - playerPos.x, dz = z.group.position.z - playerPos.z;
+        var d = Math.sqrt(dx*dx + dz*dz); if (d > ZBAT.range) continue;
+        if ((dx*_fwd.x + dz*_fwd.z) / (d || 1) < ZBAT.arc) continue;   // 不在前方扇形内
+        hitZombie(z, ZBAT.dmg, false); hitAny = true;
+      }
+      if (hitAny) showHitmarker(false);
     }
 
     // 约 18Hz 广播自身状态（99 = 持超级武器）
@@ -9943,9 +10018,10 @@
         // 秘境兜底：超过 60s 没分出胜负 → 自动结束，避免卡死
         if (inRealm && now() - realmEnteredAt > 60000) exitRealm(false);
 
-        // 换弹完成（超级武器没有换弹）
+        // 换弹完成（僵尸模式: 从储备弹补充, 含超武/仙器; 否则普通无限补满）
         if (reloadUntil && now() >= reloadUntil) {
-          ammo[weaponIndex] = WEAPONS[weaponIndex].mag; reloadUntil = 0; updateAmmoHud();
+          if (isZombieMode()) zFinishReloadZ();
+          else { ammo[weaponIndex] = WEAPONS[weaponIndex].mag; reloadUntil = 0; updateAmmoHud(); }
         }
         document.getElementById('reloading').textContent = (now() < reloadUntil) ? '换弹中…' : '';
 
@@ -10102,6 +10178,12 @@
           zEndRest:function(){ if(zState) zState.restEndsAt = now()-1; },                          // 跳过30s休息
           zTypesOnField:function(){ var o={}; for(var k in zombies){ var t=zombies[k].type; o[t]=(o[t]||0)+1; } return o; },
           zBudgetAt:function(n){ return zRoundBudget(n); },
+          // ---- M4 武器/弹药自测钩子 ----
+          zWeaponNow:function(){ var w=activeWeapon(); return { id:w.id, name:w.name, bat:zBatActive, melee:!!w.melee, clip:(zBatActive?-1:(superActive?superAmmo:ammo[weaponIndex])), mag:w.mag||0, reserve:{bullet:zReserve.bullet,antimatter:zReserve.antimatter,negmatter:zReserve.negmatter} }; },
+          zGive:function(id,ammo){ zGiveWeapon(id, ammo||0); return this.zWeaponNow(); },
+          zAddReserve:function(cat,n){ zAddAmmo(cat,n); return zReserve[cat]; },
+          zForceReloadDone:function(){ if(reloadUntil) reloadUntil = now()-1; },
+          zReloading:function(){ return now() < reloadUntil; },
           superKindsOnMap:function(){ var a=[]; for(var s in superPickups) a.push(superPickups[s].userData.kind); return a; },
           wearNow:function(){ if (superActive && SUPERS[superKind] && SUPERS[superKind].isMecha) wearMecha(superKind); },
           mechaInfo:function(){ return { worn:mechaWorn, kind:superKind, maxHp:maxHp, hp:me.hp, weapon:mechaWeapon, grenades:grenades.length }; },
