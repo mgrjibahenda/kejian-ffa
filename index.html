@@ -553,6 +553,7 @@
     var ads = false, adsAmt = 0, BASE_FOV = 76;
     // 超级武器状态
     var superActive = false, superAmmo = 0, superKind = null;
+    var slot6Kind = null, slot6Ammo = 0, slot7Kind = null, slot7Ammo = 0;   // 物品栏:第6格=超级武器,第7格=仙器
     var superPickups = {}, superSid = 0, superBag = [];   // 地图上的超级武器拾取物(sid -> mesh，可多个)
     var mechaWorn = false, mechaWeapon = 0, grenades = [], grenSeq = 0;   // 机甲：是否穿上 / 当前武器(0=榴弹炮/熔炮 1=爆地巨剑) / 飞行榴弹
     var lastHitInfo = null, lastSentHits = [];   // 最近一次命中（含部位）/ 已上报的命中，供自测用
@@ -7314,11 +7315,14 @@
     // 装备某把超级武器/仙器（无限子弹）。测试模式下用鼠标滚轮切换，下方武器栏显示全部。
     function cheatEquip(kind) {
       if (!joined || !me.alive || inRealm || !SUPERS[kind]) return;
+      var xx = SUPERS[kind].isXian;
+      if (xx) { slot7Kind = kind; slot7Ammo = SUPERS[kind].mag; weaponIndex = 6; }
+      else    { slot6Kind = kind; slot6Ammo = SUPERS[kind].mag; weaponIndex = 5; }
       superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag; cheatInfinite = true;
       cheatSel = ALL_SUPER_KINDS.indexOf(kind); if (cheatSel < 0) cheatSel = 0;
       reloadUntil = 0; fireCooldown = 0; ads = false;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
-      showNotice((SUPERS[kind].isXian ? '✦ 仙器：' : '🔧 ') + SUPERS[kind].name + '（无限）');
+      showNotice((xx ? '✦ 仙器：' : '🔧 ') + SUPERS[kind].name + '（无限）');
     }
     function cheatScroll(dir) {           // 滚轮在全部超级武器/仙器之间切换
       cheatSel = (cheatSel + dir + ALL_SUPER_KINDS.length) % ALL_SUPER_KINDS.length;
@@ -7357,7 +7361,7 @@
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
         if (e.code.indexOf('Digit') === 0) {
           var n = parseInt(e.code.slice(5), 10);
-          if (n >= 1 && n <= WEAPONS.length) { if (superActive) dropSuper(); selectWeapon(n - 1); }
+          if (n >= 1 && n <= 7) { selectWeapon(n - 1); }   // 1-5基础枪, 6超级武器, 7仙器
         }
         if (e.code === 'Space' && grounded) { vy = JUMP_V; grounded = false; }
       });
@@ -7421,8 +7425,11 @@
         var dir = e.deltaY > 0 ? 1 : -1;
         if (mechaWorn && superKind === 'godmecha') { selectWeapon(mechaWeapon === 0 ? 1 : 0); return; }   // 终焉：滚轮切熔炮/爆地
         if (cheatMode) { cheatScroll(dir); return; }   // 测试模式：滚轮在全部超级武器/仙器间切换
-        if (superActive) return;
-        selectWeapon((weaponIndex + dir + WEAPONS.length) % WEAPONS.length);
+        var avail = [0,1,2,3,4];
+        if (slot6Kind) avail.push(5);
+        if (slot7Kind) avail.push(6);
+        var ci = avail.indexOf(weaponIndex); if (ci < 0) ci = 0;
+        selectWeapon(avail[(ci + dir + avail.length) % avail.length]);
       }, { passive:false });
 
       // 指针锁定状态：锁定=可以瞄准；未锁定=暂停并显示提示
@@ -7573,10 +7580,19 @@
         buildViewGun(); updateWeaponHud();
         return;
       }
-      if (superActive) return;          // 持超级武器/机甲时锁定，不能换基础枪
-      if (i === weaponIndex) return;
-      weaponIndex = i; reloadUntil = 0; document.getElementById('reloading').textContent = '';
-      buildViewGun(); updateWeaponHud();
+      if (mechaWorn) return;            // 超级机甲穿上：锁定(机甲无法退出)
+      if (i >= 0 && i <= 4 && !superActive && i === weaponIndex) return;
+      if (i === 5 && weaponIndex === 5 && superActive) return;
+      if (i === 6 && weaponIndex === 6 && superActive) return;
+      if (i === 5 && !slot6Kind) return;
+      if (i === 6 && !slot7Kind) return;
+      if (i < 0 || i > 6) return;
+      if (superActive) { if (weaponIndex === 5) slot6Ammo = superAmmo; else if (weaponIndex === 6) slot7Ammo = superAmmo; }   // 存回弹药
+      if (i <= 4) { superActive = false; superKind = null; weaponIndex = i; }
+      else if (i === 5) { weaponIndex = 5; superActive = true; superKind = slot6Kind; superAmmo = slot6Ammo; }
+      else { weaponIndex = 6; superActive = true; superKind = slot7Kind; superAmmo = slot7Ammo; }
+      reloadUntil = 0; document.getElementById('reloading').textContent = '';
+      buildViewGun(); updateWeaponHud(); updateAmmoHud();
     }
     function startReload() {
       if (superActive) return;          // 超级武器没有换弹
@@ -7591,17 +7607,31 @@
     // 捡到 / 失去 超级武器
     function pickupSuper(kind) {
       if (!SUPERS[kind]) kind = 'mg';
-      superActive = true; superKind = kind; superAmmo = SUPERS[kind].mag; cheatInfinite = false;
-      reloadUntil = 0; fireCooldown = 0; ads = false;
-      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+      cheatInfinite = false; fireCooldown = 0; ads = false;
+      var xx = SUPERS[kind].isXian, slotIdx = xx ? 6 : 5;
+      if (xx) { slot7Kind = kind; slot7Ammo = SUPERS[kind].mag; }   // 仙器 → 第7格
+      else    { slot6Kind = kind; slot6Ammo = SUPERS[kind].mag; }   // 超级武器 → 第6格
+      if (weaponIndex === slotIdx && superActive) {                 // 已在该格 → 直接换新武器
+        superKind = kind; superAmmo = SUPERS[kind].mag; reloadUntil = 0;
+        buildViewGun(); updateWeaponHud(); updateAmmoHud();
+      } else { selectWeapon(slotIdx); }
       pickupSound();
-      var xx = SUPERS[kind].isXian;
       showNotice((xx ? '✦✦ 拿到仙器「' : '🔫 拿到「') + SUPERS[kind].name + (xx ? '」！' : '」！' + SUPERS[kind].mag + ' 发，打光为止'));
     }
     function dropSuper() {
-      if (!superActive) return;
-      superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0; cheatInfinite = false;
       if (mechaWorn) { mechaWorn = false; mechaWeapon = 0; maxHp = 100; if (me.hp > 100) me.hp = 100; updateHpHud(); updateMechHud(); }
+      if (!superActive) return;
+      if (weaponIndex === 5) { slot6Kind = null; slot6Ammo = 0; }        // 清空当前超武格
+      else if (weaponIndex === 6) { slot7Kind = null; slot7Ammo = 0; }
+      superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0; cheatInfinite = false;
+      weaponIndex = 0;
+      buildViewGun(); updateWeaponHud(); updateAmmoHud();
+    }
+    function dropAllSupers() {   // 死亡：清空两个物品栏格
+      if (mechaWorn) { mechaWorn = false; mechaWeapon = 0; maxHp = 100; if (me.hp > 100) me.hp = 100; updateHpHud(); updateMechHud(); }
+      slot6Kind = null; slot6Ammo = 0; slot7Kind = null; slot7Ammo = 0;
+      superActive = false; superKind = null; superAmmo = 0; reloadUntil = 0; cheatInfinite = false;
+      if (weaponIndex > 4) weaponIndex = 0;
       buildViewGun(); updateWeaponHud(); updateAmmoHud();
     }
     function wearMecha(kind) {                 // 穿上机甲：变高、移速-50%、巨量血、自带武器、座舱HUD
@@ -7913,12 +7943,12 @@
         var b = beams[i];
         if (!b.resolved && now() >= b.fireAt) {
           b.resolved = true; b.deadAt = now() + b.persist;
-          b.thick = addBeamCyl(b.col, b.kind==='roar' ? Math.min(b.radius, 6.8) : Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光(崩星更粗)
+          b.thick = addBeamCyl(b.col, b.kind==='roar' ? Math.min(b.radius, 10) : Math.min(b.radius, 2.6), b.len, 0.7);  // 亮核心激光(崩星加粗→中心neon更宽)
           orientCyl(b.thick, b.origin, b.dir, b.len);
-          if (b.radius > 4) { b.field = addBeamCyl(b.col, b.radius, b.len, 0.12); orientCyl(b.field, b.origin, b.dir, b.len); }  // 大范围淡光场(不白屏)
+          if (b.radius > 4) { b.field = addBeamCyl(b.col, b.radius + 0.6, b.len, 0.12); orientCyl(b.field, b.origin, b.dir, b.len); }  // neon填满致死半径(碰到会死的整片都neon)
           if (b.kind === 'roar') {
             b.whitecore = addBeamCyl(0xffffff, 3.0, b.len, 0.95); orientCyl(b.whitecore, b.origin, b.dir, b.len);   // 白热核心
-            b.corona = addBeamCyl(b.col, 11.5, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);            // 品红光晕
+            b.corona = addBeamCyl(b.col, b.radius + 0.6, b.len, 0.18); orientCyl(b.corona, b.origin, b.dir, b.len);  // 品红光晕铺到致死边缘
             b.flow = addBeamCyl(b.col, 6.8, b.len, 0.55); b.flow.material.map = beamFlowTex; b.flow.material.needsUpdate = true; orientCyl(b.flow, b.origin, b.dir, b.len);   // 滚动能量流
             roarBlastSound(); shake = Math.min(shake + 0.4, 0.45); spawnRoarBlast(b.origin, b.dir, b.col);
             roarTerminal(b.origin, b.dir, b.col);   // 落点：爆团 + 灼痕
@@ -7939,13 +7969,13 @@
           var pulse = (b.kind === 'roar' && !reduced) ? (0.7 + 0.3 * Math.abs(Math.sin(now()*0.02))) : 1;
           if (b.thin)  b.thin.material.opacity  = Math.max(0, 0.5 * k);
           if (b.thick) b.thick.material.opacity = Math.max(0, (b.kind==='roar'?0.7:0.5) * k) * pulse;
-          if (b.field) b.field.material.opacity = Math.max(0, (b.kind==='roar'?0.13:0.04) * k) * pulse;   // 等离子/秘境炮：收窄光辉,持枪者不晃眼
+          if (b.field) b.field.material.opacity = Math.max(0, (b.kind==='roar'?0.50:0.04) * k) * pulse;   // 崩星: neon填满整个致死半径; 等离子/秘境收窄不晃眼
           setBeamGlow(b, Math.max(0, (b.kind==='roar'?0.95:0.5) * k) * pulse, 1 + (1 - k) * 0.5);   // 等离子/秘境炮发光减弱
           if (b.muzzleOrb) b.muzzleOrb.material.opacity = Math.max(0, 0.9 * k);
           if (b.kind === 'roar' && !reduced) {   // 宇宙长枪：白核湍流明灭 + 能量流动 + 沿线星屑飞溅 + 偶发电弧
             var turb = 0.65 + 0.35 * Math.abs(Math.sin(now()*0.05) + 0.5*Math.sin(now()*0.013));
             if (b.whitecore) { b.whitecore.material.opacity = Math.max(0, 0.95*k)*turb; var ws = 0.8 + 0.35*Math.abs(Math.sin(now()*0.04)); b.whitecore.scale.set(ws,1,ws); }
-            if (b.corona) b.corona.material.opacity = Math.max(0, 0.2*k)*pulse;
+            if (b.corona) b.corona.material.opacity = Math.max(0, 0.36*k)*pulse;
             if (b.flow) { beamFlowTex.offset.y -= dt * 3.2; b.flow.material.opacity = Math.max(0, 0.55*k)*turb; }   // 能量沿炮线奔涌
             var trem = 1 + (Math.sin(now()*0.085) + 0.6*Math.sin(now()*0.19)) * 0.075;   // 等离子光柱·高频颤动(径向)
             if (b.thick)  b.thick.scale.set(trem, 1, trem);
@@ -8509,7 +8539,7 @@
       deadUntil = now() + 3000;
       slamUntil = 0; slamImpactDone = true;   // 取消未落下的青龙刀，死后不再造成伤害
       chargeUntil = 0;                         // 取消蓄力动画
-      dropSuper();             // 死亡失去超级武器
+      dropAllSupers();         // 死亡失去全部超级武器/仙器
       ads = false;
       deathSound();
       // 广播击杀事件（由被击杀方广播，更新所有人的计分/击杀提示）
@@ -8522,7 +8552,7 @@
       me.alive = true;
       vy = 0; tumbleUntil = 0; tumbleKiller = null; slamUntil = 0; slamImpactDone = true; shake = 0;
       for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;
-      dropSuper();             // 重生用普通武器
+      dropAllSupers();         // 重生用普通武器
       if (inRealm) exitRealm(false); // 在秘境里死亡 → 落败，回到主竞技场
       else { me.hp = 100; maxHp = 100; playerPos.copy(randomSpawn()); }
       lastDamageAt = now();
@@ -8642,12 +8672,12 @@
           var on = superActive && superKind === kk, xian = SUPERS[kk].isXian;
           return '<div class="slot' + (on?' active':'') + (xian?' super':'') + '">' + (xian?'✦':'★') + esc(SUPERS[kk].name) + '</div>';
         }).join('');
-      } else if (superActive) {
-        slots = '<div class="slot active super">' + (w.isXian?'✦':'★') + '</div>';   // 保持神秘：超级武器/仙器不显示名字
       } else {
         slots = WEAPONS.map(function (ww, i) {
-          return '<div class="slot' + (i===weaponIndex?' active':'') + '"><b>' + (i+1) + '</b>' + esc(ww.name) + '</div>';
+          return '<div class="slot' + (!superActive && i===weaponIndex?' active':'') + '"><b>' + (i+1) + '</b>' + esc(ww.name) + '</div>';
         }).join('');
+        if (slot6Kind) slots += '<div class="slot super' + (weaponIndex===5?' active':'') + '"><b>6</b>★</div>';   // 超级武器(神秘:只图标)
+        if (slot7Kind) slots += '<div class="slot super' + (weaponIndex===6?' active':'') + '"><b>7</b>✦</div>';   // 仙器
       }
       document.getElementById('slots').innerHTML = slots;
       updateAmmoHud();
@@ -9016,12 +9046,14 @@
     }
     // 每帧检查：走到任一拾取物附近就捡起（先到先得）
     function checkSuperPickup() {
-      if (!me.alive || paused || superActive || inRealm) return;
+      if (!me.alive || paused || inRealm || mechaWorn) return;   // 机甲中不捡;持超武仍可捡另一类
       for (var sid in superPickups) {
         var m = superPickups[sid];
         var dx = playerPos.x - m.position.x, dz = playerPos.z - m.position.z;
         if (dx*dx + dz*dz < 1.8*1.8) {
           var kind = m.userData.kind;
+          var xx = SUPERS[kind] && SUPERS[kind].isXian;
+          if (xx ? slot7Kind : slot6Kind) continue;   // 对应物品栏格已满 → 不捡,留给他人
           removeSuperPickup(sid);
           netSend({ type:'super_taken', from:me.id, sid:Number(sid) });
           pickupSuper(kind);
@@ -9535,7 +9567,8 @@
           gunVisible:function(){ return viewGun ? viewGun.visible : null; },
           lastHit:function(){ return lastHitInfo; },
           spawnSuperAt:function(x,z,kind){ superSid++; applySuperSpawn({ sid: superSid, kind:kind||'mg', x:x, y:1.3, z:z }); },
-          superInfo:function(){ return { active:superActive, kind:superKind, ammo:superAmmo, onMap: Object.keys(superPickups).length > 0 }; },
+          superInfo:function(){ return { active:superActive, kind:superKind, ammo:superAmmo, onMap: Object.keys(superPickups).length > 0,
+            slot6:slot6Kind, slot7:slot7Kind, slot6Ammo:slot6Ammo, slot7Ammo:slot7Ammo, widx:weaponIndex }; },
           setSuperAmmo:function(n){ superAmmo = n; updateAmmoHud(); }, drop:function(){ dropSuper(); },
           // 回血
           setHp:function(n){ me.hp = n; updateHpHud(); }, maxHp:function(){ return maxHp; },
