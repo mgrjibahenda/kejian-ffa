@@ -6689,7 +6689,7 @@
         var neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.12,8), headMat); neck.position.y = 1.46; group.add(neck);
         var aL = mkLimb(-0.32, 1.40, 0.14, 0.56, 0.16), aR = mkLimb(0.32, 1.40, 0.14, 0.56, 0.16);
         var lL = mkLimb(-0.13, 0.82, 0.17, 0.80, 0.20), lR = mkLimb(0.13, 0.82, 0.17, 0.80, 0.20);
-        weaponHolder = new THREE.Group(); weaponHolder.position.set(0.12, 1.12, -0.46); weaponHolder.scale.setScalar(0.5); group.add(weaponHolder);
+        weaponHolder = new THREE.Group(); weaponHolder.position.set(0.0, -0.46, -0.04); weaponHolder.rotation.x = -1.5; weaponHolder.scale.setScalar(1.0); aR.pivot.add(weaponHolder);   // 持握于右手·真实1:1比例(随手臂动)
         parts = [torso, head, neck, aL.mesh, aR.mesh, lL.mesh, lR.mesh, weaponHolder];
         hitMeshes = [head, torso, aL.mesh, aR.mesh, lL.mesh, lR.mesh];
         _armL = aL.pivot; _armR = aR.pivot; _legL = lL.pivot; _legR = lR.pivot;
@@ -7771,6 +7771,12 @@
           hitsThisShot[ud.peerId] = cur;
           var hcol = isHead ? 0xff2222 : (ud.part === 'limb' ? 0xffb347 : 0xff5544);
           spawnGlow(end, hcol, isHead ? 0.62 : 0.5, 0.18);
+        } else if (ud.zid) {
+          // 僵尸命中: 头 ×2, 其它 ×1; 累计到本发命中表(键=zid), 由 sendHit 路由到 hitZombie
+          var zHead = ud.part === 'head', zdmg = Math.round(w.dmg * (zHead ? HEAD_MULT : 1));
+          var zc = hitsThisShot[ud.zid] || { dmg:0, head:false };
+          zc.dmg += zdmg; zc.head = zc.head || zHead; hitsThisShot[ud.zid] = zc;
+          spawnGlow(end, zHead ? 0xff4444 : 0xaecf5a, zHead ? 0.6 : 0.45, 0.16);
         } else {
           spawnGlow(end, 0xffe6a0, 0.35, 0.15);  // 命中墙体/掩体
           if (h.object.userData && h.object.userData.dx) { var _bn = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize() : _dir.clone().negate(); bulletMark(end, _bn); _lastBulletHit = { x:end.x, y:end.y, z:end.z, nx:_bn.x, ny:_bn.y, nz:_bn.z }; }
@@ -8570,6 +8576,7 @@
     }
     // 回血：alive 且未满血，且距上次受伤 > 8s → 8s 回满
     function updateRegen(dt) {
+      if (isZombieMode()) return;   // 僵尸模式: 残血不自动回血(只能买医疗包, M4/M5)
       if (!me.alive || me.hp >= maxHp) return;
       if (now() - lastDamageAt < REGEN_DELAY) return;
       me.hp = Math.min(maxHp, me.hp + dt * (maxHp / (REGEN_FULL / 1000)) * (mechaWorn ? 0.5 : 1));   // 机甲回血慢50%
@@ -8950,6 +8957,8 @@
 
     function sendHit(victimId, dmg, weaponId, head) {
       if (TEST) lastSentHits.push({ to:victimId, dmg:dmg, weapon:weaponId, head:!!head });
+      var zt = zombies[victimId];
+      if (zt) { hitZombie(zt, dmg, head); return; }   // 僵尸: 本地结算(主机权威/单机), 不走玩家命中网络
       var dr = remotes[victimId];
       if (dr) { var gp = dr.group.position; spawnDamageNumber(gp.x, gp.y + (dr.mecha ? 2.8 : 2.0), gp.z, dmg, dmg >= 200); }   // 头顶飘伤害数字
       if (dr && dr.isDummy) { hitDummy(dr, dmg); return; }   // 假人：本地结算，不联机
@@ -9520,7 +9529,7 @@
     function collides(x, z) {
       // 场地边界（秘境里用秘境平台的边界）
       var bx = inRealm ? REALM_CENTER.x : 0, bz = inRealm ? REALM_CENTER.z : 0;
-      var lim = inRealm ? 17.5 : 29.5;
+      var lim = inRealm ? 17.5 : (isZombieMode() ? 39.0 : 29.5);   // 僵尸图 ±40, 放宽到石墙处(墙体本身在 solidBoxes 兜底)
       if (x < bx - lim || x > bx + lim || z < bz - lim || z > bz + lim) return true;
       var feet = playerPos.y - EYE, head = feet + 1.7;
       for (var i = 0; i < solidBoxes.length; i++) {
