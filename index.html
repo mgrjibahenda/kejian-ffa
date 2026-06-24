@@ -6744,7 +6744,7 @@
       var headMat = new THREE.MeshStandardMaterial({ color:0xf1d3b0, roughness:0.85, metalness:0.0, envMapIntensity:0.25 });
 
       // 回归最基础人形：仅四肢 + 一躯干 + 一头(下方简易盒子人形)，不用高细节雕刻
-      var built = null;
+      var built = (typeof buildHumanoidBody==="function") ? buildHumanoidBody(group, color, id) : null;   // 高细节人形(回退盒子人)
       var torso, head, weaponHolder, parts, hitMeshes, _armL, _armR, _legL, _legR;
       if (built) {
         torso = built.torso; head = built.head; weaponHolder = built.weaponHolder; parts = built.parts; hitMeshes = built.hitMeshes;
