@@ -9256,10 +9256,19 @@
     };
 
     // 程序化僵尸网格(占位)。返回 { root, torso, head, armL, armR, legL, legR }; ZAssets 模型则 rig 为 false。
+    // 就绪时用真实 glTF+骨骼动画(ZAssets 已按我方僵尸种类名 walker/runner/.../boss 暴露并内部映射); 缺失/未就绪则回退程序化盒子人
     function makeZombieMesh(type) {
       var T = ZTYPES[type] || ZTYPES.walker;
       if (window.ZAssets && window.ZAssets.ready && typeof window.ZAssets.makeZombie === 'function') {
-        try { var ext = window.ZAssets.makeZombie(type); if (ext && ext.isObject3D) { return { root: ext, rig:false }; } } catch (e) {}
+        try {
+          var ext = window.ZAssets.makeZombie(type);   // 直接传我方种类名(ZAssets 接受并映射到 demon/orc/yeti/skull/ghost)
+          // 新契约: 返回裸 Object3D(已自动播 move, 内部自驱 mixer + 移出场景自动回收), 控制句柄在 userData.za
+          var rt = (ext && ext.isObject3D) ? ext : (ext && ext.root && ext.root.isObject3D ? ext.root : null);
+          if (rt) {
+            var inst = (rt.userData && rt.userData.za) ? rt.userData.za : ((ext && typeof ext.play === 'function') ? ext : null);   // play/mixer 句柄(触发 attack/death)
+            return { root: rt, rig:false, zassets: inst };
+          }
+        } catch (e) {}
       }
       var root = new THREE.Group();
       var g = T.girth || 1, dim = new THREE.Color(T.col).multiplyScalar(0.62).getHex();
@@ -9303,6 +9312,7 @@
       var goldScale = 1 + (rnd - 1) * 0.05;          // 金币也随波次涨(后期僵尸更肉, 经济需跟上, 50关≈3.45x)
       var z = {
         id:id, type:type, T:T, group:grp, rig:built.rig === false ? null : built,
+        zassets: built.zassets || null, zaAction:'move',   // 真实模型实例(含 mixer/play); null=程序化盒子人
         head:built.head, armL:built.armL, armR:built.armR, legL:built.legL, legR:built.legR,
         hitMeshes:[bodyHit, headHit],
         hp: Math.round(T.hp * hpScale), maxHp: Math.round(T.hp * hpScale),
@@ -9357,6 +9367,7 @@
       z.alive = false; z.deadAt = now();
       for (var i = 0; i < z.hitMeshes.length; i++) z.hitMeshes[i].userData = {};   // 死后不再可命中
       deathSound(); showHitmarker(false);
+      if (z.zassets && z.zassets.play) { try { z.zassets.play('death', { once:true }); } catch (e) {} z.zaAction = 'death'; }   // 真实模型: 死亡动画(单次定格)
       if (killer) zAwardGold(killer, z.gold|0, z.group.position);
       if (z.behave === 'bomb') zExplode(z.group.position.clone(), z.T.boomR || 5, z.dmg);   // 自爆尸死亡也炸
     }
@@ -9430,13 +9441,12 @@
 
     function updateZombies(dt) {
       var t = now();
+      // 真实模型 mixer 由 ZAssets 内部自驱+自动回收, 玩法层不再调用 ZAssets.update(避免双倍速)
       for (var id in zombies) {
         var z = zombies[id];
         if (!z.alive) {                                   // 倒地 → 缓慢侧倒 → 清除
-          z.deathT = Math.min(1, z.deathT + dt * 2.6);
-          z.group.rotation.z = z.deathT * 1.5;
-          z.group.position.y = -z.deathT * 0.35;
-          if (t - z.deadAt > 2400) { scene.remove(z.group); z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[id]; }
+          if (!z.zassets) { z.deathT = Math.min(1, z.deathT + dt * 2.6); z.group.rotation.z = z.deathT * 1.5; z.group.position.y = -z.deathT * 0.35; }   // 程序化盒子人侧倒; 真实模型走 death 动画
+          if (t - z.deadAt > 2400) { if (z.zassets && z.zassets.dispose) { try { z.zassets.dispose(); } catch (e) {} } scene.remove(z.group); z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[id]; }
           continue;
         }
         if (!zIsClient()) {   // AI/移动/攻击仅主机(或单机)权威; 客户端只渲染主机同步的位置
@@ -9472,6 +9482,10 @@
           }
         }
         }
+        if (z.zassets && z.zassets.play) {   // 真实模型: 近身挥击瞬间播 attack, 否则 move(mixer 已在顶部统一推进)
+          var wantAct = (z.swingAt && t - z.swingAt < 300) ? 'attack' : 'move';
+          if (wantAct !== z.zaAction) { try { z.zassets.play(wantAct, wantAct === 'attack' ? { once:true } : undefined); } catch (e) {} z.zaAction = wantAct; }
+        }
         poseZombie(z, dt);
       }
       zUpdateProjectiles(dt);
@@ -9501,7 +9515,7 @@
       z.group.rotation.z = Math.sin(z.lurch*0.5) * 0.05;   // 微驼背摇晃
     }
     function zClearAll() {
-      for (var id in zombies) { var z = zombies[id]; scene.remove(z.group);
+      for (var id in zombies) { var z = zombies[id]; if (z.zassets && z.zassets.dispose) { try { z.zassets.dispose(); } catch (e) {} } scene.remove(z.group);
         z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); }
       zombies = {};
       for (var i = 0; i < zProjectiles.length; i++) { scene.remove(zProjectiles[i].obj); }
@@ -10607,7 +10621,8 @@
           zSpawn:function(type,x,z){ var z2 = spawnZombie(type||'walker', { x:(x==null?playerPos.x+6:x), z:(z==null?playerPos.z:z) }); return z2 ? z2.id : null; },
           zSpawnRing:function(type){ var z2 = zSpawnFromRing(type||'walker'); return z2?z2.id:null; },
           zCount:function(){ return { alive:zCountAlive(), total:Object.keys(zombies).length, proj:zProjectiles.length }; },
-          zInfo:function(id){ var z=zombies[id]; if(!z) return null; return { type:z.type, hp:z.hp, maxHp:z.maxHp, gold:z.gold, alive:z.alive, x:z.group.position.x, z:z.group.position.z, dist:Math.hypot(z.group.position.x-playerPos.x, z.group.position.z-playerPos.z) }; },
+          zInfo:function(id){ var z=zombies[id]; if(!z) return null; return { type:z.type, hp:z.hp, maxHp:z.maxHp, gold:z.gold, alive:z.alive, x:z.group.position.x, z:z.group.position.z, dist:Math.hypot(z.group.position.x-playerPos.x, z.group.position.z-playerPos.z), za:!!z.zassets, zaAction:z.zaAction, clips:(z.zassets&&z.zassets.clipNames)?z.zassets.clipNames.length:0 }; },
+          zAssetsInfo:function(){ return (window.ZAssets) ? { ready:!!window.ZAssets.ready, list:window.ZAssets.list, info:(window.ZAssets.info?window.ZAssets.info():null) } : null; },
           zGold:function(){ return zGold; }, zRunning:function(){ return zRunning; },
           zPause:function(){ zRunning = false; }, zResume:function(){ zRunning = true; },
           zNearestDist:function(){ var best=1e9; for(var k in zombies){ var z=zombies[k]; if(!z.alive)continue; var d=Math.hypot(z.group.position.x-playerPos.x,z.group.position.z-playerPos.z); if(d<best)best=d; } return best; },
