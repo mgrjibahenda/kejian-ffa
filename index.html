@@ -8981,10 +8981,12 @@
       return 'ffaclash-' + s + '-host';
     }
 
-    function startNetwork(room) {
+    var netRole = 'auto';
+    function startNetwork(room, role) {
+      netRole = role || 'auto';
       me.hostId = hostIdFor(room);
       if (TEST) { me.id = 'test-local'; isHost = true; netStatus('测试模式 · 离线', 'host'); finishJoin(); return; }
-      attemptHost();
+      if (netRole === 'join') attemptClient(); else attemptHost();
     }
 
     function attemptHost() {
@@ -9001,7 +9003,8 @@
         if (err && err.type === 'unavailable-id') {
           // 已有人占用主机 id → 当客户端连接过去
           try { p.destroy(); } catch (e) {}
-          if (!settled) attemptClient();
+          if (settled) return;
+          if (netRole === 'host') onRoomCodeTaken(); else attemptClient();
         } else if (!settled && !myPeer) {
           netStatus('网络错误：' + (err && err.type), 'bad');
         } else {
@@ -9045,7 +9048,7 @@
       myPeer = p; isHost = false;
       p.on('open', function (id) { me.id = id; connectTries = 0; connectToHost(); });
       p.on('error', function (err) {
-        if (err && err.type === 'peer-unavailable') { becomeHostAfterHostGone(); }
+        if (err && err.type === 'peer-unavailable') { if (netRole === 'join') onJoinFail(); else becomeHostAfterHostGone(); }
         else if (window.console) console.warn('[peer:client]', err && err.type);
       });
       p.on('disconnected', function () { try { p.reconnect(); } catch (e) {} });
@@ -9075,7 +9078,7 @@
       try { if (hostConn) hostConn.close(); } catch (e) {}
       connectTries++;
       if (connectTries <= 3) setTimeout(connectToHost, 500 + connectTries*300);
-      else becomeHostAfterHostGone();
+      else if (netRole === 'join') onJoinFail(); else becomeHostAfterHostGone();
     }
     function becomeHostAfterHostGone() {
       if (migrating) return; migrating = true;
@@ -9084,6 +9087,19 @@
       clearTimeout(reconnectTimer);
       connectingToHost = false; myPeer = null; hostConn = null;
       setTimeout(attemptHost, 400 + Math.floor(Math.random()*600)); // 抖动避免同时抢
+    }
+    function onJoinFail() {
+      if (!lobbyActive && !joined) return;
+      try { if (myPeer) myPeer.destroy(); } catch (e) {}
+      myPeer = null; isHost = false; lobbyActive = false; joined = false; netLoopsStarted = false; migrating = false;
+      try { window.alert('进不去：房间码「' + (lobbyCode || '') + '」没有对应的房间。请确认房主已经创建、房间码输对了。'); } catch (e) {}
+      _show('lobbyPanel', false); _home();
+    }
+    function onRoomCodeTaken() {
+      lobbyCode = _lobbyGenCode();
+      var _ce = document.getElementById('lobbyCode'); if (_ce) _ce.textContent = lobbyCode;
+      me.hostId = hostIdFor(lobbyCode);
+      attemptHost();
     }
     function onHostLost() {
       if (!joined && lobbyActive) { leaveRoom(); return; }
@@ -10102,7 +10118,7 @@
         if (joined || lobbyActive) return;
         var code = (document.getElementById('codeInput').value || '').replace(/\D/g, '').slice(0, 3);
         if (!code) { document.getElementById('codeInput').focus(); return; }
-        selMode = 'normal'; enterLobby(code);
+        selMode = 'normal'; enterLobby(code, true);
       });
       document.getElementById('codeInput').addEventListener('focus', function () { try { this.select(); } catch (e) {} });
       document.getElementById('codeInput').addEventListener('keydown', function (e) { if (e.code === 'Enter') document.getElementById('doJoinBtn').click(); });
@@ -10159,7 +10175,7 @@
 
     // ---------------------------------------------------------------- 房间大厅
     // 进入大厅(房主创建 or 别人加入都走这里)：建立 peer 连接，停在大厅等开始。
-    function enterLobby(code) {
+    function enterLobby(code, asJoiner) {
       var name = (document.getElementById('nameInput').value || '').trim().slice(0, 14) || ('玩家' + Math.floor(Math.random()*900+100));
       me.name = name;
       roomMode = selMode; try { var _ni = document.getElementById('nameInput'); if (_ni && !_ni.value.trim()) _ni.value = me.name; } catch (e) {}
@@ -10170,7 +10186,7 @@
       var _cb = document.getElementById('lobbyChat'); if (_cb) _cb.innerHTML = '';
       zChatPush(null, '欢迎！把房间码发给朋友，一起开始。', true);
       ensureAudio();
-      startNetwork(lobbyCode || 'lobby');   // 占到主机 id=房主；否则作为客户端加入
+      startNetwork(lobbyCode || 'lobby', asJoiner ? 'join' : 'host');   // 占到主机 id=房主；否则作为客户端加入
       renderLobby();
     }
 
