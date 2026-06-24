@@ -268,6 +268,8 @@
   .chatbox{ margin-top:10px; height:92px; overflow-y:auto; background:rgba(255,255,255,.04); border-radius:9px; padding:8px 10px; font-size:13px; text-align:left; display:flex; flex-direction:column; gap:4px; }
   .chatbox .msg{ color:#cfe0d6; word-break:break-word; } .chatbox .msg b{ color:#ffe08a; } .chatbox .sys{ color:var(--muted); font-style:italic; }
   .chatrow{ display:flex; gap:8px; margin-top:8px; } .chatrow input{ flex:1; } .chatbtn{ flex:none; padding:8px 14px; font-size:14px; }
+  .kickbtn{ margin-left:auto; flex:none; width:24px; height:24px; border:none; border-radius:6px; background:rgba(255,90,90,.22); color:#ff8a8a; cursor:pointer; font-size:13px; line-height:1; }
+  .kickbtn:hover{ background:rgba(255,90,90,.5); color:#fff; }
 </style>
 </head>
 <body>
@@ -9203,6 +9205,9 @@
         case 'chat':
           if (msg.text) zChatPush(msg.name, String(msg.text).slice(0, 120));
           break;
+        case 'kick':
+          if (msg.target === me.id) { try { window.alert('你被房主移出了房间'); } catch (e) {} leaveRoom(); }
+          break;
         case 'startgame':   // 房主点开始 → 全员进游戏(客户端跟随房主的模式/地图)
           if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
           if (msg.map) roomMap = msg.map;
@@ -10136,6 +10141,7 @@
       document.getElementById('lobbyStartBtn').addEventListener('click', hostStartGame);
       document.getElementById('lobbyLeaveBtn').addEventListener('click', leaveRoom);
       document.getElementById('chatSend').addEventListener('click', zChatSend);
+      document.getElementById('lobbyRoster').addEventListener('click', function (e) { var b = (e.target && e.target.closest) ? e.target.closest('.kickbtn') : null; if (!b || !isHost) return; var kid = b.getAttribute('data-kick'); if (!kid) return; try { netSend({ type:'kick', target:kid }); } catch (x) {} removeRemote(kid); delete scores[kid]; if (clientConns[kid]) { try { clientConns[kid].close(); } catch (x) {} delete clientConns[kid]; } if (lobbyActive) { zChatPush(null, '房主移出了一名玩家', true); renderLobby(); } });
       document.getElementById('chatInput').addEventListener('keydown', function (e) { if (e.code === 'Enter') { e.preventDefault(); zChatSend(); } });
       // 点击房间码 → 复制到剪贴板 + 临时提示(方便分享给朋友)
       (function () {
@@ -10209,14 +10215,14 @@
       var mEl = document.getElementById('lobbyMode'); if (mEl) mEl.textContent = '模式：' + modeName + (mapName && !forced ? '  ·  地图：' + mapName : '') + (netState ? '  ·  ' + netState : '');
       var ros = document.getElementById('lobbyRoster'); if (ros) {
         ros.innerHTML = '';
-        function row(nm, color, isMe, host) {
+        function row(nm, color, isMe, host, kickId) {
           var d = document.createElement('div'); d.className = 'ply' + (host ? ' host' : '');
           var tag = isMe ? ('<span class="tag">你' + (host ? ' · 房主' : '') + '</span>') : (host ? '<span class="tag">房主</span>' : '');
-          d.innerHTML = '<span class="swatch" style="background:' + (color || '#8ab') + '"></span><b>' + esc(nm || '玩家') + '</b>' + tag;
+          d.innerHTML = '<span class="swatch" style="background:' + (color || '#8ab') + '"></span><b>' + esc(nm || '玩家') + '</b>' + tag + (kickId ? '<button class="kickbtn" data-kick="' + kickId + '" title="移出房间">✕</button>' : '');
           ros.appendChild(d);
         }
         row(me.name, me.colorHex, true, isHost);
-        for (var id in scores) { if (id === me.id) continue; row(scores[id].name, scores[id].color, false, false); }
+        for (var id in scores) { if (id === me.id) continue; row(scores[id].name, scores[id].color, false, false, isHost ? id : null); }
         var lc = document.getElementById('lobbyCount'); if (lc) lc.textContent = '(' + ros.children.length + ' 人)';
       }
       var btn = document.getElementById('lobbyStartBtn');
