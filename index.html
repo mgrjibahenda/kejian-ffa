@@ -405,7 +405,7 @@
       <div id="lobbyPanel" hidden>
         <div class="codebox">房间码 <span id="lobbyCode">—</span></div>
         <div id="lobbyMode" class="lobbysub"></div>
-        <label>房间里的玩家</label>
+        <label>房间里的玩家 <span id="lobbyCount"></span></label>
         <div id="lobbyRoster" class="roster"></div>
         <div id="lobbyHint" class="lobbysub"></div>
         <div class="row2"><button id="lobbyStartBtn" type="button" class="bigbtn">进入游戏</button><button id="lobbyLeaveBtn" type="button" class="bigbtn ghost">退出房间</button></div>
@@ -10067,6 +10067,7 @@
         }
         row(me.name, me.colorHex, true, isHost);
         for (var id in scores) { if (id === me.id) continue; row(scores[id].name, scores[id].color, false, false); }
+        var lc = document.getElementById('lobbyCount'); if (lc) lc.textContent = '(' + ros.children.length + ' 人)';
       }
       var btn = document.getElementById('lobbyStartBtn');
       if (btn) { btn.textContent = isZombieMode() ? '开始游戏' : '进入游戏'; btn.disabled = !isHost; btn.style.opacity = isHost ? '1' : '.5'; }
