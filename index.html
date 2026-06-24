@@ -344,6 +344,11 @@
         <button type="button" data-dev="nextwave">下一波</button>
         <button type="button" data-dev="gold">+1000金</button>
       </div>
+      <div class="dp-row" style="margin-top:5px;">
+        <button type="button" data-dev="boss">刷Boss</button>
+        <button type="button" data-dev="brute">刷巨尸</button>
+        <button type="button" data-dev="spitter">刷喷毒</button>
+      </div>
       <div class="dp-hint">滚轮/数字键也能切武器 · 上帝模式=无敌(再点关) · 刷僵尸仅僵尸模式</div>
     </div>
 
@@ -7495,6 +7500,12 @@
       if (t === 'gold') { if (typeof zGold !== 'undefined') { zGold += 1000; if (typeof zUpdateHud === 'function') zUpdateHud(); showNotice('💰 +1000 金'); } else showNotice('仅僵尸模式'); return; }
       if (t === 'clearz') { if (typeof zClearAll === 'function') { zClearAll(); showNotice('🧹 已清空僵尸'); } return; }
       if (t === 'nextwave') { if (typeof zState !== 'undefined' && zState) { zState.restEndsAt = now() - 1; showNotice('⏭ 跳过休息→下一波'); } return; }
+      if (t === 'boss' || t === 'brute' || t === 'spitter') {
+        if (!isZombieMode() || typeof spawnZombie !== 'function') { showNotice('仅僵尸模式'); return; }
+        camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize();
+        spawnZombie(t, { x: playerPos.x + _bf.x*11, z: playerPos.z + _bf.z*11 });
+        showNotice(t === 'boss' ? '👑 刷尸潮之王' : t === 'brute' ? '🦍 刷巨尸' : '🤮 刷喷毒尸'); return;
+      }
     }
     function applyCheat() {
       if (!cheatMode) {
@@ -9113,6 +9124,7 @@
           if (!scores[msg.from]) scores[msg.from] = { name:msg.name||'???', kills:0, deaths:0, color:msg.color };
           updateScoreboard();
           if (lobbyActive) renderLobby();   // 大厅：有人加入 → 刷新名单
+          if (lobbyActive) zChatPush(null, (msg.name || '有人') + ' 加入了房间', true);
           break;
         case 'setup':   // 房主同步模式 + 地图（加入者切到同一张图并重新出生）
           if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
@@ -9185,7 +9197,7 @@
           }
           break;
         case 'leave':
-          removeRemote(msg.from); delete scores[msg.from]; updateScoreboard();
+          var _ln = (scores[msg.from] && scores[msg.from].name); removeRemote(msg.from); delete scores[msg.from]; updateScoreboard(); if (lobbyActive) zChatPush(null, (_ln || '有人') + ' 离开了房间', true);
           if (lobbyActive) renderLobby();
           break;
         case 'chat':
@@ -10192,6 +10204,7 @@
       ['menuHome','joinPanel','modePanel','mapPanel','createPanel'].forEach(function (id) { _show(id, false); });
       _show('lobbyPanel', true);
       var _cb = document.getElementById('lobbyChat'); if (_cb) _cb.innerHTML = '';
+      zChatPush(null, '欢迎！把房间码发给朋友，一起开始。', true);
       ensureAudio();
       startNetwork(lobbyCode || 'lobby');   // 占到主机 id=房主；否则作为客户端加入
       renderLobby();
