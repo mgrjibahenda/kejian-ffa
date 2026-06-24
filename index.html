@@ -9276,6 +9276,8 @@
       spitter:  { name:'喷毒尸', col:0x8aa02a, head:0xc8e050, scale:1.05, girth:1.30, hp:90,  speed:1.7, dmg:14, gold:30, behave:'spit',   range:18, atkCd:1900 },
       bomber:   { name:'自爆尸', col:0x8a3a2a, head:0xd07040, glow:0xff5522, scale:1.05, girth:1.25, hp:70, speed:2.7, dmg:55, gold:34, behave:'bomb', boomR:5.5 },
       screamer: { name:'尖啸尸', col:0x6a5a7a, head:0xb49ad8, glow:0x9a6cff, scale:1.00, girth:0.90, hp:120, speed:1.6, dmg:8, gold:42, behave:'scream', summonCd:6500, keepR:9 },
+      splitter: { name:'分裂尸', col:0x7a4a6a, head:0xc060a0, glow:0xff4dd0, scale:1.10, girth:1.20, hp:100, speed:1.9, dmg:13, gold:28, behave:'melee', splits:2 },   // 死亡裂成2只幼尸
+      spawnling:{ name:'幼尸',   col:0x8a5a7a, head:0xc878b0, scale:0.55, girth:0.80, hp:24,  speed:3.6, dmg:6,  gold:6,  behave:'melee' },                          // 分裂尸的小快崽(不再分裂)
       boss:     { name:'尸潮之王', col:0x2a1418, head:0x8a1a1a, glow:0xff2a2a, scale:2.80, girth:1.70, hp:1400, speed:1.15, dmg:60, gold:400, behave:'scream', summonCd:5000, keepR:5 }   // 每10关·巨型召唤型BOSS
     };
 
@@ -9394,6 +9396,13 @@
       if (z.zassets && z.zassets.play) { try { z.zassets.play('death', { once:true }); } catch (e) {} z.zaAction = 'death'; }   // 真实模型: 死亡动画(单次定格)
       if (killer) zAwardGold(killer, z.gold|0, z.group.position);
       if (z.behave === 'bomb') zExplode(z.group.position.clone(), z.T.boomR || 5, z.dmg);   // 自爆尸死亡也炸
+      if (z.T.splits && !zIsClient()) {   // 分裂尸: 死亡在原地裂成幼尸(场上上限内, 主机/单机权威)
+        var gp = z.group.position, n = z.T.splits;
+        for (var s = 0; s < n && Object.keys(zombies).length < Z_FIELD_CAP; s++) {
+          var sa = Math.random() * 6.28;
+          spawnZombie('spawnling', { x: gp.x + Math.cos(sa) * 0.9, z: gp.z + Math.sin(sa) * 0.9 });
+        }
+      }
     }
     function zGoldPop(x, y, z, amt) {
       var cv = document.createElement('canvas'); cv.width = 160; cv.height = 72; var c = cv.getContext('2d');
@@ -9560,6 +9569,7 @@
       if (round >= 5)  pool.push(['spitter', 0.40 + round*0.010]);
       if (round >= 6)  pool.push(['bomber',  0.35 + round*0.012]);
       if (round >= 9)  pool.push(['screamer',0.30]);
+      if (round >= 8)  pool.push(['splitter',0.30 + round*0.008]);
       if (round >= 12) pool.push(['brute',   0.18 + round*0.008]);
       var tot = 0, i; for (i = 0; i < pool.length; i++) tot += pool[i][1];
       var r = Math.random() * tot;
