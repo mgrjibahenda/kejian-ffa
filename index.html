@@ -10089,6 +10089,7 @@
         if (!code) { document.getElementById('codeInput').focus(); return; }
         selMode = 'normal'; enterLobby(code);
       });
+      document.getElementById('codeInput').addEventListener('focus', function () { try { this.select(); } catch (e) {} });
       document.getElementById('codeInput').addEventListener('keydown', function (e) { if (e.code === 'Enter') document.getElementById('doJoinBtn').click(); });
       // 大厅：开始游戏(仅房主可点) / 退出房间
       document.getElementById('lobbyStartBtn').addEventListener('click', hostStartGame);
@@ -10143,7 +10144,7 @@
     function enterLobby(code) {
       var name = (document.getElementById('nameInput').value || '').trim().slice(0, 14) || ('玩家' + Math.floor(Math.random()*900+100));
       me.name = name;
-      roomMode = selMode;
+      roomMode = selMode; try { var _ni = document.getElementById('nameInput'); if (_ni && !_ni.value.trim()) _ni.value = me.name; } catch (e) {}
       roomMap = (MODES[selMode] && MODES[selMode].forceMap) || selMap;   // 僵尸锁专属图
       lobbyCode = String(code || ''); lobbyActive = true;
       ['menuHome','joinPanel','modePanel','mapPanel','createPanel'].forEach(function (id) { _show(id, false); });
@@ -10176,7 +10177,7 @@
       var btn = document.getElementById('lobbyStartBtn');
       if (btn) { var _n = ros ? ros.children.length : 1; btn.textContent = (isZombieMode() ? '开始游戏' : '进入游戏') + (isHost && _n > 0 ? ' (' + _n + '人)' : ''); btn.disabled = !isHost; btn.style.opacity = isHost ? '1' : '.5'; }
       var hint = document.getElementById('lobbyHint');
-      if (hint) hint.textContent = isHost ? '把房间码告诉朋友，他们加入后你点开始，全员一起进。' : '已加入房间，等待房主开始…';
+      if (hint) hint.textContent = isHost ? (_n > 1 ? '把房间码告诉朋友，他们加入后你点开始，全员一起进。' : '把房间码发给朋友一起玩，也可单人直接开始。') : '已加入房间，等待房主开始…';
     }
 
     // 房主点"开始/进入游戏"：广播 startgame，全员一起进。
