@@ -10138,7 +10138,7 @@
         var lc = document.getElementById('lobbyCount'); if (lc) lc.textContent = '(' + ros.children.length + ' 人)';
       }
       var btn = document.getElementById('lobbyStartBtn');
-      if (btn) { btn.textContent = isZombieMode() ? '开始游戏' : '进入游戏'; btn.disabled = !isHost; btn.style.opacity = isHost ? '1' : '.5'; }
+      if (btn) { var _n = ros ? ros.children.length : 1; btn.textContent = (isZombieMode() ? '开始游戏' : '进入游戏') + (isHost && _n > 0 ? ' (' + _n + '人)' : ''); btn.disabled = !isHost; btn.style.opacity = isHost ? '1' : '.5'; }
       var hint = document.getElementById('lobbyHint');
       if (hint) hint.textContent = isHost ? '把房间码告诉朋友，他们加入后你点开始，全员一起进。' : '已加入房间，等待房主开始…';
     }
