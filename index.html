@@ -10276,9 +10276,9 @@
       if (!r.alive) {                       // 死亡：缓缓侧倒 + 四肢放松
         r.deathLean = Math.min(1, r.deathLean + dt * 4);
         r.group.rotation.z = r.deathLean * 1.45;
-        r.group.rotation.x = 0;   // 清掉奔跑前倾,死亡只侧倒
-        r.legL.rotation.x = r.legR.rotation.x = 0.25;
-        r.armL.rotation.x = r.armR.rotation.x = 0.4;
+        r.group.rotation.x = r.deathLean * 0.22;   // 侧倒同时略前栽(更自然瘫倒)
+        r.legL.rotation.x = 0.18 + r.deathLean * 0.12; r.legR.rotation.x = 0.3 - r.deathLean * 0.06;   // 腿不对称
+        r.armL.rotation.x = 0.5 - r.deathLean * 0.18; r.armR.rotation.x = 0.32 + r.deathLean * 0.16;   // 臂不对称垂落
         if (!r.mecha) for (var i = 0; i < r.parts.length; i++) r.parts[i].visible = true;   // 机甲化时人形保持隐藏(否则四肢穿模)
         return;
       }
