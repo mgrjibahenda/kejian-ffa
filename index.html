@@ -9213,6 +9213,9 @@
         case 'zkill':   // 主机回传: 我击杀僵尸所得金币
           if (msg.to === me.id) { zGold += (msg.gold || 0); if (typeof zUpdateHud === 'function') zUpdateHud(); }
           break;
+        case 'zspit':   // 客户端: 渲染主机广播的喷毒酸液弹(纯视觉, 伤害由主机权威结算)
+          if (zIsClient()) zSpawnGlob(msg.ox, msg.oy, msg.oz, msg.vx, msg.vy, msg.vz, 0, true);
+          break;
       }
     }
 
@@ -9458,23 +9461,31 @@
       shake = Math.min(shake + 0.05, 0.12);
       var d0 = playerPos.distanceTo(pos); if (me.alive && d0 < R) zDamagePlayer(me.id, Math.round(dmg * (1 - d0/R*0.6)));
     }
-    function zSpit(z, tgt) {
-      var gp = z.group.position;
-      var origin = new THREE.Vector3(gp.x, 1.4*(z.T.scale||1), gp.z);
-      var dest = new THREE.Vector3(tgt.x, 1.2, tgt.z);
+    // 生成一颗酸液弹(主机=真伤 visual:false; 客户端=纯视觉 visual:true)
+    function zSpawnGlob(ox, oy, oz, vx, vy, vz, dmg, visual) {
       var glob = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), new THREE.MeshStandardMaterial({ color:0xb6e83a, emissive:0x6a9a12, emissiveIntensity:0.8, roughness:0.5 }));
-      glob.position.copy(origin); scene.add(glob);
-      var dir = dest.clone().sub(origin); dir.normalize();
-      zProjectiles.push({ obj:glob, pos:origin.clone(), vel:dir.multiplyScalar(20), gravity:5, dmg:z.dmg, ttl:2.5, life:0, targetId:tgt.id });
+      glob.position.set(ox, oy, oz); scene.add(glob);
+      zProjectiles.push({ obj:glob, pos:new THREE.Vector3(ox, oy, oz), vel:new THREE.Vector3(vx, vy, vz), gravity:5, dmg:dmg, ttl:2.5, life:0, visual:!!visual });
+    }
+    function zSpit(z, tgt) {   // 仅主机/单机(updateZombies AI 内调用); 本地生成真伤弹 + 广播→各端渲染
+      var gp = z.group.position, oy = 1.4*(z.T.scale||1);
+      var dir = new THREE.Vector3(tgt.x, 1.2, tgt.z).sub(new THREE.Vector3(gp.x, oy, gp.z)).normalize().multiplyScalar(20);
+      zSpawnGlob(gp.x, oy, gp.z, dir.x, dir.y, dir.z, z.dmg, false);
+      netSend({ type:'zspit', from:me.id, ox:gp.x, oy:oy, oz:gp.z, vx:dir.x, vy:dir.y, vz:dir.z });
+    }
+    function zGlobHitsPlayer(pos) {   // 命中任一存活玩家(主机权威): 本机或某远端
+      if (me.alive && playerPos.distanceTo(pos) < 1.2) return me.id;
+      for (var id in remotes) { var r = remotes[id]; if (r && r.alive && !r.isZombie && !r.isDummy && r.group.position.distanceTo(pos) < 1.2) return id; }
+      return null;
     }
     function zUpdateProjectiles(dt) {
       for (var i = zProjectiles.length - 1; i >= 0; i--) {
         var p = zProjectiles[i]; p.life += dt;
         p.vel.y -= p.gravity * dt;
         p.pos.addScaledVector(p.vel, dt); p.obj.position.copy(p.pos);
-        var hitPlayer = (me.alive && playerPos.distanceTo(p.pos) < 1.2);
-        if (p.pos.y <= 0.2 || hitPlayer || p.life > p.ttl) {
-          if (hitPlayer) zDamagePlayer(me.id, p.dmg);
+        var hid = p.visual ? null : zGlobHitsPlayer(p.pos);   // 视觉弹(客户端)不结算; 主机弹命中任一玩家→zDamagePlayer(远端走zhurt)
+        if (p.pos.y <= 0.2 || hid || p.life > p.ttl) {
+          if (hid) zDamagePlayer(hid, p.dmg);
           spawnGlow(p.pos.clone(), 0xb6e83a, 0.8, 0.18);   // 酸液飞溅
           scene.remove(p.obj); if (p.obj.geometry) p.obj.geometry.dispose(); if (p.obj.material) p.obj.material.dispose();
           zProjectiles.splice(i, 1);
