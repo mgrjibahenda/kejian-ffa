@@ -10071,6 +10071,16 @@
       // 大厅：开始游戏(仅房主可点) / 退出房间
       document.getElementById('lobbyStartBtn').addEventListener('click', hostStartGame);
       document.getElementById('lobbyLeaveBtn').addEventListener('click', leaveRoom);
+      // 点击房间码 → 复制到剪贴板 + 临时提示(方便分享给朋友)
+      (function () {
+        var ce = document.getElementById('lobbyCode'); if (!ce) return;
+        ce.style.cursor = 'pointer'; ce.title = '点击复制房间码';
+        ce.addEventListener('click', function () {
+          try { if (navigator.clipboard && lobbyCode) navigator.clipboard.writeText(lobbyCode).catch(function () {}); } catch (e) {}
+          var h = document.getElementById('lobbyHint');
+          if (h) { h.textContent = '✓ 已复制房间码 ' + (lobbyCode || ''); setTimeout(function () { if (lobbyActive) renderLobby(); }, 1300); }
+        });
+      })();
       // 隐藏后门表单（自测/快速加入，直进不走大厅）
       document.getElementById('joinForm').addEventListener('submit', function (e) { e.preventDefault(); if (!joined) doJoin(); });
     }
@@ -10277,11 +10287,11 @@
         r.runPhase = 0;
       } else if (speed > 1.0) {             // 奔跑：大幅腿摆 + 另一手摆臂 + 前倾冲刺 + 身体左右轻摆
         r.runPhase += dt * ((r.mecha ? 4.5 : 7.5) + Math.min(speed, 10) * 0.55);
-        var s = Math.sin(r.runPhase) * (r.mecha ? 0.55 : 0.95);
+        var s = Math.sin(r.runPhase) * (r.mecha ? 0.55 : Math.min(1.12, 0.8 + Math.min(speed,11) * 0.035));   // 步幅随速加大(冲刺更带劲)
         r.legL.rotation.x = s;  r.legR.rotation.x = -s;
         r.armR.rotation.x = 1.42 + Math.abs(s) * (r.mecha ? 0.04 : 0.09);   // 持枪手随步轻颠
         r.armL.rotation.x = (r.mecha ? 1.25 : 1.18) - s * (r.mecha ? 0.4 : 0.72);   // 另一手前后摆(与腿反向)
-        if (!r.mecha) { r.group.rotation.x = Math.min(0.13, (speed - 1) * 0.02); r.group.rotation.z = Math.sin(r.runPhase) * 0.035; }
+        if (!r.mecha) { r.group.rotation.x = Math.min(0.16, (speed - 1) * 0.022); r.group.rotation.z = Math.sin(r.runPhase) * 0.035; }   // 冲刺前倾更大
       } else {                              // 站立：轻微呼吸起伏，不僵死
         r.idlePhase = (r.idlePhase || 0) + dt;
         var br = Math.sin(r.idlePhase * 1.7);
