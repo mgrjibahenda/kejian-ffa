@@ -83,6 +83,15 @@
     font-size:14px; color:var(--muted); }
   .codebox span{ display:block; font-size:34px; font-weight:800; letter-spacing:6px; color:#ffe08a; font-family:ui-monospace,monospace; }
   .codebox small{ display:block; margin-top:4px; font-size:11px; }
+  /* 房间大厅：玩家名单 + 提示 */
+  .lobbysub{ margin-top:6px; font-size:13px; color:var(--muted); text-align:center; }
+  .roster{ margin-top:8px; display:flex; flex-direction:column; gap:6px; max-height:170px; overflow:auto; }
+  .roster .ply{ display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:9px;
+    background:rgba(255,255,255,.05); font-size:15px; }
+  .roster .ply .swatch{ width:11px; height:11px; border-radius:50%; flex:none; }
+  .roster .ply.host b{ color:#ffe08a; } .roster .ply .tag{ margin-left:auto; font-size:12px; color:var(--muted); }
+  /* #menuHome 是 .row2(display:flex)，会盖掉浏览器默认 [hidden]{display:none}；用 id+attr 提权强制隐藏 */
+  #menuHome[hidden]{ display:none; }
   .libstatus{ margin-top:16px; font-size:12px; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap; }
   .libstatus span{ display:inline-flex; align-items:center; gap:6px; }
   .dot{ width:9px; height:9px; border-radius:50%; background:var(--muted); }
@@ -313,6 +322,12 @@
         <button type="button" data-dev="heal">满血</button>
         <button type="button" data-dev="wave">刷一波僵尸</button>
       </div>
+      <div class="dp-row" style="margin-top:5px;">
+        <button type="button" data-dev="tp">前传18m</button>
+        <button type="button" data-dev="clearz">清僵尸</button>
+        <button type="button" data-dev="nextwave">下一波</button>
+        <button type="button" data-dev="gold">+1000金</button>
+      </div>
       <div class="dp-hint">滚轮/数字键也能切武器 · 上帝模式=无敌(再点关) · 刷僵尸仅僵尸模式</div>
     </div>
 
@@ -395,6 +410,28 @@
         <label>模式</label><div id="modeSel" class="seg"></div>
         <div id="mapSection" hidden><label>地图</label><div id="mapSel" class="seg"></div></div>
         <div class="row2"><button id="startBtn" type="button" class="bigbtn">开始</button><button type="button" class="bigbtn ghost backBtn">返回</button></div>
+      </div>
+
+      <!-- 创建房间 → 选模式：经典 / 僵尸 / 加入 / 退出 -->
+      <div id="modePanel" hidden>
+        <div class="row2"><button id="modeClassicBtn" type="button" class="bigbtn">🔫 经典</button><button id="modeZombieBtn" type="button" class="bigbtn">🧟 僵尸生存</button></div>
+        <div class="row2"><button id="modeJoinBtn" type="button" class="bigbtn ghost">加入房间</button><button type="button" class="bigbtn ghost backBtn">退出</button></div>
+      </div>
+
+      <!-- 经典 → 选地图 -->
+      <div id="mapPanel" hidden>
+        <label>选择地图</label><div id="mapBtns" class="seg"></div>
+        <div class="row2"><button id="mapJoinBtn" type="button" class="bigbtn ghost">加入房间</button><button id="mapBackBtn" type="button" class="bigbtn ghost">退出</button></div>
+      </div>
+
+      <!-- 房间大厅：房间码 + 玩家名单 + 进入/开始游戏 + 退出房间 -->
+      <div id="lobbyPanel" hidden>
+        <div class="codebox">房间码 <span id="lobbyCode">—</span></div>
+        <div id="lobbyMode" class="lobbysub"></div>
+        <label>房间里的玩家 <span id="lobbyCount"></span></label>
+        <div id="lobbyRoster" class="roster"></div>
+        <div id="lobbyHint" class="lobbysub"></div>
+        <div class="row2"><button id="lobbyStartBtn" type="button" class="bigbtn">进入游戏</button><button id="lobbyLeaveBtn" type="button" class="bigbtn ghost">退出房间</button></div>
       </div>
 
       <!-- 测试/快速加入后门（隐藏，自测脚本用） -->
@@ -568,6 +605,8 @@
     var ammo = WEAPONS.map(function (w) { return w.mag; });
     var reloadUntil = 0, reloadDur = 0, fireCooldown = 0, firing = false, viewRecoil = 0;
     var joined = false, paused = false, muted = false, boardOpen = false, deadUntil = 0;
+    // 大厅/房间流程：gameStarted=已真正进游戏; lobbyActive=在大厅等待; netLoopsStarted=联机循环已起(幂等)
+    var gameStarted = false, lobbyActive = false, lobbyCode = '', lobbyIsHost = false, netLoopsStarted = false;
     var lastDamageAt = 0, fireRateMul = 1;   // 回血计时；射速倍率(秘境持枪者更快)
     var cheatMode = false, cheatInfinite = false;   // 测试模式：密码 67 解锁，滚轮切换、无限子弹
     var cheatSel = 0;                                // 测试模式滚轮选择的武器序号
@@ -7433,6 +7472,10 @@
         for (var i = 0; i < 10; i++) { var a = (i/10)*Math.PI*2; spawnZombie('walker', { x: playerPos.x + Math.cos(a)*8, z: playerPos.z + Math.sin(a)*8 }); }
         showNotice('🧟 刷了一波僵尸(10)');
       }
+      if (t === 'tp') { camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize(); playerPos.x += _bf.x*18; playerPos.z += _bf.z*18; vy = 0; showNotice('🌀 前传18米'); return; }
+      if (t === 'gold') { if (typeof zGold !== 'undefined') { zGold += 1000; if (typeof zUpdateHud === 'function') zUpdateHud(); showNotice('💰 +1000 金'); } else showNotice('仅僵尸模式'); return; }
+      if (t === 'clearz') { if (typeof zClearAll === 'function') { zClearAll(); showNotice('🧹 已清空僵尸'); } return; }
+      if (t === 'nextwave') { if (typeof zState !== 'undefined' && zState) { zState.restEndsAt = now() - 1; showNotice('⏭ 跳过休息→下一波'); } return; }
     }
     function applyCheat() {
       if (!cheatMode) {
@@ -7456,6 +7499,13 @@
       canvas.setAttribute('tabindex', '0');
 
       window.addEventListener('keydown', function (e) {
+        // 菜单/大厅态(未进游戏): Esc 返回上一层 / 退出房间
+        if (!joined && e.code === 'Escape' && document.getElementById('menu').style.display !== 'none') {
+          if (lobbyActive) { e.preventDefault(); leaveRoom(); return; }
+          var _mapP = document.getElementById('mapPanel'), _modeP = document.getElementById('modePanel'), _joinP = document.getElementById('joinPanel');
+          if (_mapP && !_mapP.hidden) { e.preventDefault(); _show('mapPanel', false); _show('modePanel', true); return; }
+          if ((_modeP && !_modeP.hidden) || (_joinP && !_joinP.hidden)) { e.preventDefault(); _home(); return; }
+        }
         if (!joined) return;
         // 焦点在输入框（测试密码框）时，游戏不处理按键
         if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
@@ -9041,6 +9091,7 @@
           ensureRemote(msg.from, msg.name, msg.color);
           if (!scores[msg.from]) scores[msg.from] = { name:msg.name||'???', kills:0, deaths:0, color:msg.color };
           updateScoreboard();
+          if (lobbyActive) renderLobby();   // 大厅：有人加入 → 刷新名单
           break;
         case 'setup':   // 房主同步模式 + 地图（加入者切到同一张图并重新出生）
           if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
@@ -9048,6 +9099,7 @@
             roomMap = msg.map;
             if (joined) { buildMap(roomMap); playerPos.copy(randomSpawn()); }
           }
+          if (lobbyActive) renderLobby();   // 大厅：同步房主的模式/地图显示
           break;
         case 'state': {
           var r = ensureRemote(msg.from, msg.name, msg.color);
@@ -9113,6 +9165,12 @@
           break;
         case 'leave':
           removeRemote(msg.from); delete scores[msg.from]; updateScoreboard();
+          if (lobbyActive) renderLobby();
+          break;
+        case 'startgame':   // 房主点开始 → 全员进游戏(客户端跟随房主的模式/地图)
+          if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
+          if (msg.map) roomMap = msg.map;
+          launchGame();
           break;
         // ---- 僵尸合作: 被僵尸近战打伤 / 复活 ----
         case 'zhurt':
@@ -9913,10 +9971,13 @@
     // ------------------------------------------------------------------ 进入战场
     var joinDone = false;
     function finishJoin() {
-      if (joinDone) return; joinDone = true;
-      // 第一个 state 出去，并以 STATE_HZ 周期广播
+      // peer 已连上。已真正进游戏 → 起联机循环；否则停在大厅(只刷新名单, 此刻才知道自己是不是主机)。
+      if (gameStarted) startNetLoops();
+      if (lobbyActive) renderLobby();
+    }
+    function startNetLoops() {   // 幂等：周期广播自身状态(大厅态 sendState 内 joined=false 自动跳过) + 主机刷超武
+      if (netLoopsStarted) return; netLoopsStarted = true;
       setInterval(sendState, Math.round(1000 / STATE_HZ));
-      // 超级武器：只有主机负责生成，间隔/数量由模式决定（基础模式不刷）。首刷稍早。
       setTimeout(hostSpawnLoop, 8000);
     }
     var spawnTimer = 0;
@@ -9949,60 +10010,146 @@
       var forced = MODES[selMode] && MODES[selMode].forceMap;
       _show('mapSection', !forced && MAP_LIST.length > 1);
     }
-    function _home() { _show('menuHome', true); _show('createPanel', false); _show('joinPanel', false); }
+    function _home() {
+      ['createPanel','joinPanel','modePanel','mapPanel','lobbyPanel'].forEach(function (id) { _show(id, false); });
+      _show('menuHome', true);
+    }
+    function _lobbyGenCode() { return String(Math.floor(Math.random()*900 + 100)); }
+    function _renderMapButtons() {
+      var c = document.getElementById('mapBtns'); if (!c) return; c.innerHTML = '';
+      MAP_LIST.forEach(function (m) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'bigbtn'; b.textContent = m.name;
+        b.addEventListener('click', function () { selMode = 'normal'; selMap = m.id; enterLobby(_lobbyGenCode()); });
+        c.appendChild(b);
+      });
+    }
     function wireMenu() {
+      // 创建房间 → 选模式面板(经典 / 僵尸 / 加入 / 退出)
       document.getElementById('createBtn').addEventListener('click', function () {
         selMode = 'normal'; selMap = 'basic';
-        document.getElementById('roomCodeShow').textContent = String(Math.floor(Math.random()*900 + 100));
-        _seg('modeSel', MODE_LIST, function(){ return selMode; }, function(v){ selMode = v; _refreshMapSection(); });
-        _seg('mapSel', MAP_LIST, function(){ return selMap; }, function(v){ selMap = v; });
-        _refreshMapSection();
-        _show('menuHome', false); _show('createPanel', true); _show('joinPanel', false);
+        _show('menuHome', false); _show('joinPanel', false); _show('createPanel', false);
+        _show('mapPanel', false); _show('lobbyPanel', false); _show('modePanel', true);
       });
-      document.getElementById('joinModeBtn').addEventListener('click', function () {
-        _show('menuHome', false); _show('joinPanel', true); _show('createPanel', false);
-        document.getElementById('codeInput').focus();
+      // 经典 → 选地图面板
+      document.getElementById('modeClassicBtn').addEventListener('click', function () {
+        _renderMapButtons();
+        _show('modePanel', false); _show('mapPanel', true);
       });
+      // 僵尸 → 直接进大厅(锁专属图)
+      document.getElementById('modeZombieBtn').addEventListener('click', function () {
+        selMode = 'zombie'; enterLobby(_lobbyGenCode());
+      });
+      // "加入房间"入口(主页/模式页/选图页 均可)
+      function gotoJoin(from) { _show(from, false); _show('joinPanel', true); document.getElementById('codeInput').focus(); }
+      document.getElementById('joinModeBtn').addEventListener('click', function () { gotoJoin('menuHome'); });
+      document.getElementById('modeJoinBtn').addEventListener('click', function () { gotoJoin('modePanel'); });
+      document.getElementById('mapJoinBtn').addEventListener('click', function () { gotoJoin('mapPanel'); });
+      document.getElementById('mapBackBtn').addEventListener('click', function () { _show('mapPanel', false); _show('modePanel', true); });
       Array.prototype.forEach.call(document.querySelectorAll('.backBtn'), function (b) { b.addEventListener('click', _home); });
-      document.getElementById('startBtn').addEventListener('click', function () {
-        if (joined) return; roomMode = selMode;
-        roomMap = (MODES[selMode] && MODES[selMode].forceMap) || selMap;   // 僵尸模式锁定专属地图
-        doJoin(document.getElementById('roomCodeShow').textContent);
-      });
+      // 加入房间(输码)→ 作为客户端进大厅；真实模式/地图由房主 setup 同步
       document.getElementById('doJoinBtn').addEventListener('click', function () {
-        if (joined) return;
+        if (joined || lobbyActive) return;
         var code = (document.getElementById('codeInput').value || '').replace(/\D/g, '').slice(0, 3);
         if (!code) { document.getElementById('codeInput').focus(); return; }
-        doJoin(code);
+        selMode = 'normal'; enterLobby(code);
       });
       document.getElementById('codeInput').addEventListener('keydown', function (e) { if (e.code === 'Enter') document.getElementById('doJoinBtn').click(); });
-      // 隐藏后门表单（自测/快速加入）
+      // 大厅：开始游戏(仅房主可点) / 退出房间
+      document.getElementById('lobbyStartBtn').addEventListener('click', hostStartGame);
+      document.getElementById('lobbyLeaveBtn').addEventListener('click', leaveRoom);
+      // 隐藏后门表单（自测/快速加入，直进不走大厅）
       document.getElementById('joinForm').addEventListener('submit', function (e) { e.preventDefault(); if (!joined) doJoin(); });
     }
 
-    function doJoin(room) {
-      var name = (document.getElementById('nameInput').value || '').trim().slice(0, 14) || ('玩家' + Math.floor(Math.random()*900+100));
-      room = (room || (document.getElementById('roomInput').value || '').trim() || 'lobby');
-      me.name = name;
-      joined = true;
+    // 真正进入游戏(从大厅"开始"或后门直进都走这里)；peer 连接由调用方负责(大厅已连 / doJoin 直连)。
+    function launchGame() {
+      if (gameStarted) return;
+      gameStarted = true; joined = true; lobbyActive = false;
       buildMap(roomMap);          // 按所选地图构建(房主已设；加入者先 basic，收到 setup 再重建)
       playerPos.copy(randomSpawn());
       if (TEST) { playerPos.set(20, EYE, 0); yaw = 0; pitch = 0; }  // 固定出生点，便于自测移动方向
       ensureAudio();
       buildViewGun(); updateWeaponHud(); updateHpHud(); updateAmmoHud(); updateScoreboard();
-      if (isZombieMode()) zInit();   // 僵尸模式: 启动刷怪/经济(M2); M3 接管 50 关波次
+      if (isZombieMode()) zInit();   // 僵尸模式: 进游戏时启动刷怪/经济(钩子原在 doJoin, 保留不删)
 
       document.getElementById('menu').style.display = 'none';
       var hud = document.getElementById('hud'); hud.hidden = false; hud.setAttribute('aria-hidden', 'false');
 
-      startNetwork(room);
-      // 默认进入"未锁定"状态并显示提示，再尝试自动锁定；若浏览器拒绝自动锁定，
-      // 玩家点一下画面即可锁定（见 canvas click 处理）。这样不会出现"无法瞄准"的死局。
+      startNetLoops();   // 起广播/刷怪循环(peer 未连时 sendState 内部会等)
       if (!TEST) {
         paused = true;
         document.getElementById('pausemsg').style.display = 'flex';
         requestLock();
       }
+    }
+
+    // 后门/快速直进(自测脚本 __test.join / 隐藏 joinForm 用)：直接连网 + 进游戏，不经大厅。
+    function doJoin(room) {
+      var name = (document.getElementById('nameInput').value || '').trim().slice(0, 14) || ('玩家' + Math.floor(Math.random()*900+100));
+      room = (room || (document.getElementById('roomInput').value || '').trim() || 'lobby');
+      me.name = name;
+      launchGame();          // gameStarted=true + 进游戏正文
+      startNetwork(room);    // 连网(TEST 下直接 finishJoin；gameStarted 已真→startNetLoops 幂等)
+    }
+
+    // ---------------------------------------------------------------- 房间大厅
+    // 进入大厅(房主创建 or 别人加入都走这里)：建立 peer 连接，停在大厅等开始。
+    function enterLobby(code) {
+      var name = (document.getElementById('nameInput').value || '').trim().slice(0, 14) || ('玩家' + Math.floor(Math.random()*900+100));
+      me.name = name;
+      roomMode = selMode;
+      roomMap = (MODES[selMode] && MODES[selMode].forceMap) || selMap;   // 僵尸锁专属图
+      lobbyCode = String(code || ''); lobbyActive = true;
+      ['menuHome','joinPanel','modePanel','mapPanel','createPanel'].forEach(function (id) { _show(id, false); });
+      _show('lobbyPanel', true);
+      ensureAudio();
+      startNetwork(lobbyCode || 'lobby');   // 占到主机 id=房主；否则作为客户端加入
+      renderLobby();
+    }
+
+    function renderLobby() {
+      if (!lobbyActive) return;
+      lobbyIsHost = !!isHost;
+      var codeEl = document.getElementById('lobbyCode'); if (codeEl) codeEl.textContent = lobbyCode || '—';
+      var modeName = (MODES[roomMode] && MODES[roomMode].name) || roomMode, mapName = '';
+      for (var mi = 0; mi < MAP_LIST.length; mi++) if (MAP_LIST[mi].id === roomMap) mapName = MAP_LIST[mi].name;
+      var forced = MODES[roomMode] && MODES[roomMode].forceMap;
+      var mEl = document.getElementById('lobbyMode'); if (mEl) mEl.textContent = '模式：' + modeName + (mapName && !forced ? '  ·  地图：' + mapName : '');
+      var ros = document.getElementById('lobbyRoster'); if (ros) {
+        ros.innerHTML = '';
+        function row(nm, color, isMe, host) {
+          var d = document.createElement('div'); d.className = 'ply' + (host ? ' host' : '');
+          var tag = isMe ? ('<span class="tag">你' + (host ? ' · 房主' : '') + '</span>') : (host ? '<span class="tag">房主</span>' : '');
+          d.innerHTML = '<span class="swatch" style="background:' + (color || '#8ab') + '"></span><b>' + esc(nm || '玩家') + '</b>' + tag;
+          ros.appendChild(d);
+        }
+        row(me.name, me.colorHex, true, isHost);
+        for (var id in scores) { if (id === me.id) continue; row(scores[id].name, scores[id].color, false, false); }
+        var lc = document.getElementById('lobbyCount'); if (lc) lc.textContent = '(' + ros.children.length + ' 人)';
+      }
+      var btn = document.getElementById('lobbyStartBtn');
+      if (btn) { btn.textContent = isZombieMode() ? '开始游戏' : '进入游戏'; btn.disabled = !isHost; btn.style.opacity = isHost ? '1' : '.5'; }
+      var hint = document.getElementById('lobbyHint');
+      if (hint) hint.textContent = isHost ? '把房间码告诉朋友，他们加入后你点开始，全员一起进。' : '已加入房间，等待房主开始…';
+    }
+
+    // 房主点"开始/进入游戏"：广播 startgame，全员一起进。
+    function hostStartGame() {
+      if (!isHost || gameStarted) return;
+      netSend({ type:'startgame', mode:roomMode, map:roomMap });
+      launchGame();
+    }
+
+    // 退出房间：断开连接，回主菜单。
+    function leaveRoom() {
+      try { if (myPeer) myPeer.destroy(); } catch (e) {}
+      myPeer = null; isHost = false; clientConns = {};
+      if (typeof clearAllRemotes === 'function') clearAllRemotes();
+      scores = {};
+      joined = false; gameStarted = false; lobbyActive = false; netLoopsStarted = false; joinDone = false;
+      updateScoreboard();
+      _show('lobbyPanel', false); _home();
+      netStatus('未连接', '');
     }
 
     // ------------------------------------------------------------------ 主循环
