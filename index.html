@@ -9014,7 +9014,7 @@
     function hostDrop(pid) {
       if (clientConns[pid]) delete clientConns[pid];
       removeRemote(pid); delete scores[pid];
-      broadcastRaw({ type:'leave', from:pid });
+      broadcastRaw({ type:'leave', from:pid }); if (lobbyActive) renderLobby();
       updateScoreboard();
     }
 
@@ -9064,6 +9064,7 @@
       setTimeout(attemptHost, 400 + Math.floor(Math.random()*600)); // 抖动避免同时抢
     }
     function onHostLost() {
+      if (!joined && lobbyActive) { leaveRoom(); return; }
       if (!joined) return;
       netStatus('与主机断开，重连中…', 'warn');
       clearAllRemotes();
