@@ -8961,6 +8961,11 @@
         else slots = '<div class="slot active super">★</div>';
         document.getElementById('slots').innerHTML = slots; updateAmmoHud(); return;
       }
+      if (isZombieMode()) {   // 僵尸模式: 单槽, 只显示当前持有武器(开局棒球棍; 其余从商店买来替换), 不再显示5把基础枪
+        var zw = activeWeapon(), zicon = zBatActive ? '🏏' : (superActive ? ((SUPERS[superKind] && SUPERS[superKind].isXian) ? '✦' : '★') : '🔫');
+        document.getElementById('slots').innerHTML = '<div class="slot active' + (superActive ? ' super' : '') + '">' + zicon + esc(zw.name) + '</div>';
+        updateAmmoHud(); return;
+      }
       if (cheatMode) {
         // 测试模式(开发)：下方显示全部超级武器/仙器，滚轮切换，高亮当前
         slots = ALL_SUPER_KINDS.map(function (kk) {
@@ -10283,7 +10288,7 @@
       if (keys['KeyA']) mx -= 1;
       sprinting = !!(keys['ShiftLeft'] || keys['ShiftRight']) && (mx !== 0 || mz !== 0) && adsAmt < 0.3;
       isMoving = (mx !== 0 || mz !== 0) && grounded;   // 走路头部/武器摆动用
-      var sp = SPEED * (sprinting ? SPRINT : 1) * (1 - adsAmt * 0.45);  // 开镜走得慢
+      var sp = SPEED * (sprinting ? SPRINT : 1) * (1 - adsAmt * 0.45) * (isZombieMode() ? 0.65 : 1);  // 开镜走得慢; 僵尸模式整体降速(0.65×)更紧张
       if (mechaWorn) sp *= (SUPERS[superKind] && SUPERS[superKind].speedMul) || 0.7;   // 机甲移速 -30%
 
       var move = new THREE.Vector3();
