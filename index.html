@@ -265,6 +265,9 @@
     #menu .card{ margin:auto; }
     .roster{ max-height:24vh; }
   }
+  .chatbox{ margin-top:10px; height:92px; overflow-y:auto; background:rgba(255,255,255,.04); border-radius:9px; padding:8px 10px; font-size:13px; text-align:left; display:flex; flex-direction:column; gap:4px; }
+  .chatbox .msg{ color:#cfe0d6; word-break:break-word; } .chatbox .msg b{ color:#ffe08a; } .chatbox .sys{ color:var(--muted); font-style:italic; }
+  .chatrow{ display:flex; gap:8px; margin-top:8px; } .chatrow input{ flex:1; } .chatbtn{ flex:none; padding:8px 14px; font-size:14px; }
 </style>
 </head>
 <body>
@@ -445,6 +448,8 @@
         <label>房间里的玩家 <span id="lobbyCount"></span></label>
         <div id="lobbyRoster" class="roster"></div>
         <div id="lobbyHint" class="lobbysub"></div>
+        <div id="lobbyChat" class="chatbox"></div>
+        <div class="chatrow"><input id="chatInput" maxlength="120" autocomplete="off" placeholder="说点什么…" /><button id="chatSend" type="button" class="bigbtn ghost chatbtn">发送</button></div>
         <div class="row2"><button id="lobbyStartBtn" type="button" class="bigbtn">进入游戏</button><button id="lobbyLeaveBtn" type="button" class="bigbtn ghost">退出房间</button></div>
       </div>
 
@@ -9183,6 +9188,9 @@
           removeRemote(msg.from); delete scores[msg.from]; updateScoreboard();
           if (lobbyActive) renderLobby();
           break;
+        case 'chat':
+          if (msg.text) zChatPush(msg.name, String(msg.text).slice(0, 120));
+          break;
         case 'startgame':   // 房主点开始 → 全员进游戏(客户端跟随房主的模式/地图)
           if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
           if (msg.map) roomMap = msg.map;
@@ -10105,6 +10113,8 @@
       // 大厅：开始游戏(仅房主可点) / 退出房间
       document.getElementById('lobbyStartBtn').addEventListener('click', hostStartGame);
       document.getElementById('lobbyLeaveBtn').addEventListener('click', leaveRoom);
+      document.getElementById('chatSend').addEventListener('click', zChatSend);
+      document.getElementById('chatInput').addEventListener('keydown', function (e) { if (e.code === 'Enter') { e.preventDefault(); zChatSend(); } });
       // 点击房间码 → 复制到剪贴板 + 临时提示(方便分享给朋友)
       (function () {
         var ce = document.getElementById('lobbyCode'); if (!ce) return;
@@ -10160,6 +10170,7 @@
       lobbyCode = String(code || ''); lobbyActive = true;
       ['menuHome','joinPanel','modePanel','mapPanel','createPanel'].forEach(function (id) { _show(id, false); });
       _show('lobbyPanel', true);
+      var _cb = document.getElementById('lobbyChat'); if (_cb) _cb.innerHTML = '';
       ensureAudio();
       startNetwork(lobbyCode || 'lobby');   // 占到主机 id=房主；否则作为客户端加入
       renderLobby();
@@ -10192,6 +10203,19 @@
     }
 
     // 房主点"开始/进入游戏"：广播 startgame，全员一起进。
+    function zChatPush(name, text, sys) {
+      var box = document.getElementById('lobbyChat'); if (!box) return;
+      var d = document.createElement('div'); d.className = sys ? 'sys' : 'msg';
+      if (sys) d.textContent = text; else d.innerHTML = '<b>' + esc(name) + '</b>: ' + esc(text);
+      box.appendChild(d); box.scrollTop = box.scrollHeight;
+      while (box.children.length > 60) box.removeChild(box.firstChild);
+    }
+    function zChatSend() {
+      var inp = document.getElementById('chatInput'); if (!inp) return;
+      var t = (inp.value || '').trim().slice(0, 120); if (!t) return;
+      inp.value = ''; zChatPush(me.name, t);
+      try { netSend({ type:'chat', from:me.id, name:me.name, text:t }); } catch (e) {}
+    }
     function hostStartGame() {
       if (!isHost || gameStarted) return;
       netSend({ type:'startgame', mode:roomMode, map:roomMap });
