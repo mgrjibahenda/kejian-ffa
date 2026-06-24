@@ -7489,6 +7489,13 @@
       canvas.setAttribute('tabindex', '0');
 
       window.addEventListener('keydown', function (e) {
+        // 菜单/大厅态(未进游戏): Esc 返回上一层 / 退出房间
+        if (!joined && e.code === 'Escape' && document.getElementById('menu').style.display !== 'none') {
+          if (lobbyActive) { e.preventDefault(); leaveRoom(); return; }
+          var _mapP = document.getElementById('mapPanel'), _modeP = document.getElementById('modePanel'), _joinP = document.getElementById('joinPanel');
+          if (_mapP && !_mapP.hidden) { e.preventDefault(); _show('mapPanel', false); _show('modePanel', true); return; }
+          if ((_modeP && !_modeP.hidden) || (_joinP && !_joinP.hidden)) { e.preventDefault(); _home(); return; }
+        }
         if (!joined) return;
         // 焦点在输入框（测试密码框）时，游戏不处理按键
         if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
