@@ -9113,6 +9113,7 @@
           if (!scores[msg.from]) scores[msg.from] = { name:msg.name||'???', kills:0, deaths:0, color:msg.color };
           updateScoreboard();
           if (lobbyActive) renderLobby();   // 大厅：有人加入 → 刷新名单
+          if (lobbyActive) zChatPush(null, (msg.name || '有人') + ' 加入了房间', true);
           break;
         case 'setup':   // 房主同步模式 + 地图（加入者切到同一张图并重新出生）
           if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
@@ -9185,7 +9186,7 @@
           }
           break;
         case 'leave':
-          removeRemote(msg.from); delete scores[msg.from]; updateScoreboard();
+          var _ln = (scores[msg.from] && scores[msg.from].name); removeRemote(msg.from); delete scores[msg.from]; updateScoreboard(); if (lobbyActive) zChatPush(null, (_ln || '有人') + ' 离开了房间', true);
           if (lobbyActive) renderLobby();
           break;
         case 'chat':
@@ -10171,6 +10172,7 @@
       ['menuHome','joinPanel','modePanel','mapPanel','createPanel'].forEach(function (id) { _show(id, false); });
       _show('lobbyPanel', true);
       var _cb = document.getElementById('lobbyChat'); if (_cb) _cb.innerHTML = '';
+      zChatPush(null, '欢迎！把房间码发给朋友，一起开始。', true);
       ensureAudio();
       startNetwork(lobbyCode || 'lobby');   // 占到主机 id=房主；否则作为客户端加入
       renderLobby();
