@@ -8382,9 +8382,9 @@
         var px = Math.max(-28, Math.min(28, ux)), pz = Math.max(-28, Math.min(28, uz)), py = Math.max(0.9, Math.min(60, uy));   // 不入地(y>=0.9), 可上天
         bh.mesh.position.set(px, py, pz);
         if (!reduced) {
-          if (bh.mesh.userData.diskTex) bh.mesh.userData.diskTex.rotation += dt * 0.8;        // 吸积盘绕转
-          if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 1.1;
-          if (bh.mesh.userData.einstein) { var _ein = bh.mesh.userData.einstein; _ein.quaternion.copy(camera.quaternion); _ein.material.opacity = 0.7 + 0.22 * Math.sin(now() * 0.006); }
+          if (bh.mesh.userData.diskTex) bh.mesh.userData.diskTex.rotation += dt * 1.05;        // 吸积盘绕转(更快更活)
+          if (bh.mesh.userData.ring) bh.mesh.userData.ring.rotation.z += dt * 1.5;
+          if (bh.mesh.userData.einstein) { var _ein = bh.mesh.userData.einstein; _ein.quaternion.copy(camera.quaternion); _ein.material.opacity = 0.68 + 0.28 * Math.sin(now() * 0.008); }   // 爱因斯坦环更明显脉动
         }
         var fade = el > HOLE_TRAVEL + HOLE_HOLD - 0.5 ? Math.max(0.2, (HOLE_TRAVEL + HOLE_HOLD - el) / 0.5) : 1;
         bh.mesh.scale.setScalar(fade * HOLE_SCALE);
