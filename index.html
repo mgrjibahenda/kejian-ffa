@@ -6308,16 +6308,32 @@
       // 屋顶门廊雨棚(正面, 纯装饰)
       townPut(makeAwning(M, { w:4.2, depth:1.6, color:'fabricGray' }), -8.1, 2.6, 0, -Math.PI/2, 'decor');
 
+      // ---------- 封窗据守: 钉死一层窗洞(只留前/后门 + 侧墙窄射击缝); 二楼窗保留作射击位(高低差) ----------
+      var board = fxOwn(new THREE.MeshStandardMaterial({ color:0x33271a, roughness:0.96, metalness:0.02 }));   // 深色钉板
+      function plank(cx, cz, sx, sz) { mBox(cx, 1.6, cz, sx, 1.3, sz, board); }   // 封住一层窗带(y≈1.0~2.2)
+      plank(-8, -6.4, 0.4, 3.2); plank(-8, 3.2, 0.4, 9.6);          // 前墙(门 z≈-3.2 留口)
+      plank(8, -4.8, 0.4, 6.4);  plank(8, 4.8, 0.4, 6.4);           // 后墙(门 z=0 留口)
+      plank(-4.2, -8, 7.6, 0.4); plank(4.2, -8, 7.6, 0.4);          // 左墙(中留 0.8 窄缝, 僵尸进不来只能射击)
+      plank(-4.2, 8, 7.6, 0.4);  plank(4.2, 8, 7.6, 0.4);           // 右墙
+
+      // ---------- 立体化: 院内木箱垛 + 瞭望矮台(掩体 + 登高俯瞰位, 制造高低差) ----------
+      var crateMat = fxOwn(new THREE.MeshStandardMaterial({ color:0x5a4128, roughness:0.9, metalness:0.03 }));
+      function crate(cx, cz, s, h) { mBox(cx, h/2, cz, s, h, s, crateMat); }
+      crate(-11.4, -11, 1.6, 1.0); crate(-12.6, -11.3, 1.5, 2.0); crate(-11.2, -12.2, 1.4, 1.0);   // 西南箱垛(踩1.0→2.0登高)
+      crate(12, 10.5, 1.8, 1.2);   crate(12.3, 12, 1.7, 2.4);                                      // 东北高箱垛
+      crate(11.5, -11.5, 1.5, 1.0); crate(-12, 11.5, 1.6, 1.4);                                    // 散落掩体
+      mBox(0, 0.65, 15, 5.5, 1.3, 3, crateMat); mBox(0, 1.7, 16.3, 5.5, 1.1, 0.4, board);          // 北侧瞭望矮台 + 后挡板(站上俯瞰刷怪环)
+
       // ---------- 丛林: 真实模型(枯树/暗树/散石); ZAssets 道具未就绪则退回程序化, 到位后自动重建一次 ----------
       var _ZA = window.ZAssets, _real = !!(_ZA && _ZA.propsReady && typeof _ZA.makeProp === 'function');
-      var nTrees = 64;
+      var nTrees = 120;   // 加密丛林: 更密更压抑
       for (i = 0; i < nTrees; i++) {
         var a = rng()*Math.PI*2, rad = CLEAR + rng()*(HALF-CLEAR-3), yw = rng()*Math.PI*2;
         var th = 5 + rng()*4.5, bare = (rng()<0.16);   // 保持 rng 调用次数不变, 真/假分支位置一致
         if (_real) townPut(_ZA.makeProp(rng()<0.72 ? 'deadtree' : 'tree', 0), Math.cos(a)*rad, 0, Math.sin(a)*rad, yw, 'decor');
         else       townPut(makeStreetTree(M, { h:th, seed:(i*7+3)|0, bare:bare }), Math.cos(a)*rad, 0, Math.sin(a)*rad, yw, 'decor');
       }
-      var nBush = 46;
+      var nBush = 72;   // 更多灌木/碎石填充, 地表更杂乱阴森
       for (i = 0; i < nBush; i++) {
         var a2 = rng()*Math.PI*2, rad2 = (CLEAR-2) + rng()*(HALF-CLEAR), yw2 = rng()*Math.PI*2, br = 0.6+rng()*1.0;
         if (_real) townPut(_ZA.makeProp('rock', 0), Math.cos(a2)*rad2, 0, Math.sin(a2)*rad2, yw2, 'decor');
@@ -6347,10 +6363,10 @@
     };
 
     MAP_FX['zombie_house'] = { onEnter: function (scene) {
-      scene.background = new THREE.Color(0x05080a);
-      scene.fog = new THREE.Fog(0x0a140e, 16, 64);                 // 浓密暗绿夜雾(近处就压暗, 营造未知感)
-      if (hemiLight) { hemiLight.color.setHex(0x223028); hemiLight.groundColor.setHex(0x05080a); hemiLight.intensity = 0.42; }
-      if (keyLight)  { keyLight.color.setHex(0x90b6da); keyLight.intensity = 0.5; keyLight.position.set(-30, 44, -18); }   // 冷月光
+      scene.background = new THREE.Color(0x03060a);
+      scene.fog = new THREE.Fog(0x070f0a, 11, 50);                 // 更浓更近的暗绿夜雾(看不清远处, 树影中藏怪, 更恐怖)
+      if (hemiLight) { hemiLight.color.setHex(0x18241d); hemiLight.groundColor.setHex(0x03060a); hemiLight.intensity = 0.30; }   // 更暗
+      if (keyLight)  { keyLight.color.setHex(0x7ea4c8); keyLight.intensity = 0.38; keyLight.position.set(-30, 44, -18); }   // 更弱冷月光
       if (bloom) { bloom.bright.uniforms.threshold.value = 0.78; bloom.bright.uniforms.soft.value = 0.45;
         bloom.comp.uniforms.strength.value = 1.05; bloom.comp.uniforms.exposure.value = 0.92; }
       if (renderer) renderer.toneMappingExposure = 1.0;
