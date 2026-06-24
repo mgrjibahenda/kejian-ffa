@@ -322,6 +322,12 @@
         <button type="button" data-dev="heal">满血</button>
         <button type="button" data-dev="wave">刷一波僵尸</button>
       </div>
+      <div class="dp-row" style="margin-top:5px;">
+        <button type="button" data-dev="tp">前传18m</button>
+        <button type="button" data-dev="clearz">清僵尸</button>
+        <button type="button" data-dev="nextwave">下一波</button>
+        <button type="button" data-dev="gold">+1000金</button>
+      </div>
       <div class="dp-hint">滚轮/数字键也能切武器 · 上帝模式=无敌(再点关) · 刷僵尸仅僵尸模式</div>
     </div>
 
@@ -7466,6 +7472,10 @@
         for (var i = 0; i < 10; i++) { var a = (i/10)*Math.PI*2; spawnZombie('walker', { x: playerPos.x + Math.cos(a)*8, z: playerPos.z + Math.sin(a)*8 }); }
         showNotice('🧟 刷了一波僵尸(10)');
       }
+      if (t === 'tp') { camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize(); playerPos.x += _bf.x*18; playerPos.z += _bf.z*18; vy = 0; showNotice('🌀 前传18米'); return; }
+      if (t === 'gold') { if (typeof zGold !== 'undefined') { zGold += 1000; if (typeof zUpdateHud === 'function') zUpdateHud(); showNotice('💰 +1000 金'); } else showNotice('仅僵尸模式'); return; }
+      if (t === 'clearz') { if (typeof zClearAll === 'function') { zClearAll(); showNotice('🧹 已清空僵尸'); } return; }
+      if (t === 'nextwave') { if (typeof zState !== 'undefined' && zState) { zState.restEndsAt = now() - 1; showNotice('⏭ 跳过休息→下一波'); } return; }
     }
     function applyCheat() {
       if (!cheatMode) {
