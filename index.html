@@ -9325,7 +9325,7 @@
       var T = ZTYPES[type] || ZTYPES.walker;
       var id = forceId || ('z-' + (++zSeq));   // forceId: 客户端按主机同步的id建渲染体
       var built = makeZombieMesh(type);
-      var grp = built.root; grp.position.set(pos.x, 0, pos.z); scene.add(grp);
+      var grp = built.root; grp.position.set(pos.x, 0, pos.z); scene.add(grp); zSpawnFx(pos);   // 入场: 地面泥土迸溅
       // 不可见命中体(头/身), userData 带 zid+part → 命中检测与外观解耦(将来换真实模型仍可命中)
       var hitMat = new THREE.MeshBasicMaterial({ transparent:true, opacity:0, depthWrite:false });
       var sc = T.scale || 1, g = T.girth || 1;
@@ -9381,7 +9381,8 @@
     function hitZombie(z, dmg, head, killer) {
       if (!z || !z.alive) return;
       z.hp = Math.max(0, z.hp - dmg);
-      var gp = z.group.position; spawnDamageNumber(gp.x, gp.y + 2.0*(z.T.scale||1), gp.z, dmg, !!head);
+      var gp = z.group.position, sc = z.T.scale||1; spawnDamageNumber(gp.x, gp.y + 2.0*sc, gp.z, dmg, !!head);
+      if (!reduced) spawnGlow(new THREE.Vector3(gp.x, 0.95*sc, gp.z), head ? 0xff5050 : 0xff3030, 0.55*sc, 0.08);   // 命中红闪(叠加光, 不改模型材质→真实模型/盒子人通用)
       if (z.hp <= 0) killZombie(z, killer == null ? true : killer); else hitSound();
     }
     function zAwardGold(killer, amt, pos) {
@@ -9437,6 +9438,15 @@
     function zDamagePlayer(targetId, dmg) {
       if (targetId === me.id) { if (me.alive) applyDamage(dmg, 'zombie', 'zombie', false); }
       else netSend({ type:'zhurt', from:me.id, to:targetId, dmg:dmg });   // 联机: 主机权威, 通知该玩家受伤
+    }
+    // 僵尸入场: 地面泥土迸溅(棕色尘团 + 扩张土环), 纯叠加 FX
+    function zSpawnFx(pos) {
+      if (reduced) return;
+      for (var i = 0; i < 4; i++) { var a = Math.random()*6.28, r = Math.random()*0.6;
+        spawnGlow(new THREE.Vector3(pos.x + Math.cos(a)*r, 0.2 + Math.random()*0.5, pos.z + Math.sin(a)*r), 0x6a4a2a, 0.4 + Math.random()*0.3, 0.12); }
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.12, 8, 24), new THREE.MeshBasicMaterial({ color:0x5a3a1f, transparent:true, opacity:0.8, depthWrite:false }));
+      ring.rotation.x = -Math.PI/2; ring.position.set(pos.x, 0.1, pos.z); ring.scale.setScalar(0.2); scene.add(ring);
+      fx.push({ obj:ring, ttl:0.45, life:0, fade:true, maxOp:0.8, expandFrom:0.2, expandTo:1.4, ease:true, ownMap:true });
     }
     function zExplode(pos, R, dmg) {
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff6a2a, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
