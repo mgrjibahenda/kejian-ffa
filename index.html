@@ -10190,6 +10190,7 @@
 
     // 退出房间：断开连接，回主菜单。
     function leaveRoom() {
+      try { netSend({ type:'leave', from:me.id }); } catch (e) {}
       try { if (myPeer) myPeer.destroy(); } catch (e) {}
       myPeer = null; isHost = false; clientConns = {};
       if (typeof clearAllRemotes === 'function') clearAllRemotes();
