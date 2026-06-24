@@ -9240,7 +9240,7 @@
       bodyHit.position.y = 1.0*sc; bodyHit.userData = { zid:id, part:'body' }; grp.add(bodyHit);
       var headHit = new THREE.Mesh(new THREE.SphereGeometry(0.3*sc, 8, 6), hitMat);
       headHit.position.y = 1.74*sc; headHit.userData = { zid:id, part:'head' }; grp.add(headHit);
-      var rnd = (typeof zState !== 'undefined' && zState) ? zState.round : 1;
+      var rnd = Math.max(1, (typeof zState !== 'undefined' && zState) ? zState.round : 1);   // 至少按第1波缩放(防 pregame round0 把血量缩小)
       var hpScale = 1 + (rnd - 1) * 0.18;            // 血量随波次线性增厚(50关≈9.8x)
       var goldScale = 1 + (rnd - 1) * 0.05;          // 金币也随波次涨(后期僵尸更肉, 经济需跟上, 50关≈3.45x)
       var z = {
@@ -9604,6 +9604,12 @@
         var d = Math.sqrt(dx*dx + dz*dz); if (d > ZBAT.range) continue;
         if ((dx*_fwd.x + dz*_fwd.z) / (d || 1) < ZBAT.arc) continue;   // 不在前方扇形内
         hitZombie(z, ZBAT.dmg, false); hitAny = true;
+        if (z.alive) {   // 击退手感: 体型反比(轻的飞远, 巨尸/boss几乎不动), 撞墙不穿
+          var kb = 0.9 / (z.T.scale || 1), R = 0.42 * (z.T.scale || 1);
+          var kx = z.group.position.x + _fwd.x * kb, kz = z.group.position.z + _fwd.z * kb;
+          if (!zCollide(kx, z.group.position.z, R)) z.group.position.x = kx;
+          if (!zCollide(z.group.position.x, kz, R)) z.group.position.z = kz;
+        }
       }
       if (hitAny) showHitmarker(false);
     }
