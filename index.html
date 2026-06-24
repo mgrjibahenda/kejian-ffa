@@ -7815,13 +7815,13 @@
         if (!mechaWorn) { wearMecha(kind); return; }
         if (kind === 'godmecha' && mechaWeapon === 1) { if (now() >= bladeReadyAt) startBurstSlam(); return; }   // 爆地巨剑
         if (now() < fireCooldown) return;
-        if (superAmmo <= 0) { dropSuper(); return; }
+        if (superAmmo <= 0) { if (isZombieMode()) { startReload(); return; } dropSuper(); return; }   // 僵尸模式: 机甲打空从储备(反/负物质)补弹, 不丢
         if (!cheatInfinite) superAmmo--;
         fireCooldown = now() + (60000 / w.rpm) * fireRateMul;
         viewRecoil = Math.min(viewRecoil + w.kick, 0.12); gunKick = Math.min(gunKick + w.kick * 7 + 0.2, 1.3);
         fireGrenade(kind, w); fireMuzzle();
         updateAmmoHud();
-        if (!cheatInfinite && superAmmo <= 0) dropSuper();
+        if (!cheatInfinite && superAmmo <= 0) { if (isZombieMode()) startReload(); else dropSuper(); }
         return;
       }
 
@@ -9282,13 +9282,14 @@
       var headHit = new THREE.Mesh(new THREE.SphereGeometry(0.3*sc, 8, 6), hitMat);
       headHit.position.y = 1.74*sc; headHit.userData = { zid:id, part:'head' }; grp.add(headHit);
       var rnd = (typeof zState !== 'undefined' && zState) ? zState.round : 1;
-      var hpScale = 1 + (rnd - 1) * 0.18;   // M3 会接管波次曲线; M2 给个温和递增
+      var hpScale = 1 + (rnd - 1) * 0.18;            // 血量随波次线性增厚(50关≈9.8x)
+      var goldScale = 1 + (rnd - 1) * 0.05;          // 金币也随波次涨(后期僵尸更肉, 经济需跟上, 50关≈3.45x)
       var z = {
         id:id, type:type, T:T, group:grp, rig:built.rig === false ? null : built,
         head:built.head, armL:built.armL, armR:built.armR, legL:built.legL, legR:built.legR,
         hitMeshes:[bodyHit, headHit],
         hp: Math.round(T.hp * hpScale), maxHp: Math.round(T.hp * hpScale),
-        speed: T.speed * (0.9 + Math.random()*0.2), dmg:T.dmg, gold:T.gold, behave:T.behave,
+        speed: T.speed * (0.9 + Math.random()*0.2), dmg:T.dmg, gold:Math.round(T.gold * goldScale), behave:T.behave,
         alive:true, lastX:pos.x, lastZ:pos.z, lurch:Math.random()*6.28,
         atkAt:0, deadAt:0, deathT:0, leanZ:0
       };
@@ -9664,6 +9665,8 @@
       { id:'w_tsunami', kind:'weapon', wid:'tsunami', name:'排山倒海手', price:6200, min:15, ammo:6,   w:function(r){ return 0.35; } },
       { id:'w_blade',   kind:'weapon', wid:'blade',   name:'青龙偃月刀', price:7500, min:18, ammo:1,   w:function(r){ return 0.3; } },
       { id:'w_roar',    kind:'weapon', wid:'roar',    name:'崩星咆哮炮', price:9500, min:22, ammo:10,  w:function(r){ return 0.3; } },
+      { id:'w_mecha',   kind:'weapon', wid:'mecha',   name:'超级机甲',   price:8000,  min:16, ammo:60, w:function(r){ return 0.32; } },   // 左键穿上, 反物质补弹
+      { id:'w_godmecha',kind:'weapon', wid:'godmecha',name:'终焉机神',   price:13000, min:26, ammo:60, w:function(r){ return 0.26; } },   // 仙器机甲, 负物质补弹
       { id:'medkit',    kind:'heal',                  name:'医疗包(回满)', price:50, min:1,  w:function(r){ return 1.7; } },
       { id:'revive',    kind:'revive',                name:'复活药剂',   price:1500, min:4,  w:function(r){ return 0.8; } },
       { id:'a_bullet',  kind:'ammo', cat:'bullet',     amount:90, name:'子弹 ×90',   price:120,  min:1,  w:function(r){ return 1.4; } },
@@ -10581,7 +10584,7 @@
           zSpawn:function(type,x,z){ var z2 = spawnZombie(type||'walker', { x:(x==null?playerPos.x+6:x), z:(z==null?playerPos.z:z) }); return z2 ? z2.id : null; },
           zSpawnRing:function(type){ var z2 = zSpawnFromRing(type||'walker'); return z2?z2.id:null; },
           zCount:function(){ return { alive:zCountAlive(), total:Object.keys(zombies).length, proj:zProjectiles.length }; },
-          zInfo:function(id){ var z=zombies[id]; if(!z) return null; return { type:z.type, hp:z.hp, alive:z.alive, x:z.group.position.x, z:z.group.position.z, dist:Math.hypot(z.group.position.x-playerPos.x, z.group.position.z-playerPos.z) }; },
+          zInfo:function(id){ var z=zombies[id]; if(!z) return null; return { type:z.type, hp:z.hp, maxHp:z.maxHp, gold:z.gold, alive:z.alive, x:z.group.position.x, z:z.group.position.z, dist:Math.hypot(z.group.position.x-playerPos.x, z.group.position.z-playerPos.z) }; },
           zGold:function(){ return zGold; }, zRunning:function(){ return zRunning; },
           zPause:function(){ zRunning = false; }, zResume:function(){ zRunning = true; },
           zNearestDist:function(){ var best=1e9; for(var k in zombies){ var z=zombies[k]; if(!z.alive)continue; var d=Math.hypot(z.group.position.x-playerPos.x,z.group.position.z-playerPos.z); if(d<best)best=d; } return best; },
