@@ -7513,6 +7513,7 @@
         keys[e.code] = true;
         if (e.code === 'KeyR') startReload();
         if (e.code === 'KeyE' && isZombieMode()) zTryRevive();   // 僵尸: 用复活药剂救起倒地队友
+        if (e.code === 'KeyF' && isZombieMode()) zSkipRest();    // 僵尸: 休息时提前开打下一波
         if (e.code === 'KeyM') { muted = !muted; }
         // 测试模式：6/7/8/9/0 切换超级武器（再按同键补满弹药）
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
@@ -9256,10 +9257,19 @@
     };
 
     // 程序化僵尸网格(占位)。返回 { root, torso, head, armL, armR, legL, legR }; ZAssets 模型则 rig 为 false。
+    // 就绪时用真实 glTF+骨骼动画(ZAssets 已按我方僵尸种类名 walker/runner/.../boss 暴露并内部映射); 缺失/未就绪则回退程序化盒子人
     function makeZombieMesh(type) {
       var T = ZTYPES[type] || ZTYPES.walker;
       if (window.ZAssets && window.ZAssets.ready && typeof window.ZAssets.makeZombie === 'function') {
-        try { var ext = window.ZAssets.makeZombie(type); if (ext && ext.isObject3D) { return { root: ext, rig:false }; } } catch (e) {}
+        try {
+          var ext = window.ZAssets.makeZombie(type);   // 直接传我方种类名(ZAssets 接受并映射到 demon/orc/yeti/skull/ghost)
+          // 新契约: 返回裸 Object3D(已自动播 move, 内部自驱 mixer + 移出场景自动回收), 控制句柄在 userData.za
+          var rt = (ext && ext.isObject3D) ? ext : (ext && ext.root && ext.root.isObject3D ? ext.root : null);
+          if (rt) {
+            var inst = (rt.userData && rt.userData.za) ? rt.userData.za : ((ext && typeof ext.play === 'function') ? ext : null);   // play/mixer 句柄(触发 attack/death)
+            return { root: rt, rig:false, zassets: inst };
+          }
+        } catch (e) {}
       }
       var root = new THREE.Group();
       var g = T.girth || 1, dim = new THREE.Color(T.col).multiplyScalar(0.62).getHex();
@@ -9303,6 +9313,7 @@
       var goldScale = 1 + (rnd - 1) * 0.05;          // 金币也随波次涨(后期僵尸更肉, 经济需跟上, 50关≈3.45x)
       var z = {
         id:id, type:type, T:T, group:grp, rig:built.rig === false ? null : built,
+        zassets: built.zassets || null, zaAction:'move',   // 真实模型实例(含 mixer/play); null=程序化盒子人
         head:built.head, armL:built.armL, armR:built.armR, legL:built.legL, legR:built.legR,
         hitMeshes:[bodyHit, headHit],
         hp: Math.round(T.hp * hpScale), maxHp: Math.round(T.hp * hpScale),
@@ -9357,6 +9368,7 @@
       z.alive = false; z.deadAt = now();
       for (var i = 0; i < z.hitMeshes.length; i++) z.hitMeshes[i].userData = {};   // 死后不再可命中
       deathSound(); showHitmarker(false);
+      if (z.zassets && z.zassets.play) { try { z.zassets.play('death', { once:true }); } catch (e) {} z.zaAction = 'death'; }   // 真实模型: 死亡动画(单次定格)
       if (killer) zAwardGold(killer, z.gold|0, z.group.position);
       if (z.behave === 'bomb') zExplode(z.group.position.clone(), z.T.boomR || 5, z.dmg);   // 自爆尸死亡也炸
     }
@@ -9430,13 +9442,12 @@
 
     function updateZombies(dt) {
       var t = now();
+      // 真实模型 mixer 由 ZAssets 内部自驱+自动回收, 玩法层不再调用 ZAssets.update(避免双倍速)
       for (var id in zombies) {
         var z = zombies[id];
         if (!z.alive) {                                   // 倒地 → 缓慢侧倒 → 清除
-          z.deathT = Math.min(1, z.deathT + dt * 2.6);
-          z.group.rotation.z = z.deathT * 1.5;
-          z.group.position.y = -z.deathT * 0.35;
-          if (t - z.deadAt > 2400) { scene.remove(z.group); z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[id]; }
+          if (!z.zassets) { z.deathT = Math.min(1, z.deathT + dt * 2.6); z.group.rotation.z = z.deathT * 1.5; z.group.position.y = -z.deathT * 0.35; }   // 程序化盒子人侧倒; 真实模型走 death 动画
+          if (t - z.deadAt > 2400) { if (z.zassets && z.zassets.dispose) { try { z.zassets.dispose(); } catch (e) {} } scene.remove(z.group); z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); delete zombies[id]; }
           continue;
         }
         if (!zIsClient()) {   // AI/移动/攻击仅主机(或单机)权威; 客户端只渲染主机同步的位置
@@ -9472,6 +9483,10 @@
           }
         }
         }
+        if (z.zassets && z.zassets.play) {   // 真实模型: 近身挥击瞬间播 attack, 否则 move(mixer 已在顶部统一推进)
+          var wantAct = (z.swingAt && t - z.swingAt < 300) ? 'attack' : 'move';
+          if (wantAct !== z.zaAction) { try { z.zassets.play(wantAct, wantAct === 'attack' ? { once:true } : undefined); } catch (e) {} z.zaAction = wantAct; }
+        }
         poseZombie(z, dt);
       }
       zUpdateProjectiles(dt);
@@ -9501,7 +9516,7 @@
       z.group.rotation.z = Math.sin(z.lurch*0.5) * 0.05;   // 微驼背摇晃
     }
     function zClearAll() {
-      for (var id in zombies) { var z = zombies[id]; scene.remove(z.group);
+      for (var id in zombies) { var z = zombies[id]; if (z.zassets && z.zassets.dispose) { try { z.zassets.dispose(); } catch (e) {} } scene.remove(z.group);
         z.group.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); }
       zombies = {};
       for (var i = 0; i < zProjectiles.length; i++) { scene.remove(zProjectiles[i].obj); }
@@ -9542,6 +9557,12 @@
       zUpdateHud();
     }
     function zWin() { zState.phase = 'won'; zBanner('🏆 通关！50 波全数清空！', '#ffd86b'); zUpdateHud(); }
+    // 休息时按 F 提前开打下一波(仅主机/单机权威; 客户端由主机同步)
+    function zSkipRest() {
+      if (!zState || zState.phase !== 'rest' || zIsClient()) return;
+      if (typeof zCloseShop === 'function') zCloseShop();
+      zBeginRound(zState.round + 1);
+    }
     function zInit() {
       zClearAll(); zGold = 0; zEnsureDoors(); zEnsureHud(); zRunning = true;
       me.alive = true; me.hp = maxHp = 100; zSpectating = false; zRevives = 0;   // 开局/重开: 玩家满血复生
@@ -9595,7 +9616,7 @@
       if (R) R.textContent = '🌊 第 ' + (zState.round || 0) + '/' + Z_TOTAL_ROUNDS + ' 波';
       if (MID) {
         if (zState.phase === 'combat') { var remain = (zState.budget - zState.spawned) + zCountAlive(); MID.innerHTML = '🧟 剩余 <b>' + remain + '</b>'; }
-        else if (zState.phase === 'rest') { MID.innerHTML = '<span class="r">⏳ 休息 ' + Math.max(0, Math.ceil((zState.restEndsAt - now()) / 1000)) + 's</span>'; }
+        else if (zState.phase === 'rest') { MID.innerHTML = '<span class="r">⏳ 休息 ' + Math.max(0, Math.ceil((zState.restEndsAt - now()) / 1000)) + 's</span> <span style="color:#9fe0b0">· 按 F 提前开打</span>'; }
         else if (zState.phase === 'won') { MID.innerHTML = '<b>🏆 通关!</b>'; }
         else if (zState.phase === 'lost') { MID.innerHTML = '<span class="r">💀 失守</span>'; }
         else { MID.textContent = ''; }
@@ -10617,7 +10638,8 @@
           zSpawn:function(type,x,z){ var z2 = spawnZombie(type||'walker', { x:(x==null?playerPos.x+6:x), z:(z==null?playerPos.z:z) }); return z2 ? z2.id : null; },
           zSpawnRing:function(type){ var z2 = zSpawnFromRing(type||'walker'); return z2?z2.id:null; },
           zCount:function(){ return { alive:zCountAlive(), total:Object.keys(zombies).length, proj:zProjectiles.length }; },
-          zInfo:function(id){ var z=zombies[id]; if(!z) return null; return { type:z.type, hp:z.hp, maxHp:z.maxHp, gold:z.gold, alive:z.alive, x:z.group.position.x, z:z.group.position.z, dist:Math.hypot(z.group.position.x-playerPos.x, z.group.position.z-playerPos.z) }; },
+          zInfo:function(id){ var z=zombies[id]; if(!z) return null; return { type:z.type, hp:z.hp, maxHp:z.maxHp, gold:z.gold, alive:z.alive, x:z.group.position.x, z:z.group.position.z, dist:Math.hypot(z.group.position.x-playerPos.x, z.group.position.z-playerPos.z), za:!!z.zassets, zaAction:z.zaAction, clips:(z.zassets&&z.zassets.clipNames)?z.zassets.clipNames.length:0 }; },
+          zAssetsInfo:function(){ return (window.ZAssets) ? { ready:!!window.ZAssets.ready, list:window.ZAssets.list, info:(window.ZAssets.info?window.ZAssets.info():null) } : null; },
           zGold:function(){ return zGold; }, zRunning:function(){ return zRunning; },
           zPause:function(){ zRunning = false; }, zResume:function(){ zRunning = true; },
           zNearestDist:function(){ var best=1e9; for(var k in zombies){ var z=zombies[k]; if(!z.alive)continue; var d=Math.hypot(z.group.position.x-playerPos.x,z.group.position.z-playerPos.z); if(d<best)best=d; } return best; },
@@ -10629,6 +10651,7 @@
           zForceRound:function(n){ if(zState) zBeginRound(n); return zState?zState.round:null; },
           zForceClear:function(){ if(zState){ zState.spawned = zState.budget; zClearAll(); } },   // 模拟整波清空 → 下个tick进入休息
           zEndRest:function(){ if(zState) zState.restEndsAt = now()-1; },                          // 跳过30s休息
+          zSkip:function(){ zSkipRest(); return zState?zState.phase:null; },                        // 模拟按F提前开打
           zTypesOnField:function(){ var o={}; for(var k in zombies){ var t=zombies[k].type; o[t]=(o[t]||0)+1; } return o; },
           zBudgetAt:function(n){ return zRoundBudget(n); },
           // ---- M4 武器/弹药自测钩子 ----
