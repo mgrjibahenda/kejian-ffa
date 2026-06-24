@@ -414,6 +414,7 @@
       <div id="joinPanel" hidden>
         <label for="codeInput">房间码（3 位数字）</label>
         <input id="codeInput" maxlength="3" inputmode="numeric" autocomplete="off" placeholder="例如：427" />
+        <div class="lobbysub" style="margin-top:6px">💡 向房主要他屏幕上显示的 3 位房间码</div>
         <div class="row2"><button id="doJoinBtn" type="button" class="bigbtn">加入</button><button type="button" class="bigbtn ghost backBtn">返回</button></div>
       </div>
 
@@ -439,7 +440,7 @@
 
       <!-- 房间大厅：房间码 + 玩家名单 + 进入/开始游戏 + 退出房间 -->
       <div id="lobbyPanel" hidden>
-        <div class="codebox">房间码 <span id="lobbyCode">—</span></div>
+        <div class="codebox">房间码 <span id="lobbyCode">—</span><small>📋 点房间码可复制</small></div>
         <div id="lobbyMode" class="lobbysub"></div>
         <label>房间里的玩家 <span id="lobbyCount"></span></label>
         <div id="lobbyRoster" class="roster"></div>
