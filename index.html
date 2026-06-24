@@ -10038,6 +10038,16 @@
       // 大厅：开始游戏(仅房主可点) / 退出房间
       document.getElementById('lobbyStartBtn').addEventListener('click', hostStartGame);
       document.getElementById('lobbyLeaveBtn').addEventListener('click', leaveRoom);
+      // 点击房间码 → 复制到剪贴板 + 临时提示(方便分享给朋友)
+      (function () {
+        var ce = document.getElementById('lobbyCode'); if (!ce) return;
+        ce.style.cursor = 'pointer'; ce.title = '点击复制房间码';
+        ce.addEventListener('click', function () {
+          try { if (navigator.clipboard && lobbyCode) navigator.clipboard.writeText(lobbyCode).catch(function () {}); } catch (e) {}
+          var h = document.getElementById('lobbyHint');
+          if (h) { h.textContent = '✓ 已复制房间码 ' + (lobbyCode || ''); setTimeout(function () { if (lobbyActive) renderLobby(); }, 1300); }
+        });
+      })();
       // 隐藏后门表单（自测/快速加入，直进不走大厅）
       document.getElementById('joinForm').addEventListener('submit', function (e) { e.preventDefault(); if (!joined) doJoin(); });
     }
