@@ -7560,15 +7560,14 @@
         if (e.code === 'Tab') { e.preventDefault(); if (!boardOpen) { boardOpen = true; renderFullBoard(); document.getElementById('fullboard').style.display = 'flex'; } return; }
         keys[e.code] = true;
         if (e.code === 'KeyR') startReload();
-        if (e.code === 'KeyE' && isZombieMode()) zTryRevive();   // 僵尸: 用复活药剂救起倒地队友
+        if (e.code === 'KeyE' && isZombieMode()) { var _pi = zShopPodNear(); if (_pi >= 0) zBuyAt(_pi); else zTryRevive(); }   // 僵尸: 就近购买实体货物, 否则用复活药剂救队友
         if (e.code === 'KeyF' && isZombieMode()) zSkipRest();    // 僵尸: 休息时提前开打下一波
         if (e.code === 'KeyM') { muted = !muted; }
         // 测试模式：6/7/8/9/0 切换超级武器（再按同键补满弹药）
         if (cheatMode && CHEAT_KEYS[e.code]) { cheatEquip(CHEAT_KEYS[e.code]); return; }
         if (e.code.indexOf('Digit') === 0) {
           var n = parseInt(e.code.slice(5), 10);
-          if (zShop && zShop.open && n >= 1 && n <= 3) { zBuyItem(n - 1); return; }   // 僵尸休息商店: 1/2/3 购买
-          if (n >= 1 && n <= 7) { selectWeapon(n - 1); }   // 1-5基础枪, 6超级武器, 7仙器
+          if (n >= 1 && n <= 7) { selectWeapon(n - 1); }   // 1-5基础枪, 6超级武器, 7仙器(僵尸模式 selectWeapon 已锁单槽)
         }
         if (e.code === 'Space' && grounded) { vy = JUMP_V; grounded = false; }
       });
@@ -9534,6 +9533,7 @@
     function updateZombies(dt) {
       var t = now();
       // 真实模型 mixer 由 ZAssets 内部自驱+自动回收, 玩法层不再调用 ZAssets.update(避免双倍速)
+      if (zShop && zShop.open) zShopAnimate(dt);   // 休息商店货物悬浮旋转
       for (var id in zombies) {
         var z = zombies[id];
         if (!z.alive) {                                   // 倒地 → 缓慢侧倒 → 清除
@@ -9820,39 +9820,53 @@
       }
       return picks;
     }
-    function zOpenShop() { zShop = { open:true, items: zRollShop(zState ? zState.round : 1), sold:[false,false,false] }; zRenderShop(); }
-    function zCloseShop() { if (zShop) zShop.open = false; var el = document.getElementById('zshop'); if (el) el.style.display = 'none'; }
-    function zBuyItem(slot) {
-      if (!zShop || !zShop.open) return;
-      var it = zShop.items[slot]; if (!it || zShop.sold[slot]) return;
-      if (zGold < it.price) { zBanner('金币不足!', '#ff8a6a'); return; }
+    // ---- 实体商店: 休息时屋内出现发光货物, 走近按 E 购买(替代GUI面板) ----
+    var Z_SHOP_SPOTS = [ { x:-4.6, z:5.4 }, { x:0, z:6.4 }, { x:4.6, z:5.4 } ];   // 屋内3个货位
+    function zItemColor(it) {
+      return it.kind === 'heal' ? 0x33ff88 : it.kind === 'revive' ? 0xff5ad0 : it.kind === 'ammo' ? 0xffd24d
+           : (it.wid && SUPERS[it.wid] && SUPERS[it.wid].isXian) ? 0xff4dd8 : it.kind === 'weapon' ? 0x36c6ff : 0xffffff;
+    }
+    function zMakePod(it, x, z) {
+      var col = zItemColor(it), g = new THREE.Group();
+      var ped = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.62, 0.5, 12), new THREE.MeshStandardMaterial({ color:0x2a2018, roughness:0.92 })); ped.position.y = 0.25; g.add(ped);
+      var core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), new THREE.MeshStandardMaterial({ color:col, emissive:col, emissiveIntensity:1.3, metalness:0.35, roughness:0.3 })); core.position.y = 1.25; g.add(core); g.userData.core = core;
+      var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:col, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false })); glow.position.y = 1.25; glow.scale.setScalar(2.2); g.add(glow);
+      var lbl = makeTextSprite(it.name + '  ¥' + it.price, col); lbl.position.y = 2.15; g.add(lbl);
+      g.position.set(x, 0, z); scene.add(g); return g;
+    }
+    function zOpenShop() {
+      zCloseShop();
+      var items = zRollShop(zState ? zState.round : 1);
+      zShop = { open:true, items:items, sold:items.map(function(){ return false; }), pods:[] };
+      for (var i = 0; i < items.length; i++) zShop.pods.push(zMakePod(items[i], Z_SHOP_SPOTS[i].x, Z_SHOP_SPOTS[i].z));
+      zBanner('🛒 屋内补给已刷新 — 走近货物按 E 购买', '#9fe0b0');
+    }
+    function zDisposePod(p) { if (!p) return; scene.remove(p); p.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); }
+    function zCloseShop() {
+      if (zShop && zShop.pods) for (var i = 0; i < zShop.pods.length; i++) zDisposePod(zShop.pods[i]);
+      if (zShop) zShop.open = false;
+    }
+    function zShopPodNear() {   // 玩家 2.4 内、未售的最近货位下标; 否则 -1
+      if (!zShop || !zShop.open || !me.alive) return -1;
+      for (var i = 0; i < zShop.items.length; i++) { if (zShop.sold[i]) continue; var s = Z_SHOP_SPOTS[i];
+        if (Math.hypot(playerPos.x - s.x, playerPos.z - s.z) < 2.4) return i; }
+      return -1;
+    }
+    function zBuyAt(i) {   // 按货位下标购买(E键就近 / 测试直接传)
+      if (!zShop || !zShop.open || i < 0 || zShop.sold[i]) return;
+      var it = zShop.items[i];
+      if (zGold < it.price) { zBanner('金币不足! 需 ¥' + it.price, '#ff8a6a'); return; }
       zGold -= it.price;
       if (it.kind === 'weapon') zGiveWeapon(it.wid, it.ammo || 0);
       else if (it.kind === 'heal') { me.hp = maxHp; updateHpHud(); }
       else if (it.kind === 'revive') { zRevives++; }
       else if (it.kind === 'ammo') zAddAmmo(it.cat, it.amount);
-      zShop.sold[slot] = true; zUpdateHud(); zRenderShop();
+      zShop.sold[i] = true; zDisposePod(zShop.pods[i]); zShop.pods[i] = null;
+      zBanner('已购: ' + it.name, '#9fe0b0'); zUpdateHud();
     }
-    function zRenderShop() {
-      var el = document.getElementById('zshop');
-      if (!el) {
-        var st = document.createElement('style'); st.id = 'zshop-style';
-        st.textContent = '#zshop{position:absolute;left:50%;bottom:72px;transform:translateX(-50%);z-index:8;display:flex;gap:12px;pointer-events:none;font:600 14px system-ui,"Microsoft YaHei",sans-serif;}' +
-          '#zshop .card{background:rgba(10,18,13,.88);border:1px solid rgba(120,200,140,.4);border-radius:12px;padding:10px 14px;min-width:118px;text-align:center;color:#d8f0e0;box-shadow:0 4px 18px rgba(0,0,0,.5);}' +
-          '#zshop .card .k{font-size:19px;color:#9fe0b0;font-weight:800}#zshop .card .n{margin:3px 0;color:#fff}#zshop .card .p{color:#ffd86b}' +
-          '#zshop .card.sold{opacity:.38;border-color:#556}#zshop .card.cant{border-color:#a55}#zshop .card.cant .p{color:#ff8a6a}' +
-          '#zshop .hint{align-self:center;color:#9fdfb0;font-size:12px;max-width:54px;line-height:1.3}';
-        document.head.appendChild(st);
-        el = document.createElement('div'); el.id = 'zshop'; (document.getElementById('hud') || document.body).appendChild(el);
-      }
-      if (!zShop) { el.style.display = 'none'; return; }
-      el.style.display = 'flex';
-      var html = '<div class="hint">🛒 休息商店<br>按 1/2/3 购买</div>';
-      for (var i = 0; i < zShop.items.length; i++) {
-        var it = zShop.items[i], sold = zShop.sold[i], cant = zGold < it.price;
-        html += '<div class="card' + (sold ? ' sold' : (cant ? ' cant' : '')) + '"><div class="k">[' + (i + 1) + ']</div><div class="n">' + it.name + '</div><div class="p">' + (sold ? '已购' : ('💰 ' + it.price)) + '</div></div>';
-      }
-      el.innerHTML = html;
+    function zShopAnimate(dt) {   // 货物悬浮+旋转
+      if (!zShop || !zShop.open || reduced) return;
+      for (var i = 0; i < zShop.pods.length; i++) { var p = zShop.pods[i]; if (p && p.userData.core) { p.userData.core.rotation.y += dt * 1.6; p.userData.core.position.y = 1.25 + Math.sin(now()*0.003 + i) * 0.12; } }
     }
 
     // ===================== M6: 死亡观战 + 队友复活药剂救援 + 全员失守 =====================
@@ -10778,7 +10792,8 @@
           zShopState:function(){ return zShop ? { open:zShop.open, gold:zGold, items:zShop.items.map(function(it){return {id:it.id,kind:it.kind,price:it.price};}), sold:zShop.sold.slice() } : null; },
           zOpenShopT:function(){ zOpenShop(); return this.zShopState(); },
           zCloseShopT:function(){ zCloseShop(); },
-          zBuy:function(slot){ zBuyItem(slot); return this.zShopState(); },
+          zBuy:function(slot){ zBuyAt(slot); return this.zShopState(); },
+          zPodNear:function(){ return zShopPodNear(); }, zPodCount:function(){ return zShop&&zShop.pods?zShop.pods.filter(Boolean).length:0; },
           zRevives:function(){ return zRevives; },
           zRollAt:function(round){ return zRollShop(round).map(function(it){return it.id;}); },
           // ---- M6 死亡/观战/复活 自测钩子 ----
