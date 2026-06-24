@@ -10057,6 +10057,7 @@
       if (!r.alive) {                       // 死亡：缓缓侧倒 + 四肢放松
         r.deathLean = Math.min(1, r.deathLean + dt * 4);
         r.group.rotation.z = r.deathLean * 1.45;
+        r.group.rotation.x = 0;   // 清掉奔跑前倾,死亡只侧倒
         r.legL.rotation.x = r.legR.rotation.x = 0.25;
         r.armL.rotation.x = r.armR.rotation.x = 0.4;
         if (!r.mecha) for (var i = 0; i < r.parts.length; i++) r.parts[i].visible = true;   // 机甲化时人形保持隐藏(否则四肢穿模)
@@ -10067,19 +10068,24 @@
 
       // 注意：手臂从肩部垂下，正 rotation.x 才是"朝前"（之前用负值导致双臂卡到身后）
       var airborne = r.group.position.y > 0.2;
-      if (airborne) {                       // 跳跃：收腿(前抬) + 举枪
-        r.legL.rotation.x = 0.8; r.legR.rotation.x = 0.5;
-        r.armL.rotation.x = 1.6; r.armR.rotation.x = 1.45;
+      if (airborne) {                       // 跳跃：收腿前抬 + 举枪 + 身体微仰
+        r.legL.rotation.x = 0.9; r.legR.rotation.x = 0.42;
+        r.armL.rotation.x = 1.72; r.armR.rotation.x = 1.5;
+        if (!r.mecha) { r.group.rotation.x = -0.07; r.group.rotation.z = 0; }
         r.runPhase = 0;
-      } else if (speed > 1.0) {             // 奔跑：腿前后摆，左手随步摆，右手持枪向前
-        r.runPhase += dt * ((r.mecha ? 4.5 : 7) + Math.min(speed, 10) * 0.5);
-        var s = Math.sin(r.runPhase) * (r.mecha ? 0.55 : 0.85);   // 机甲步幅更沉
+      } else if (speed > 1.0) {             // 奔跑：大幅腿摆 + 另一手摆臂 + 前倾冲刺 + 身体左右轻摆
+        r.runPhase += dt * ((r.mecha ? 4.5 : 7.5) + Math.min(speed, 10) * 0.55);
+        var s = Math.sin(r.runPhase) * (r.mecha ? 0.55 : 0.95);
         r.legL.rotation.x = s;  r.legR.rotation.x = -s;
-        r.armR.rotation.x = 1.45;
-        r.armL.rotation.x = 1.25 - s * 0.4;
-      } else {                              // 站立举枪（双手向前端枪）
+        r.armR.rotation.x = 1.42 + Math.abs(s) * (r.mecha ? 0.04 : 0.09);   // 持枪手随步轻颠
+        r.armL.rotation.x = (r.mecha ? 1.25 : 1.18) - s * (r.mecha ? 0.4 : 0.72);   // 另一手前后摆(与腿反向)
+        if (!r.mecha) { r.group.rotation.x = Math.min(0.13, (speed - 1) * 0.02); r.group.rotation.z = Math.sin(r.runPhase) * 0.035; }
+      } else {                              // 站立：轻微呼吸起伏，不僵死
+        r.idlePhase = (r.idlePhase || 0) + dt;
+        var br = Math.sin(r.idlePhase * 1.7);
         r.legL.rotation.x = 0; r.legR.rotation.x = 0;
-        r.armL.rotation.x = 1.3; r.armR.rotation.x = 1.45;
+        r.armL.rotation.x = 1.3 + br * 0.04; r.armR.rotation.x = 1.45 + br * 0.025;
+        if (!r.mecha) { r.group.rotation.x = 0; r.group.rotation.z = br * 0.012; }
         r.runPhase = 0;
       }
       // 机甲待机/起伏：即使站立也有液压般的缓慢摆动，绝不僵死(叠加在基础姿势上)
