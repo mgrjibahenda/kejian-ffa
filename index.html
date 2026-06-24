@@ -177,6 +177,7 @@
     background:rgba(10,16,22,.9); border:1px solid var(--accent2); border-radius:9px; padding:9px 10px; }
   #devpanel .dp-t{ font-size:12px; font-weight:700; color:var(--accent2); margin-bottom:7px; }
   #devpanel .dp-row{ display:flex; gap:6px; }
+  #devpanel .dp-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
   #devpanel button{ flex:1; padding:6px 4px; font-size:12px; border-radius:7px; cursor:pointer;
     border:1px solid var(--line); background:#0e151d; color:var(--text); }
   #devpanel button:hover{ border-color:var(--accent2); color:#ffe08a; }
@@ -293,10 +294,26 @@
         <button type="button" data-dummy="mecha">超级机甲</button>
         <button type="button" data-dummy="godmecha">终焉机神</button>
       </div>
-      <div class="dp-row" style="margin-top:6px;">
-        <button type="button" data-equip="execute" style="color:#00ffe0;border-color:#0a6;">☠ 绝对处死之炮</button>
+      <div class="dp-t" style="margin-top:9px;">一键武器(67)</div>
+      <div class="dp-grid">
+        <button type="button" data-equip="mg">机枪</button>
+        <button type="button" data-equip="star">等离子</button>
+        <button type="button" data-equip="hole">黑洞</button>
+        <button type="button" data-equip="realm">秘境</button>
+        <button type="button" data-equip="tsunami">排山倒海</button>
+        <button type="button" data-equip="mecha">机甲</button>
+        <button type="button" data-equip="roar">崩星咆哮</button>
+        <button type="button" data-equip="blade">青龙刀</button>
+        <button type="button" data-equip="godmecha">终焉机神</button>
+        <button type="button" data-equip="execute" style="color:#00ffe0;">☠绝对处死</button>
       </div>
-      <div class="dp-hint">机甲无法退出(只有死亡才失去) · 滚轮/数字键切换全部武器 · ☠按钮一键装绝对处死之炮</div>
+      <div class="dp-t" style="margin-top:9px;">测试工具</div>
+      <div class="dp-row">
+        <button type="button" data-dev="god">上帝模式</button>
+        <button type="button" data-dev="heal">满血</button>
+        <button type="button" data-dev="wave">刷一波僵尸</button>
+      </div>
+      <div class="dp-hint">滚轮/数字键也能切武器 · 上帝模式=无敌(再点关) · 刷僵尸仅僵尸模式</div>
     </div>
 
     <div id="scorebox">
@@ -7405,6 +7422,18 @@
       cheatSel = (cheatSel + dir + ALL_SUPER_KINDS.length) % ALL_SUPER_KINDS.length;
       cheatEquip(ALL_SUPER_KINDS[cheatSel]);
     }
+    var cheatGod = false;   // 67开发: 上帝模式(无敌)
+    function devTool(t) {
+      if (t === 'god') { cheatGod = !cheatGod; if (cheatGod && me.hp < maxHp) { me.hp = maxHp; updateHpHud(); } showNotice(cheatGod ? '🛡 上帝模式开(无敌)' : '上帝模式关'); return; }
+      if (t === 'heal') { me.hp = maxHp; updateHpHud(); showNotice('❤ 满血'); return; }
+      if (t === 'wave') {
+        if (!isZombieMode()) { showNotice('刷僵尸仅僵尸模式可用'); return; }
+        if (typeof spawnZombie !== 'function') return;
+        camera.getWorldDirection(_bf); _bf.y = 0; if (_bf.lengthSq() < 1e-6) _bf.set(0,0,-1); _bf.normalize();
+        for (var i = 0; i < 10; i++) { var a = (i/10)*Math.PI*2; spawnZombie('walker', { x: playerPos.x + Math.cos(a)*8, z: playerPos.z + Math.sin(a)*8 }); }
+        showNotice('🧟 刷了一波僵尸(10)');
+      }
+    }
     function applyCheat() {
       if (!cheatMode) {
         cheatMode = true;
@@ -7460,7 +7489,9 @@
         var k = e.target && e.target.getAttribute('data-dummy');
         if (k) { addDummy(k); return; }
         var eq = e.target && e.target.getAttribute('data-equip');
-        if (eq && SUPERS[eq]) { if (!cheatMode) applyCheat(); cheatEquip(eq); }
+        if (eq && SUPERS[eq]) { if (!cheatMode) applyCheat(); cheatEquip(eq); return; }
+        var dev = e.target && e.target.getAttribute('data-dev');
+        if (dev) devTool(dev);
       });
       testpw.addEventListener('keydown', function (e) {
         e.stopPropagation();   // 别让 6/7 等按键漏到游戏里
@@ -8690,6 +8721,7 @@
     // ------------------------------------------------------------------ 受伤 / 死亡 / 重生 / 回血
     function applyDamage(dmg, byId, weapon, head) {
       if (!me.alive) return;
+      if (cheatGod) return;   // 67开发: 上帝模式无敌
       me.hp -= dmg;
       lastDamageAt = now();    // 受伤计时：重新开始等回血
       flashDamage(); hurtSound();
