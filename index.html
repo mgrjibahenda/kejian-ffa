@@ -7751,13 +7751,13 @@
         if (!mechaWorn) { wearMecha(kind); return; }
         if (kind === 'godmecha' && mechaWeapon === 1) { if (now() >= bladeReadyAt) startBurstSlam(); return; }   // 爆地巨剑
         if (now() < fireCooldown) return;
-        if (superAmmo <= 0) { dropSuper(); return; }
+        if (superAmmo <= 0) { if (isZombieMode()) { startReload(); return; } dropSuper(); return; }   // 僵尸模式: 机甲打空从储备(反/负物质)补弹, 不丢
         if (!cheatInfinite) superAmmo--;
         fireCooldown = now() + (60000 / w.rpm) * fireRateMul;
         viewRecoil = Math.min(viewRecoil + w.kick, 0.12); gunKick = Math.min(gunKick + w.kick * 7 + 0.2, 1.3);
         fireGrenade(kind, w); fireMuzzle();
         updateAmmoHud();
-        if (!cheatInfinite && superAmmo <= 0) dropSuper();
+        if (!cheatInfinite && superAmmo <= 0) { if (isZombieMode()) startReload(); else dropSuper(); }
         return;
       }
 
@@ -9592,6 +9592,8 @@
       { id:'w_tsunami', kind:'weapon', wid:'tsunami', name:'排山倒海手', price:6200, min:15, ammo:6,   w:function(r){ return 0.35; } },
       { id:'w_blade',   kind:'weapon', wid:'blade',   name:'青龙偃月刀', price:7500, min:18, ammo:1,   w:function(r){ return 0.3; } },
       { id:'w_roar',    kind:'weapon', wid:'roar',    name:'崩星咆哮炮', price:9500, min:22, ammo:10,  w:function(r){ return 0.3; } },
+      { id:'w_mecha',   kind:'weapon', wid:'mecha',   name:'超级机甲',   price:8000,  min:16, ammo:60, w:function(r){ return 0.32; } },   // 左键穿上, 反物质补弹
+      { id:'w_godmecha',kind:'weapon', wid:'godmecha',name:'终焉机神',   price:13000, min:26, ammo:60, w:function(r){ return 0.26; } },   // 仙器机甲, 负物质补弹
       { id:'medkit',    kind:'heal',                  name:'医疗包(回满)', price:50, min:1,  w:function(r){ return 1.7; } },
       { id:'revive',    kind:'revive',                name:'复活药剂',   price:1500, min:4,  w:function(r){ return 0.8; } },
       { id:'a_bullet',  kind:'ammo', cat:'bullet',     amount:90, name:'子弹 ×90',   price:120,  min:1,  w:function(r){ return 1.4; } },
