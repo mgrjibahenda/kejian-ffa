@@ -10328,10 +10328,10 @@
       // 机甲待机/起伏：即使站立也有液压般的缓慢摆动，绝不僵死(叠加在基础姿势上)
       if (r.mecha) {
         r.idlePhase = (r.idlePhase || 0) + dt;
-        var ib = Math.sin(r.idlePhase * 1.6), ib2 = Math.sin(r.idlePhase * 1.6 + 1.0);
-        r.armL.rotation.x += ib * 0.07; r.armR.rotation.x += ib2 * 0.05;
+        var ib = Math.sin(r.idlePhase * 1.15), ib2 = Math.sin(r.idlePhase * 1.15 + 1.0);   // 机甲待机更慢更沉
+        r.armL.rotation.x += ib * 0.09; r.armR.rotation.x += ib2 * 0.06;
         r.legL.rotation.z = ib * 0.025; r.legR.rotation.z = -ib * 0.025;
-        if (r.mechRig) { r.mechRig.root.position.y = Math.abs(ib) * 0.05; r.mechRig.torso.rotation.y = ib2 * 0.04; }
+        if (r.mechRig) { r.mechRig.root.position.y = Math.abs(ib) * 0.075; r.mechRig.torso.rotation.y = ib2 * 0.05; }   // 更明显的液压起伏
       }
     }
 
