@@ -252,6 +252,19 @@
     #hpbar{ transition:none; } .kf{ transition:none; } #dmgflash{ transition:none; } #notice{ transition:none; }
     #scope{ transition:none; }
   }
+  /* 移动端: 窄屏 / 矮屏(横屏) 适配, 防溢出 */
+  @media (max-width:480px){
+    #menu .card{ padding:18px 16px 16px; }
+    #menu h1{ font-size:22px; }
+    .bigbtn{ padding:11px 10px; font-size:15px; }
+    .codebox{ padding:10px; } .codebox span{ font-size:28px; letter-spacing:4px; }
+    .roster{ max-height:34vh; }
+  }
+  @media (max-height:520px){
+    #menu{ align-items:flex-start; overflow:auto; padding:12px 0; }
+    #menu .card{ margin:auto; }
+    .roster{ max-height:24vh; }
+  }
 </style>
 </head>
 <body>
