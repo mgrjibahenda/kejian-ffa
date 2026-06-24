@@ -10290,8 +10290,8 @@
       // 注意：手臂从肩部垂下，正 rotation.x 才是"朝前"（之前用负值导致双臂卡到身后）
       var airborne = r.group.position.y > 0.2;
       if (airborne) {                       // 跳跃：收腿前抬 + 举枪 + 身体微仰
-        r.legL.rotation.x = 0.9; r.legR.rotation.x = 0.42;
-        r.armL.rotation.x = 1.72; r.armR.rotation.x = 1.5;
+        var jh = Math.min(1, (r.group.position.y - 0.2) * 0.5); r.legL.rotation.x = 0.7 + jh * 0.5; r.legR.rotation.x = 0.32 + jh * 0.3;   // 越高收腿越多
+        r.armL.rotation.x = 1.6 + jh * 0.2; r.armR.rotation.x = 1.45 + jh * 0.12;   // 升空举臂
         if (!r.mecha) { r.group.rotation.x = -0.07; r.group.rotation.z = 0; }
         r.runPhase = 0;
       } else if (speed > 1.0) {             // 奔跑：大幅腿摆 + 另一手摆臂 + 前倾冲刺 + 身体左右轻摆
