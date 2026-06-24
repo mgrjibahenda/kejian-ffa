@@ -606,7 +606,7 @@
     var reloadUntil = 0, reloadDur = 0, fireCooldown = 0, firing = false, viewRecoil = 0;
     var joined = false, paused = false, muted = false, boardOpen = false, deadUntil = 0;
     // 大厅/房间流程：gameStarted=已真正进游戏; lobbyActive=在大厅等待; netLoopsStarted=联机循环已起(幂等)
-    var gameStarted = false, lobbyActive = false, lobbyCode = '', lobbyIsHost = false, netLoopsStarted = false;
+    var gameStarted = false, lobbyActive = false, lobbyCode = '', lobbyIsHost = false, netLoopsStarted = false, netState = '';
     var lastDamageAt = 0, fireRateMul = 1;   // 回血计时；射速倍率(秘境持枪者更快)
     var cheatMode = false, cheatInfinite = false;   // 测试模式：密码 67 解锁，滚轮切换、无限子弹
     var cheatSel = 0;                                // 测试模式滚轮选择的武器序号
@@ -9876,6 +9876,7 @@
 
     function netStatus(text, kind) {
       var dot = document.getElementById('netdot'), tx = document.getElementById('nettext');
+      netState = text;
       if (tx) tx.textContent = text;
       if (dot) dot.style.background = ({ host:'#46d17a', client:'#36c6ff', warn:'#ffb454', bad:'#ff5a5a' })[kind] || '#8fa3b8';
     }
@@ -10145,7 +10146,7 @@
       var modeName = (MODES[roomMode] && MODES[roomMode].name) || roomMode, mapName = '';
       for (var mi = 0; mi < MAP_LIST.length; mi++) if (MAP_LIST[mi].id === roomMap) mapName = MAP_LIST[mi].name;
       var forced = MODES[roomMode] && MODES[roomMode].forceMap;
-      var mEl = document.getElementById('lobbyMode'); if (mEl) mEl.textContent = '模式：' + modeName + (mapName && !forced ? '  ·  地图：' + mapName : '');
+      var mEl = document.getElementById('lobbyMode'); if (mEl) mEl.textContent = '模式：' + modeName + (mapName && !forced ? '  ·  地图：' + mapName : '') + (netState ? '  ·  ' + netState : '');
       var ros = document.getElementById('lobbyRoster'); if (ros) {
         ros.innerHTML = '';
         function row(nm, color, isMe, host) {
