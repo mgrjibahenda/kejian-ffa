@@ -7974,9 +7974,9 @@
     function fireMuzzle() {
       if (!gunMuzzle) return;
       gunMuzzle.visible = true;
-      gunMuzzle.scale.setScalar(reduced ? 0.22 : (0.30 + Math.random()*0.18));
+      gunMuzzle.scale.setScalar(reduced ? 0.24 : (0.42 + Math.random()*0.22));   // 枪口闪光更有冲击力
       gunMuzzle.material.rotation = Math.random() * Math.PI;
-      muzzleHideAt = now() + (reduced ? 30 : 55);
+      muzzleHideAt = now() + (reduced ? 32 : 68);
       // 开镜(狙击)时视角武器被隐藏 → 在世界空间补一团枪口火光，透过瞄准镜也看得见。
       // 自动武器(超级机枪)射速极快，逐发补光会糊满瞄准镜 → 跳过，避免"准镜里全是光辉看不清"。
       if (viewGun && !viewGun.visible && !activeWeapon().auto) {
