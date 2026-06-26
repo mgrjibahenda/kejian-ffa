@@ -444,6 +444,7 @@
 
       <!-- 经典 → 选地图 -->
       <div id="mapPanel" hidden>
+        <label>超级武器</label><div id="superDensityBtns" class="seg"></div>
         <label>选择地图</label><div id="mapBtns" class="seg"></div>
         <div class="row2"><button id="mapJoinBtn" type="button" class="bigbtn ghost">加入房间</button><button id="mapBackBtn" type="button" class="bigbtn ghost">退出</button></div>
       </div>
@@ -8993,9 +8994,9 @@
         slots = WEAPONS.map(function (ww, i) {
           return '<div class="slot' + (!superActive && i===weaponIndex?' active':'') + '"><b>' + (i+1) + '</b>' + esc(ww.name) + '</div>';
         }).join('');
-        if (slot6Kind) slots += '<div class="slot super' + (weaponIndex===5?' active':'') + '"><b>6</b>★</div>';   // 超级武器(神秘:只图标)
-        if (slot7Kind) slots += '<div class="slot super' + (weaponIndex===6?' active':'') + '"><b>7</b>✦</div>';   // 仙器
-        if (slot8Kind) slots += '<div class="slot super' + (weaponIndex===7?' active':'') + '"><b>8</b>☠</div>';   // 绝对特性武器
+        if (slot6Kind) slots += '<div class="slot super' + (weaponIndex===5?' active':'') + '"><b>6</b>★' + esc(SUPERS[slot6Kind].name) + '</div>';   // 超级武器
+        if (slot7Kind) slots += '<div class="slot super' + (weaponIndex===6?' active':'') + '"><b>7</b>✦' + esc(SUPERS[slot7Kind].name) + '</div>';   // 仙器
+        if (slot8Kind) slots += '<div class="slot super' + (weaponIndex===7?' active':'') + '"><b>8</b>☠' + esc(SUPERS[slot8Kind].name) + '</div>';   // 绝对特性武器
       }
       document.getElementById('slots').innerHTML = slots;
       updateAmmoHud();
@@ -10159,11 +10160,20 @@
       _show('menuHome', true);
     }
     function _lobbyGenCode() { return String(Math.floor(Math.random()*900 + 100)); }
+    var DENSITY_LIST = [{ id:'normal', name:'普通' }, { id:'more', name:'更多超级武器' }, { id:'mega', name:'非常多超级武器' }];
+    function _renderDensityButtons() {
+      var c = document.getElementById('superDensityBtns'); if (!c) return; c.innerHTML = '';
+      DENSITY_LIST.forEach(function (d) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'bigbtn' + (selMode === d.id ? ' sel' : ''); b.textContent = d.name;
+        b.addEventListener('click', function () { selMode = d.id; _renderDensityButtons(); });
+        c.appendChild(b);
+      });
+    }
     function _renderMapButtons() {
       var c = document.getElementById('mapBtns'); if (!c) return; c.innerHTML = '';
       MAP_LIST.forEach(function (m) {
         var b = document.createElement('button'); b.type = 'button'; b.className = 'bigbtn'; b.textContent = m.name;
-        b.addEventListener('click', function () { selMode = 'normal'; selMap = m.id; enterLobby(_lobbyGenCode()); });
+        b.addEventListener('click', function () { selMap = m.id; enterLobby(_lobbyGenCode()); });
         c.appendChild(b);
       });
     }
@@ -10176,7 +10186,7 @@
       });
       // 经典 → 选地图面板
       document.getElementById('modeClassicBtn').addEventListener('click', function () {
-        _renderMapButtons();
+        _renderDensityButtons(); _renderMapButtons();
         _show('modePanel', false); _show('mapPanel', true);
       });
       // 僵尸 → 直接进大厅(锁专属图)
