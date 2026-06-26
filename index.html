@@ -172,6 +172,13 @@
   .scrow.me .nm{ color:var(--accent2); font-weight:700; }
   #killfeed{ position:absolute; right:20px; top:0; margin-top:8px; text-align:right; }
   #killfeed.below{ position:static; margin-top:8px; }
+  #modeStatus{ position:fixed; left:50%; top:14px; transform:translateX(-50%); display:none; z-index:30;
+    padding:6px 14px; border-radius:999px; background:rgba(10,16,24,.66); border:1px solid var(--line);
+    color:#ffe08a; font-weight:700; font-size:15px; letter-spacing:.3px; backdrop-filter:blur(4px); pointer-events:none; }
+  #modeBanner{ position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); display:none; z-index:31;
+    padding:14px 30px; border-radius:14px; background:rgba(10,16,24,.80); border:1px solid var(--accent2);
+    color:#fff; font-weight:800; font-size:26px; text-shadow:0 2px 14px rgba(255,210,74,.5);
+    box-shadow:0 0 40px rgba(255,210,74,.25); pointer-events:none; white-space:nowrap; }
   .kf{ font-size:13px; margin:3px 0; opacity:1; transition:opacity .5s; }
   .kf .k{ color:var(--accent); font-weight:600; } .kf .v{ color:var(--bad); font-weight:600; }
   .kf .w{ color:var(--muted); }
@@ -357,6 +364,8 @@
     <div id="scorebox">
       <div class="panel"><h3>积分板 · FFA</h3><div id="scorerows"></div></div>
       <div id="killfeed"></div>
+      <div id="modeStatus"></div>
+      <div id="modeBanner"></div>
     </div>
 
     <div id="botleft">
@@ -439,12 +448,13 @@
       <!-- 创建房间 → 选模式：经典 / 僵尸 / 加入 / 退出 -->
       <div id="modePanel" hidden>
         <div class="row2"><button id="modeClassicBtn" type="button" class="bigbtn">🔫 经典</button><button id="modeZombieBtn" type="button" class="bigbtn">🧟 僵尸生存</button></div>
+        <div class="row2"><button id="modeGunGameBtn" type="button" class="bigbtn">🎯 枪王</button></div>
         <div class="row2"><button id="modeJoinBtn" type="button" class="bigbtn ghost">加入房间</button><button type="button" class="bigbtn ghost backBtn">退出</button></div>
       </div>
 
       <!-- 经典 → 选地图 -->
       <div id="mapPanel" hidden>
-        <label>超级武器</label><div id="superDensityBtns" class="seg"></div>
+        <div id="densitySection"><label>超级武器</label><div id="superDensityBtns" class="seg"></div></div>
         <label>选择地图</label><div id="mapBtns" class="seg"></div>
         <div class="row2"><button id="mapJoinBtn" type="button" class="bigbtn ghost">加入房间</button><button id="mapBackBtn" type="button" class="bigbtn ghost">退出</button></div>
       </div>
@@ -552,6 +562,7 @@
       normal: { name:'普通',           interval:30000, double:0,    triple:0,    xian:0.05 },
       more:   { name:'更多超级武器',   interval:20000, double:0.30, triple:0,    xian:0.05 },
       mega:   { name:'非常多超级武器', interval:15000, double:0.50, triple:0.10, xian:0.05 },
+      gungame:{ name:'枪王',           interval:0,     double:0,    triple:0,    xian:0, isGunGame:true },
       // 僵尸生存：50关合作守宅。不刷地图超级武器(interval:0)，武器全部从休息商店购买。
       zombie: { name:'僵尸生存',       interval:0,     double:0,    triple:0,    xian:0, isZombie:true, forceMap:'zombie_house' }
     };
@@ -563,6 +574,52 @@
       { id:'zombie', name:'🧟 僵尸生存', desc:'50关合作守宅·商店经济' }
     ];
     function isZombieMode() { return !!(MODES[roomMode] && MODES[roomMode].isZombie); }
+    function isGunGame() { return !!(MODES[roomMode] && MODES[roomMode].isGunGame); }
+    var GUNGAME_LADDER = [0, 1, 2, 3, 4];   // 枪王武器阶梯(手枪→冲锋→步枪→霰弹→狙击)
+    var gunLevel = 0;
+    function gunGameSetWeapon() {
+      var idx = GUNGAME_LADDER[Math.min(gunLevel, GUNGAME_LADDER.length - 1)];
+      superActive = false; superKind = null; weaponIndex = idx;
+      ammo[idx] = WEAPONS[idx].mag; reloadUntil = 0;
+      buildViewGun(); updateWeaponHud(); updateAmmoHud(); updateModeHud();
+    }
+    function gunGameOnKill() {
+      gunLevel++;
+      if (gunLevel >= GUNGAME_LADDER.length) {
+        netSend({ type: 'modewin', from: me.id, mode: 'gungame', winner: me.name });
+        gunGameWin(me.name, true);
+      } else {
+        gunGameSetWeapon();
+        modeBanner('⬆ 升级 · ' + WEAPONS[GUNGAME_LADDER[gunLevel]].name);
+      }
+    }
+    function gunGameWin(winner, isMe) {
+      modeBanner(isMe ? '🏆 你赢了！枪王通关！' : '🏆 ' + winner + ' 赢得本局枪王！', 4200);
+      setTimeout(function () {
+        if (!isGunGame()) return;
+        gunLevel = 0;
+        if (me.alive) gunGameSetWeapon(); else respawn();
+        updateModeHud();
+      }, 4600);
+    }
+    function modeInit() {
+      if (isGunGame()) { gunLevel = 0; if (joined) gunGameSetWeapon(); }
+      updateModeHud();
+    }
+    function updateModeHud() {
+      var el = document.getElementById('modeStatus'); if (!el) return;
+      if (isGunGame() && gameStarted) {
+        var total = GUNGAME_LADDER.length, lv = Math.min(gunLevel, total - 1);
+        el.style.display = 'block';
+        el.textContent = '🎯 枪王 ' + Math.min(gunLevel + 1, total) + '/' + total + ' · ' + WEAPONS[GUNGAME_LADDER[lv]].name;
+      } else { el.style.display = 'none'; }
+    }
+    function modeBanner(text, dur) {
+      var el = document.getElementById('modeBanner'); if (!el) return;
+      el.textContent = text; el.style.display = 'block';
+      if (el._t) clearTimeout(el._t);
+      el._t = setTimeout(function () { el.style.display = 'none'; }, dur || 1500);
+    }
     var roomMode = 'normal', roomMap = 'basic';   // 房主选择(开局广播)
     var MAX_PICKUPS = 6;                            // 地图上同时存在的拾取物上限
     var SUPERS = {
@@ -7794,6 +7851,7 @@
       }
       if (mechaWorn) return;            // 超级机甲穿上：锁定(机甲无法退出)
       if (isZombieMode() && !cheatMode) return;       // 僵尸模式单武器槽不能切(67测试模式除外)
+      if (isGunGame() && !cheatMode) return;          // 枪王: 武器由击杀等级决定,不能手动切
       if (i >= 0 && i <= 4 && !superActive && i === weaponIndex) return;
       if (i === 5 && weaponIndex === 5 && superActive) return;
       if (i === 6 && weaponIndex === 6 && superActive) return;
@@ -8860,6 +8918,7 @@
       vy = 0; tumbleUntil = 0; tumbleKiller = null; slamUntil = 0; slamImpactDone = true; shake = 0;
       for (var i = 0; i < ammo.length; i++) ammo[i] = WEAPONS[i].mag;
       dropAllSupers();         // 重生用普通武器
+      if (isGunGame()) gunGameSetWeapon();   // 枪王: 重生保持当前等级武器
       if (inRealm) exitRealm(false); // 在秘境里死亡 → 落败，回到主竞技场
       else { me.hp = 100; maxHp = 100; playerPos.copy(randomSpawn()); }
       lastDamageAt = now();
@@ -8928,6 +8987,7 @@
     function updateKill(killerId, victimId, weapon, head) {
       // 计分：击杀者本机权威地给自己 +1（kill 事件由被杀方广播，killer 收到后给自己加分）
       if (killerId === me.id && victimId !== me.id) me.kills++;
+      if (isGunGame() && killerId === me.id && victimId !== me.id) gunGameOnKill();
       // 其他机器上即时把击杀者分数 +1（下次 state 同步会校正）
       if (scores[killerId] && killerId !== me.id) scores[killerId].kills++;
 
@@ -9244,6 +9304,9 @@
           break;
         case 'kick':
           if (msg.target === me.id) { try { window.alert('你被房主移出了房间'); } catch (e) {} leaveRoom(); }
+          break;
+        case 'modewin':   // 有人达成模式胜利(枪王通关)
+          if (msg.mode === 'gungame') gunGameWin(msg.winner || '有人', false);
           break;
         case 'startgame':   // 房主点开始 → 全员进游戏(客户端跟随房主的模式/地图)
           if (msg.mode && MODES[msg.mode]) roomMode = msg.mode;
@@ -10186,7 +10249,13 @@
       });
       // 经典 → 选地图面板
       document.getElementById('modeClassicBtn').addEventListener('click', function () {
-        _renderDensityButtons(); _renderMapButtons();
+        if (selMode !== 'more' && selMode !== 'mega') selMode = 'normal';
+        _show('densitySection', true); _renderDensityButtons(); _renderMapButtons();
+        _show('modePanel', false); _show('mapPanel', true);
+      });
+      var _ggBtn = document.getElementById('modeGunGameBtn');
+      if (_ggBtn) _ggBtn.addEventListener('click', function () {
+        selMode = 'gungame'; _show('densitySection', false); _renderMapButtons();
         _show('modePanel', false); _show('mapPanel', true);
       });
       // 僵尸 → 直接进大厅(锁专属图)
@@ -10238,6 +10307,7 @@
       if (TEST) { playerPos.set(20, EYE, 0); yaw = 0; pitch = 0; }  // 固定出生点，便于自测移动方向
       ensureAudio();
       buildViewGun(); updateWeaponHud(); updateHpHud(); updateAmmoHud(); updateScoreboard();
+      modeInit();   // 模式初始化(枪王: 重置等级+发初始武器)
       if (isZombieMode()) zInit();   // 僵尸模式: 进游戏时启动刷怪/经济(钩子原在 doJoin, 保留不删)
 
       document.getElementById('menu').style.display = 'none';
@@ -10784,7 +10854,7 @@
           setPos3:function(x,y,z){ playerPos.set(x,y,z); vy = 0; }, surfaceAt:function(x,z){ return highestSurfaceAt(x,z); },
           setView:function(x,y,z,yw,pt){ playerPos.set(x,y,z); vy = 0; if (yw!=null) yaw = yw; if (pt!=null) pitch = pt; aimCamera(); },
           playerY:function(){ return playerPos.y; }, grounded:function(){ return grounded; },
-          setMode:function(m){ roomMode = m; }, spawnCount:function(){ return spawnCountThisTick(); },
+          setMode:function(m){ roomMode = m; if (typeof modeInit === 'function') modeInit(); }, spawnCount:function(){ return spawnCountThisTick(); },
           join:function(room){ if (!joined) doJoin(room || 'demo'); },
           // ---- 僵尸模式(M2)自测钩子 ----
           zStartGame:function(){ roomMode = 'zombie'; if (currentMap !== 'zombie_house') { buildMap('zombie_house'); playerPos.copy(randomSpawn()); } zInit(); return { ring:zSpawnRing.length, doors:zDoors.length }; },
