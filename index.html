@@ -839,7 +839,7 @@
     // 竞技场：地面 + 四周围墙 + 若干掩体（箱子/柱子）+ 多个出生点
     // ---- 地图系统：基础图(最初的模样) + 数据化多层地图，房主选择、全房同步加载 ----
     var MAP_DATA = {};            // 由设计阶段批量生成的多层地图(下方注入)
-    var MAP_LIST = [{ id:'basic', name:'基础竞技场' }];   // 极简：只保留基础地图(僵尸图不入选单, 由模式强制)
+    var MAP_LIST = [{ id:'basic', name:'基础竞技场' }, { id:'sponza', name:'🏛 神殿·真实场景' }];   // 极简 + 真实GLB地图(Sponza CC-BY)
     var currentMap = 'basic', mapMeshes = [];
     var zSpawnRing = [];   // 僵尸模式：丛林边缘的僵尸出生环(buildZombieHouse 填充, M2 使用)
     // ---- 档位4 地图家族：共享系统骨架（默认 no-op；basic 不注册任何 FX → 行为逐字节不变）----
@@ -868,6 +868,8 @@
       for (var dz = 0; dz < _mapDisposables.length; dz++) { try { if (_mapDisposables[dz] && _mapDisposables[dz].dispose) _mapDisposables[dz].dispose(); } catch (e) {} }
       activeParticles.length = 0; _mapDisposables.length = 0; fxUniforms.length = 0; POST_PASSES.length = 0;
       for (var i = 0; i < mapMeshes.length; i++) { var m = mapMeshes[i]; scene.remove(m); if (m.geometry) m.geometry.dispose(); }
+      if (glbRoot) { glbRoot.traverse(function (o) { if (o.isMesh) { if (o.geometry) o.geometry.dispose(); var mm = o.material; if (mm) { (Array.isArray(mm) ? mm : [mm]).forEach(function (x) { for (var k in x) { if (x[k] && x[k].isTexture) x[k].dispose(); } if (x.dispose) x.dispose(); }); } } }); }
+      glbMapMode = false; glbColliders = []; glbRoot = null; glbBounds = null;
       mapMeshes.length = 0; worldSolids.length = 0; solidBoxes.length = 0; spawnPoints.length = 0;
       if (typeof destructibles !== 'undefined') { destructibles.length = 0; _decals.length = 0; for (var _di = 0; _di < debris.length; _di++) { scene.remove(debris[_di].mesh); if (debris[_di].mesh.geometry) debris[_di].mesh.geometry.dispose(); } debris.length = 0; townBuildings.length = 0; _collapseQ.length = 0; }
     }
@@ -883,8 +885,51 @@
         if (x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z && b.max.y > h) h = b.max.y; }
       return h;
     }
+    // ============================================================ 真实GLB地图引擎: 导入CC0/CC-BY场景 + 网格射线碰撞(可走斜坡/楼梯/任意几何)
+    var glbMapMode = false, glbColliders = [], glbRoot = null, glbBounds = null, glbFloorY = 0;
+    var _gray = new THREE.Raycaster(), _gdown = new THREE.Vector3(0, -1, 0), _gtmp = new THREE.Vector3(), _gdir = new THREE.Vector3();
+    var GLB_MAPS = { sponza: { url:'models/sponza/Sponza.gltf', fit:60, spawns:[[0,0],[20,0],[-20,0],[0,5],[0,-5]] } };
+    function isGlbMap(id) { return !!GLB_MAPS[id]; }
+    function glbFloorAt(x, z, fromAboveFeetY) {
+      if (!glbColliders.length) return -999;
+      _gray.set(_gtmp.set(x, fromAboveFeetY + STEP_H + 0.1, z), _gdown); _gray.far = 120;
+      var hit = _gray.intersectObjects(glbColliders, false);
+      return hit.length ? hit[0].point.y : -999;
+    }
+    function glbWallBlocks(fromX, fromZ, toX, toZ, feetY) {
+      _gdir.set(toX - fromX, 0, toZ - fromZ);
+      var dist = _gdir.length(); if (dist < 1e-5) return false;
+      _gdir.multiplyScalar(1 / dist); _gray.far = dist + PLAYER_R;
+      _gray.set(_gtmp.set(fromX, feetY + 0.4, fromZ), _gdir); var h0 = _gray.intersectObjects(glbColliders, false);
+      if (h0.length && h0[0].distance < dist + PLAYER_R) return true;
+      _gray.set(_gtmp.set(fromX, feetY + 1.3, fromZ), _gdir); var h1 = _gray.intersectObjects(glbColliders, false);
+      if (h1.length && h1[0].distance < dist + PLAYER_R) return true;
+      return false;
+    }
+    function loadGLBMap(id) {
+      var cfg = GLB_MAPS[id]; if (!cfg || !THREE.GLTFLoader) return;
+      new THREE.GLTFLoader().load(cfg.url, function (gltf) {
+        if (currentMap !== id) return;
+        var root = gltf.scene || (gltf.scenes && gltf.scenes[0]); if (!root) return;
+        root.updateMatrixWorld(true);
+        var box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(); box.getSize(size);
+        var horiz = Math.max(size.x, size.z) || 1, s = (cfg.fit || 60) / horiz;
+        root.scale.setScalar(s); root.updateMatrixWorld(true);
+        var box2 = new THREE.Box3().setFromObject(root), ctr = new THREE.Vector3(); box2.getCenter(ctr);
+        root.position.set(-ctr.x, -box2.min.y, -ctr.z); root.updateMatrixWorld(true);
+        glbColliders = [];
+        root.traverse(function (o) { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; glbColliders.push(o); } });
+        scene.add(root); mapMeshes.push(root); glbRoot = root;
+        glbBounds = new THREE.Box3().setFromObject(root); glbFloorY = 0;
+        spawnPoints = (cfg.spawns || [[0,0]]).map(function (p) { var y = glbFloorAt(p[0], p[1], 8); if (y < -900) y = 0; return new THREE.Vector3(p[0], y + EYE, p[1]); });
+        glbMapMode = true;
+        if (joined && me.alive && playerPos) { playerPos.copy(spawnPoints[0]); vy = 0; }
+        if (window.console) console.log('GLB地图就绪', id, 'meshes=' + glbColliders.length);
+      }, undefined, function (err) { if (window.console) console.warn('GLB地图加载失败', id, err); });
+    }
     function buildMap(id) {
       clearMap();
+      if (isGlbMap(id)) { currentMap = id; spawnPoints = [new THREE.Vector3(0, EYE + 2, 0)]; buildRealm(); loadGLBMap(id); return; }
       if (id !== 'basic' && MAP_BUILD[id]) { MAP_BUILD[id](); if (id === 'town' || id === 'zombie_house') bakeTownStatic(); }
       else if (id !== 'basic' && MAP_DATA[id]) buildMapFromData(MAP_DATA[id]);
       else { id = 'basic'; buildBasicMap(); }
@@ -10444,6 +10489,7 @@
 
     // 脚下支撑高度：玩家所站箱子的顶面（可迈上 STEP_H 内的矮台/台阶），否则地面 0
     function groundHeightAt(x, z, feetY) {
+      if (glbMapMode) { var _gy = glbFloorAt(x, z, feetY); return _gy > -900 ? _gy : glbFloorY; }
       var h = 0;
       for (var i = 0; i < solidBoxes.length; i++) {
         var b = solidBoxes[i];
@@ -10455,6 +10501,10 @@
       return h;
     }
     function collides(x, z) {
+      if (glbMapMode) {
+        if (glbBounds && (x < glbBounds.min.x - 0.5 || x > glbBounds.max.x + 0.5 || z < glbBounds.min.z - 0.5 || z > glbBounds.max.z + 0.5)) return true;
+        return glbWallBlocks(playerPos.x, playerPos.z, x, z, playerPos.y - EYE);
+      }
       // 场地边界（秘境里用秘境平台的边界）
       var bx = inRealm ? REALM_CENTER.x : 0, bz = inRealm ? REALM_CENTER.z : 0;
       var lim = inRealm ? 17.5 : (isZombieMode() ? 39.0 : 29.5);   // 僵尸图 ±40, 放宽到石墙处(墙体本身在 solidBoxes 兜底)

@@ -13,4 +13,12 @@ Soldier.glb, RobotExpressive.glb
   来自 three.js r137 官方示例资源 (mrdoob/three.js examples/models/gltf)
   许可: 见 three.js 仓库 (MIT / 资源各自授权)
 
-所有模型均为 CC0 或开放授权,合法可商用。.glb 经 head -c 4 校验为 "glTF" 二进制。
+地图 · Sponza (models/sponza/)
+  作品: "Sponza" 建筑场景(大教堂/宫殿内景),业界标准的可走进式场景
+  原作: Frank Meinl, Crytek; glTF 转换由 Khronos Group 维护
+  来自: KhronosGroup/glTF-Sample-Models (2.0/Sponza/glTF)
+  许可: CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/
+  署名(必须): Sponza model by Frank Meinl, Crytek — CC BY 4.0, via Khronos glTF-Sample-Models.
+  用途: 真实GLB地图引擎(loadGLBMap)的首张真实场景, 射线网格碰撞验证图。
+
+所有模型均为 CC0 或 CC-BY 开放授权,合法可商用(CC-BY 已在上方署名)。.glb 经 head -c 4 校验为 "glTF" 二进制。
